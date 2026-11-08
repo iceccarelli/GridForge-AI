@@ -114,9 +114,9 @@ export default function SiteRegistryDiff({ hall, api, current, refreshKey }: { h
     setError(null);
     api(`/api/halls/${hall.id}/inputs?history=1&limit=500`).then((r) => {
       if (!on) return;
-      if (!r.body?.ok || !Array.isArray(r.body.inputs)) { setError((r.body?.error ?? "Could not load the history.") + " Nothing is compared."); return; }
+      if (!r.body?.ok || !Array.isArray(r.body.inputs)) { setHistory(null); setError((r.body?.error ?? "Could not load the history.") + " Nothing is compared."); return; }
       setHistory(r.body.inputs as RegistryInput[]); setTruncated(Boolean(r.body.truncated));
-    }).catch(() => { if (on) setError("Could not reach the server. Nothing is compared."); });
+    }).catch(() => { if (on) { setHistory(null); setError("Could not reach the server. Nothing is compared."); } });
     return () => { on = false; };
   }, [open, hall.id, api, refreshKey]);
 

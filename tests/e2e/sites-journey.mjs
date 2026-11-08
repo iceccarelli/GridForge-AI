@@ -242,6 +242,8 @@ try {
     await importAlert.filter({ hasText: "Unknown column" }).waitFor({ timeout: 5000 });
     check(at("import: an unknown column refuses the whole file by name"), (await page.locator("tbody tr[data-status]").count()) === 0);
     const importCsv = [
+      "# a comment line that is not a row",
+      "# and another",
       "field_path,value,unit,origin,class,as_of,source_kind,source_id",
       "GRID.firm_capacity_MVA,44,MVA,assumed,E1,2026-10-01,,",
       "grid.contracted_mw,30,MW,assumed,E1,2026-10-01,,",
@@ -261,9 +263,27 @@ try {
     const previewTitle = page.locator("#import-preview-title");
     await previewTitle.waitFor({ timeout: 15000 });
     check(at("import: the preview heading takes focus and says nothing has been written"), (await previewTitle.evaluate((el) => el === document.activeElement)) && /nothing has been written yet/.test(await previewTitle.innerText()));
+    // axe WHILE THE PREVIEW IS OPEN, and the table's scrolling region is keyboard-operable
+    const axeFile = path.join(ROOT, "node_modules", "axe-core", "axe.min.js");
+    const runAxe = async () => {
+      if (!(await page.evaluate(() => Boolean(window.axe)))) await page.addScriptTag({ content: fs.readFileSync(axeFile, "utf8") });
+      return page.evaluate(async () => (await window.axe.run(document, { runOnly: { type: "tag", values: ["wcag2a", "wcag2aa", "wcag21aa"] } })).violations.map((v) => `${v.id} (${v.nodes.length}): ${v.nodes[0].target.join(" ")}`));
+    };
+    const axeOpen = await runAxe();
+    check(at("axe: no WCAG 2 A/AA violation WHILE the import preview is open"), axeOpen.length === 0, axeOpen.join(" | ").slice(0, 600));
+    const region = page.locator("[role=region][aria-labelledby=import-preview-title]");
+    check(at("import: the preview table's scroll region is a named, focusable region"), (await region.getAttribute("tabindex")) === "0" && (await region.count()) === 1);
+    if (width < 600) {
+      check(at("import: at phone width the table scrolls sideways inside its region, not the page"), (await region.evaluate((el) => el.scrollWidth > el.clientWidth)));
+      await region.focus();
+      await page.keyboard.press("ArrowRight");
+      await page.waitForTimeout(600);                                                                // keyboard scrolling is animated
+      check(at("import: the region scrolls by keyboard"), (await region.evaluate((el) => el.scrollLeft)) > 0);
+    }
     const statuses = await page.locator("section[aria-labelledby=import-title] tbody tr[data-status]").evaluateAll((trs) => trs.map((t) => t.getAttribute("data-status")));
     check(at("import: every row has a status: replaces, new, three rejected"), JSON.stringify(statuses) === JSON.stringify(["supersede", "new", "rejected", "rejected", "rejected", "rejected"]), JSON.stringify(statuses));
     const previewText = await page.locator("section[aria-labelledby=import-title]").innerText();
+    check(at("import: the summary says how many comment lines were skipped"), /2 comment lines \(starting with #\) skipped/.test(previewText.replace(/\s+/g, " ")));
     check(at("import: the summary counts add up"), /6 rows: 1 new, 1 replacing a current figure, 0 unchanged, 4 rejected/.test(previewText.replace(/\s+/g, " ")), previewText.replace(/\s+/g, " ").slice(0, 400));
     check(at("import: the class cap, the unknown path, the hostile path and the missing source are rejected with their reason BEFORE anything is sent"),
       /cannot claim a class above E3; E5 is refused/.test(previewText) && /not a field this registry knows/.test(previewText) && /not a dotted path/.test(previewText) && /measured figure needs a source file/.test(previewText));
@@ -323,6 +343,74 @@ try {
     const steps = await page.locator("#diff-body ol > li").allInnerTexts();
     check(at("diff: one field's steps are first recorded, then each correction, each with what it rests on"), steps.length === 3 && /First recorded/.test(steps[0]) && /Correction/.test(steps[1]) && steps.every((x) => /Rests on:/.test(x)), steps.join(" || ").replace(/\s+/g, " ").slice(0, 500));
     await page.getByLabel("Two points in time").check();
+
+    // ---- D1/D2/D6/D7: a second hall, a slowed run (navigation paused, focus on Stop, throttled announcements), a provenance-raising replacement, then an answer lost after the commit
+    await page.getByLabel("New hall label").fill("Hall A2");
+    await page.getByRole("button", { name: "Add hall" }).click();
+    await page.getByRole("button", { name: "Hall A2" }).waitFor({ timeout: 15000 });
+    const f2 = [
+      "field_path,value,unit,origin,class,as_of,source_kind,source_id",
+      "grid.firm_capacity_mva,45,MVA,assumed,E3,2026-10-05,,",
+      "grid.contracted_mw,31,MW,assumed,E1,2026-10-05,,",
+      "grid.current_site_peak_mw,10,MW,assumed,E1,2026-10-05,,",
+      "hall.net_white_space_m2,500,m2,assumed,E1,2026-10-05,,",
+      "hall.floor_loading_kpa,12,kPa,assumed,E1,2026-10-05,,",
+      "hall.design_density_kw_per_rack,40,kW/rack,assumed,E1,2026-10-05,,",
+      "hall.rack_positions,100,,assumed,E1,2026-10-05,,",
+      "thermal.plant.chilled_water_capacity_kw,900,kW,assumed,E1,2026-10-05,,",
+    ].join("\n");
+    await page.locator("#import-file").setInputFiles({ name: "second.csv", mimeType: "text/csv", buffer: Buffer.from(f2) });
+    await previewTitle.waitFor({ timeout: 15000 });
+    const p2 = (await page.locator("section[aria-labelledby=import-title]").innerText()).replace(/\s+/g, " ");
+    check(at("provenance: a replacement that raises the declared class is called out in its row"), /Raises the declared class E1 → E3\./.test(p2) && /8 rows: 6 new, 2 replacing a current figure/.test(p2), p2.slice(0, 500));
+    await page.locator("#import-confirm-replace").check();
+    check(at("provenance: acknowledging the replacements alone does not enable the confirm"), await page.locator("#import-confirm").isDisabled());
+    check(at("provenance: the second acknowledgement names what it covers"), /1 row raise the declared class, change the origin or withdraw a figure/.test(await page.locator("label[for=import-confirm-flagged]").innerText()));
+    await page.locator("#import-confirm-flagged").focus();
+    await page.keyboard.press("Space");
+    check(at("provenance: both acknowledgements enable the confirm"), await page.locator("#import-confirm").isEnabled());
+    // slow every write so the run is observable
+    let mode = "slow", posts = 0;
+    await page.route("**/api/halls/*/inputs", async (route) => {
+      if (route.request().method() !== "POST") return route.continue();
+      posts++;
+      if (mode === "slow") { await new Promise((r) => setTimeout(r, 500)); return route.continue(); }
+      if (mode === "lose2" && posts === 2) {
+        await route.fetch();                                                                         // the database commits...
+        return route.fulfill({ status: 503, contentType: "application/json", body: JSON.stringify({ ok: false, error: "The site registry is unavailable just now. Nothing was changed." }) });   // ...and the answer is a lie
+      }
+      return route.continue();
+    });
+    await page.locator("#import-confirm").focus();
+    await page.keyboard.press("Enter");
+    await page.waitForFunction(() => document.activeElement && document.activeElement.id === "import-stop", null, { timeout: 5000 }).catch(() => {});
+    check(at("run: starting by keyboard moves focus to the Stop button"), (await page.evaluate(() => document.activeElement?.id)) === "import-stop");
+    await page.locator("#nav-locked").waitFor({ timeout: 3000 }).catch(() => {});
+    const navState = { disabled: await page.getByRole("button", { name: "Hall A2" }).isDisabled(), notice: await page.locator("#nav-locked").isVisible(), running: await page.locator("#import-stop").count() };
+    check(at("navigation: while rows are written the other hall is disabled and the reason is shown"), navState.disabled && navState.notice, JSON.stringify(navState));
+    await page.waitForTimeout(1600);
+    const live = await page.locator("#import-announce").innerText();
+    check(at("announcements: the live region is not told about every row"), /Writing 8 figures, one at a time/.test(live) && !/Written \d/.test(live), live);
+    await page.locator("#import-report-title").waitFor({ timeout: 30000 });
+    check(at("navigation: once the run ends the other hall is available again and the notice is gone"), (await page.getByRole("button", { name: "Hall A2" }).isEnabled()) && (await page.locator("#nav-locked").count()) === 0);
+    check(at("run: the second import finished and the figures table shows its rows"), /Import finished/.test(await page.locator("#import-report-title").innerText()) && (await page.locator("tbody tr", { hasText: "45 MVA" }).count()) === 1 && (await page.locator("tbody tr", { hasText: "900 kW" }).count()) === 1);
+    const st = await serverInputs();
+    check(at("provenance: the raised class was recorded as declared, and the earlier figure is in the history"), st.inputs.find((i) => i.fieldPath === "grid.firm_capacity_mva")?.evidenceClass === "E3" && st.inputs.length === 8, JSON.stringify(st.inputs.map((i) => [i.fieldPath, i.evidenceClass])));
+
+    // ---- D1: the answer to the second write is lost AFTER the database committed it
+    mode = "lose2"; posts = 0;
+    const f3 = ["field_path,value,unit,origin,class,as_of,source_kind,source_id", "grid.contracted_mw,32,MW,assumed,E1,2026-10-06,,", "hall.rack_positions,121,,assumed,E1,2026-10-06,,", "hall.floor_loading_kpa,13,kPa,assumed,E1,2026-10-06,,"].join("\n");
+    await page.locator("#import-file").setInputFiles({ name: "third.csv", mimeType: "text/csv", buffer: Buffer.from(f3) });
+    await previewTitle.waitFor({ timeout: 15000 });
+    await page.locator("#import-confirm-replace").check();
+    await page.locator("#import-confirm").click();
+    await page.locator("#import-report-title").waitFor({ timeout: 30000 });
+    const lost = (await page.locator("section[aria-labelledby=import-title]").innerText()).replace(/\s+/g, " ");
+    check(at("unknown result: the report says the result is UNKNOWN and never 'Nothing was changed' or 'NOT written' for that row"), /Import stopped: not everything was written/.test(lost) && /Row 2 \(hall\.rack_positions\): The result of this row is unknown/.test(lost) && !/Nothing was changed/.test(lost) && !/Row 2 \(hall\.rack_positions\) was NOT written/.test(lost), lost.slice(0, 600));
+    check(at("unknown result: the hall was read again and says row 2 IS in the hall and row 3 is not"), /Rows 2 ARE in the hall/.test(lost) && /Rows 3 are not in the hall/.test(lost), lost.slice(0, 600));
+    await page.locator("tbody tr", { hasText: "121" }).first().waitFor({ timeout: 10000 });
+    check(at("unknown result: the figures table was replaced by what the hall holds (the committed row is shown, the untried one is not)"), (await page.locator("tbody tr", { hasText: "32 MW" }).count()) === 1 && (await page.locator("tbody tr", { hasText: "121" }).count()) >= 1 && (await page.locator("tbody tr", { hasText: "13 kPa" }).count()) === 0);
+    await page.unroute("**/api/halls/*/inputs");
 
     // ---- accessibility with every new panel open: axe, the keyboard path to the file input, and no sideways scroll
     const toFile = await tabTo(page, "import-file", 400);

@@ -67,10 +67,10 @@ describe("csvCell: spreadsheet-safe, correctly quoted", () => {
 describe("parseCsv", () => {
   it("handles quotes, doubled quotes, CRLF, LF and CR, a BOM, comment lines and blank lines", () => {
     const p = parseCsv('﻿# a comment, with a comma\r\nh1,h2\r\n\r\n"a,""b""",c\n# another\nx,y\rz,w');
-    expect(p).toEqual({ ok: true, tooMany: false, rows: [["h1", "h2"], ['a,"b"', "c"], ["x", "y"], ["z", "w"]] });
+    expect(p).toEqual({ ok: true, tooMany: false, comments: 2, rows: [["h1", "h2"], ['a,"b"', "c"], ["x", "y"], ["z", "w"]] });
   });
   it("a comment written as one quoted cell (it had a comma) is still a comment", () => {
-    expect(parseCsv('"# note, with comma"\nh\nv')).toEqual({ ok: true, tooMany: false, rows: [["h"], ["v"]] });
+    expect(parseCsv('"# note, with comma"\nh\nv')).toEqual({ ok: true, tooMany: false, comments: 1, rows: [["h"], ["v"]] });
   });
   it("an unterminated quote, a quote in the middle of a cell and text after a closing quote are refused with a line number", () => {
     expect(parseCsv('a,"b\nc')).toMatchObject({ ok: false, error: expect.stringMatching(/never closed/) });
@@ -83,8 +83,14 @@ describe("parseCsv", () => {
     expect(p).toMatchObject({ ok: true, tooMany: true });
     if (p.ok) expect(p.rows).toHaveLength(10);
   });
+  it("counts every comment line it skips, quoted or not, so the caller can say so", () => {
+    expect(parseCsv("# one\n#two\nh\n# three\nv\n# four, quoted\n")).toMatchObject({ comments: 4, rows: [["h"], ["v"]] });
+    const p = parseCsv('"# five, quoted"\n#six\nh');
+    expect(p).toMatchObject({ ok: true, comments: 2 });
+    expect(parseCsv("h\nv")).toMatchObject({ comments: 0 });
+  });
   it("an empty quoted cell on its own line is a record, an empty line is not", () => {
-    expect(parseCsv('a\n""\nb')).toEqual({ ok: true, tooMany: false, rows: [["a"], [""], ["b"]] });
+    expect(parseCsv('a\n""\nb')).toEqual({ ok: true, tooMany: false, comments: 0, rows: [["a"], [""], ["b"]] });
   });
 });
 

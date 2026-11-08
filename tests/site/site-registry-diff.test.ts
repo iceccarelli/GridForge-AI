@@ -194,6 +194,37 @@ describe("a change is never shown without the evidence class it rests on", () =>
   });
 });
 
+describe("each respect in which two claims differ is reported on its own", () => {
+  const b = (over: Partial<RegistryInput>): RegistryInput => ({ ...A1, id: "z", supersedesId: "a1", ...over });
+  it("the as-of date alone", () => {
+    expect(aspectsBetween(A1, b({ asOf: "2026-02-02" }))).toEqual([{ what: "as of", from: "2026-01-01", to: "2026-02-02" }]);
+  });
+  it("the value alone (with its difference), the unit alone, the origin alone, the class alone, the file alone, the file's status alone", () => {
+    expect(aspectsBetween(A1, b({ value: 41 }))).toEqual([{ what: "value", from: "40 MVA", to: "41 MVA", note: "+1 MVA (+2.5%)" }]);
+    expect(aspectsBetween(A1, b({ unit: "kVA" }))).toMatchObject([{ what: "value" }]);                   // the figure reads differently, so it is a value change
+    expect(aspectsBetween({ ...A1, value: "busway", unit: null }, b({ value: "busway", unit: "m" })).map((a) => a.what)).toEqual(["value"]);
+    expect(aspectsBetween(A1, b({ origin: "modelled" })).map((a) => a.what)).toEqual(["declared origin"]);
+    expect(aspectsBetween(A1, b({ evidenceClass: "E3" }))).toEqual([{ what: "declared class", from: "E0", to: "E3", direction: "raised" }]);
+    const f1 = { ...A1, source: verified }, f2 = { ...A1, id: "z", source: { ...verified, id: "e2", filename: "other.pdf" } };
+    expect(aspectsBetween(f1, f2)).toEqual([{ what: "source file", from: "meter.pdf", to: "other.pdf" }]);
+    const s2 = { ...f1, id: "z", source: { ...verified, reviewStatus: "rejected" } };
+    expect(aspectsBetween(f1, s2)).toEqual([{ what: "file review status", from: "reviewed and verified", to: "rejected" }]);
+  });
+  it("a unit that differs while the figure reads the same (a figure recorded as missing, which may name a unit) is reported as a unit change", () => {
+    const m = (unit: string | null): RegistryInput => ({ ...A1, id: unit ?? "none", origin: "missing", value: null, unit, evidenceClass: "E0" });
+    expect(aspectsBetween(m("MW"), m(null))).toEqual([{ what: "unit", from: "MW", to: "none" }]);
+  });
+  it("identical content reports nothing", () => {
+    expect(aspectsBetween(A1, b({}))).toEqual([]);
+  });
+  it("a changed as-of date alone makes a field 'changed' between two points, not 'unchanged'", () => {
+    const x1 = claim({ id: "x1", day: "2026-01-10", fieldPath: "hall.rack_positions", value: 200, unit: null, asOf: "2026-01-01" });
+    const x2 = claim({ id: "x2", day: "2026-02-10", fieldPath: "hall.rack_positions", value: 200, unit: null, asOf: "2026-02-01", supersedesId: "x1" });
+    const r = diffPoints(buildChains([x1, x2]), pointsOf([x1, x2]).find((p) => p.id === "2026-01-10")!, NOW_POINT);
+    expect(r.ok && r.diff.rows[0]).toMatchObject({ kind: "changed", aspects: [{ what: "as of" }] });
+  });
+});
+
 describe("one field's successive values", () => {
   it("lists each claim against the one it replaced, oldest first, with what changed and what it rests on", () => {
     const mid = claim({ id: "a15", day: "2026-01-20", value: 41, evidenceClass: "E1", supersedesId: "a1" });

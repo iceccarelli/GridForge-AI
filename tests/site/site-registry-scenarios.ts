@@ -722,7 +722,10 @@ export function defineRegistryScenarios(backend: Backend): void {
       return buildPreview(parsed.rows, { current: cur.body.inputs as RegistryInput[], today: today() });
     }
     const runPreview = (as: string, hall: string, preview: Preview, gapMs = 0): Promise<ImportReport> =>
-      runImport(writeOrder(preview), { post: (body) => apiAs(as)(`/api/halls/${hall}/inputs`, { method: "POST", body }), sleep: async () => {}, gapMs });
+      runImport(writeOrder(preview), {
+        post: (body) => apiAs(as)(`/api/halls/${hall}/inputs`, { method: "POST", body }), sleep: async () => {}, gapMs,
+        verify: async () => { const r = await apiAs(as)(`/api/halls/${hall}/inputs`); return r.body?.ok ? (r.body.inputs as RegistryInput[]) : null; },
+      });
 
     it("EXPORT: a viewer exports the hall's figures and timeline; every field is there, nothing secret is, the timeline is whole and oldest first", async () => {
       const t = await team();
@@ -896,6 +899,34 @@ export function defineRegistryScenarios(backend: Backend): void {
       expect(report.notAttempted.map((x) => x.n)).toEqual([3]);
       const cur = (await apiAs(t.editor)(`/api/halls/${t.hall}/inputs`)).body.inputs as RegistryInput[];
       expect(cur.find((i) => i.fieldPath === "grid.firm_capacity_mva")?.value).toBe(41);                       // the colleague's correction stands
+      // the hall was read again after the stop: the page can replace its table with this, and says which rows are (not) in the hall
+      expect(report.afterStop).toMatchObject({ read: true, landed: [], absent: [2, 3] });
+      expect(report.afterStop!.current!.find((i) => i.fieldPath === "grid.firm_capacity_mva")?.value).toBe(41);
+    });
+
+    it("IMPORT: an answer lost AFTER the database committed is reported as unknown, never 'not written', and the re-read says the row IS in the hall", async () => {
+      const t = await team();
+      const text = csv([
+        "grid.contracted_mw,30,MW,assumed,E1,2026-10-01,,", "hall.rack_positions,100,,assumed,E1,2026-10-01,,", "hall.floor_loading_kpa,12,kPa,assumed,E1,2026-10-01,,",
+      ]);
+      const preview = await previewFor(t.editor, t.hall, text);
+      const real = apiAs(t.editor);
+      const report = await runImport(writeOrder(preview), {
+        // row 2 reaches the database and is committed; its answer is a 503 whose own words are "Nothing was changed."
+        post: async (body) => {
+          const r = await real(`/api/halls/${t.hall}/inputs`, { method: "POST", body });
+          return body.fieldPath === "hall.rack_positions" ? { status: 503, body: { ok: false, error: "The site registry is unavailable just now. Nothing was changed." } } : r;
+        },
+        sleep: async () => {},
+        verify: async () => (await real(`/api/halls/${t.hall}/inputs`)).body.inputs as RegistryInput[],
+      });
+      expect(report.outcome).toBe("stopped");
+      expect(report.written.map((w) => w.n)).toEqual([1]);
+      expect(report.failed).toMatchObject({ n: 2, status: 503, outcomeUnknown: true });
+      expect(report.failed!.message).not.toMatch(/Nothing was changed|not written/i);
+      expect(report.afterStop).toMatchObject({ read: true, landed: [2], absent: [3] });
+      const now = (await real(`/api/halls/${t.hall}/inputs`)).body.inputs as RegistryInput[];
+      expect(now.map((i) => i.fieldPath).sort()).toEqual(["grid.contracted_mw", "hall.rack_positions"]);
     });
 
     it("IMPORT: when the account's write allowance runs out the run stops (a long Retry-After is not waited out) and says exactly where", async () => {

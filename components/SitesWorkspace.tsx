@@ -51,6 +51,8 @@ export default function SitesWorkspace() {
   const [orgs, setOrgs] = useState<Org[]>([]);
   const [sites, setSites] = useState<Site[]>([]);
   const [hallId, setHallId] = useState<string | null>(null);
+  /** An import is writing rows into the open hall: other halls, and leaving an organisation, are paused until it ends, so a run is never silently abandoned. */
+  const [locked, setLocked] = useState(false);
 
   // Two requests load the page: the organisations, and the sites WITH their halls. After a write the page updates from the write's own answer.
   const load = useCallback(async () => {
@@ -122,13 +124,19 @@ export default function SitesWorkspace() {
         </p>
       </section>
 
+      {locked && (
+        <p role="status" id="nav-locked" className="rounded-lg border border-queue/40 bg-queue/10 px-4 py-3 text-[13px] mb-6">
+          An import is writing figures into this hall. Choosing another hall and leaving an organisation are paused until it finishes or you stop it, so it is not abandoned half-way.
+        </p>
+      )}
+
       <NewOrg onCreated={addedOrg} />
 
       {orgs.length === 0 && <p className="text-mute text-[13px] mb-8">You are not in an organisation yet. Create one above; you become its owner and can add the people you work with.</p>}
 
       {orgs.map((o) => (
         <section key={o.id} aria-labelledby={`org-${o.id}`} className="mb-10">
-          {o.addedBy && o.addedBy !== email?.toLowerCase() && <AddedNotice org={o} onLeave={leave} />}
+          {o.addedBy && o.addedBy !== email?.toLowerCase() && <AddedNotice org={o} onLeave={leave} locked={locked} />}
           <h2 id={`org-${o.id}`} className="text-xl font-semibold tracking-tight">{o.name} <span className="data text-[10px] uppercase text-faint align-middle">your role: {o.role}</span></h2>
           <ul className="mt-4 space-y-4">
             {sites.filter((s) => s.orgId === o.id).map((s) => (
@@ -138,7 +146,7 @@ export default function SitesWorkspace() {
                 <ul className="flex flex-wrap gap-2 mt-3" aria-label={`Halls at ${s.name}`}>
                   {(s.halls ?? []).map((h) => (
                     <li key={h.id}>
-                      <button type="button" onClick={() => setHallId(h.id)} aria-pressed={hallId === h.id}
+                      <button type="button" onClick={() => setHallId(h.id)} aria-pressed={hallId === h.id} disabled={locked && hallId !== h.id}
                         className={`rounded-lg border px-3 py-1.5 text-[13px] ${hallId === h.id ? "border-power text-power" : "border-line text-mute hover:text-white"}`}>{h.label}</button>
                     </li>
                   ))}
@@ -154,7 +162,7 @@ export default function SitesWorkspace() {
       ))}
 
       {selectedHall && selectedSite && (
-        <HallPanel key={selectedHall.id} hall={selectedHall} site={selectedSite} canWrite={canWrite(selectedSite.orgId)} isOwner={roleIn(selectedSite.orgId) === "owner"} />
+        <HallPanel key={selectedHall.id} hall={selectedHall} site={selectedSite} canWrite={canWrite(selectedSite.orgId)} isOwner={roleIn(selectedSite.orgId) === "owner"} onImportRunning={setLocked} />
       )}
     </>
   );
@@ -163,7 +171,7 @@ export default function SitesWorkspace() {
 // ------------------------------------------------------------------------------------------------- forms
 
 /** Tells a person they were ADDED to an organisation (there is no acceptance step) and lets them leave. */
-export function AddedNotice({ org, onLeave }: { org: Org; onLeave: (o: Org) => Promise<string | null> }) {
+export function AddedNotice({ org, onLeave, locked = false }: { org: Org; onLeave: (o: Org) => Promise<string | null>; locked?: boolean }) {
   const f = useForm();
   async function go() {
     f.setBusy(true); f.setMsg(null);
@@ -177,7 +185,7 @@ export function AddedNotice({ org, onLeave }: { org: Org; onLeave: (o: Org) => P
         Added by <span className="text-white">{org.addedBy}</span> to <span className="text-white">{org.name}</span>{org.addedAt ? ` on ${org.addedAt.slice(0, 10)}` : ""} as {org.role}.
         You did not have to accept; you can see what they record here, and you can leave at any time.
       </p>
-      <button type="button" onClick={go} disabled={f.busy} className="mt-2 rounded-lg border border-line px-3 py-1.5 text-[13px] text-mute hover:text-white disabled:opacity-40">Leave {org.name}</button>
+      <button type="button" onClick={go} disabled={f.busy || locked} className="mt-2 rounded-lg border border-line px-3 py-1.5 text-[13px] text-mute hover:text-white disabled:opacity-40">Leave {org.name}</button>
       <Alert msg={f.msg} forwardRef={f.alertRef} />
     </div>
   );
@@ -265,7 +273,7 @@ export function NewHall({ site, onCreated }: { site: Site; onCreated: (h: Hall) 
 
 const PAGE = 30;
 
-function HallPanel({ hall, site, canWrite, isOwner }: { hall: Hall; site: Site; canWrite: boolean; isOwner: boolean }) {
+function HallPanel({ hall, site, canWrite, isOwner, onImportRunning }: { hall: Hall; site: Site; canWrite: boolean; isOwner: boolean; onImportRunning: (running: boolean) => void }) {
   const [inputs, setInputs] = useState<Input[] | null>(null);
   const [events, setEvents] = useState<Event[] | null>(null);
   const [nextCursor, setNextCursor] = useState<string | null>(null);
@@ -299,6 +307,13 @@ function HallPanel({ hall, site, canWrite, isOwner }: { hall: Hall; site: Site; 
   /** The write's own answer updates the table; only the timeline's first page is fetched again. */
   function recorded(input: Input) {
     setInputs((prev) => [...(prev ?? []).filter((x) => x.fieldPath !== input.fieldPath), input].sort((a, b) => a.fieldPath.localeCompare(b.fieldPath)));
+    setChanges((n) => n + 1);
+    void loadTimeline();
+  }
+
+  /** After an import STOPPED: the hall's figures as read again replace the table, so it shows what the hall really holds. */
+  function synced(current: Input[]) {
+    setInputs([...current].sort((a, b) => a.fieldPath.localeCompare(b.fieldPath)));
     setChanges((n) => n + 1);
     void loadTimeline();
   }
@@ -342,7 +357,7 @@ function HallPanel({ hall, site, canWrite, isOwner }: { hall: Hall; site: Site; 
       {inputs && <SiteRegistryDiff hall={hall} api={api} current={inputs} refreshKey={changes} />}
       {inputs && <SiteRegistryExport hall={hall} api={api} />}
       {inputs && canWrite && <RecordInput hall={hall} current={inputs} onRecorded={recorded} />}
-      {inputs && canWrite && <SiteRegistryImport hall={hall} api={api} onWritten={imported} />}
+      {inputs && canWrite && <SiteRegistryImport hall={hall} api={api} onWritten={imported} onSynced={synced} onRunning={onImportRunning} />}
       {canWrite && <AttachProject hall={hall} onDone={loadTimeline} />}
       {events && (
         <Timeline events={events} more={nextCursor !== null} onOlder={loadOlder} older={older} onDetach={isOwner ? detach : undefined} />

@@ -21,11 +21,21 @@ const STATUS_TEXT: Record<RowPlan["status"], string> = {
   rejected: "Rejected: not written",
 };
 
-export default function SiteRegistryImport({ hall, api, onWritten }: { hall: { id: string; label: string }; api: RegistryApi; onWritten: (written: RegistryInput[]) => void }) {
+export default function SiteRegistryImport({ hall, api, onWritten, onSynced, onRunning }: {
+  hall: { id: string; label: string }; api: RegistryApi;
+  /** The figures a finished run wrote (the table is updated from the writes' own answers). */
+  onWritten: (written: RegistryInput[]) => void;
+  /** After a STOP: the hall's figures as they were read again, to replace the table wholesale (so it is not stale). */
+  onSynced?: (current: RegistryInput[]) => void;
+  /** true while rows are being written: the page pauses hall, site and organisation navigation, so the run is never abandoned. */
+  onRunning?: (running: boolean) => void;
+}) {
   const f = useForm();
   const [fileName, setFileName] = useState<string | null>(null);
   const [preview, setPreview] = useState<Preview | null>(null);
   const [okReplace, setOkReplace] = useState(false);
+  const [okFlagged, setOkFlagged] = useState(false);
+  const [announce, setAnnounce] = useState("");
   const [running, setRunning] = useState(false);
   const [progress, setProgress] = useState<{ done: number; total: number; current: number | null } | null>(null);
   const [waitUntil, setWaitUntil] = useState<number | null>(null);
@@ -36,11 +46,16 @@ export default function SiteRegistryImport({ hall, api, onWritten }: { hall: { i
   const previewHead = useRef<HTMLHeadingElement>(null);
   const reportHead = useRef<HTMLHeadingElement>(null);
   const fileInput = useRef<HTMLInputElement>(null);
+  const stopButton = useRef<HTMLButtonElement>(null);
+  const lastAnnounced = useRef(0);
 
   useEffect(() => () => { mounted.current = false; cancelled.current = true; }, []);
   // A new preview, and then the report, take focus once they are on the page, so a keyboard user lands on what to read next.
   useEffect(() => { if (preview) previewHead.current?.focus(); }, [preview]);
   useEffect(() => { if (report) reportHead.current?.focus(); }, [report]);
+  // A run started from the keyboard: the button that was pressed is now disabled, so focus goes to the one control that matters while it runs.
+  useEffect(() => { if (running) stopButton.current?.focus(); }, [running]);
+  useEffect(() => { onRunning?.(running); return () => onRunning?.(false); }, [running, onRunning]);
   useEffect(() => {
     if (waitUntil === null) return;
     const t = setInterval(() => setNow(Date.now()), 500);
@@ -54,7 +69,7 @@ export default function SiteRegistryImport({ hall, api, onWritten }: { hall: { i
     return () => window.removeEventListener("beforeunload", guard);
   }, [running]);
 
-  const reset = () => { setPreview(null); setOkReplace(false); setReport(null); setProgress(null); setWaitUntil(null); f.setMsg(null); };
+  const reset = () => { setPreview(null); setOkReplace(false); setOkFlagged(false); setAnnounce(""); setReport(null); setProgress(null); setWaitUntil(null); f.setMsg(null); };
 
   async function onFile(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0];
@@ -71,7 +86,7 @@ export default function SiteRegistryImport({ hall, api, onWritten }: { hall: { i
       const cur = await api(`/api/halls/${hall.id}/inputs`);
       if (!cur.body?.ok || !Array.isArray(cur.body.inputs)) { f.fail((cur.body?.error ?? "Could not read the hall's current figures.") + " Nothing was previewed or written."); return; }
       if (!mounted.current) return;
-      setPreview(buildPreview(parsed.rows, { current: cur.body.inputs as RegistryInput[], today: new Date().toISOString().slice(0, 10) }));
+      setPreview(buildPreview(parsed.rows, { current: cur.body.inputs as RegistryInput[], today: new Date().toISOString().slice(0, 10) }, parsed.commentLines));
     } catch {
       f.fail("Could not read the file or reach the server. Nothing was written.");
     } finally {
@@ -83,7 +98,10 @@ export default function SiteRegistryImport({ hall, api, onWritten }: { hall: { i
     if (!preview) return;
     const rows = writeOrder(preview);
     cancelled.current = false;
+    lastAnnounced.current = 0;
+    onRunning?.(true);                                   // the lock is taken in the same step as the click, not a render later
     setRunning(true); setReport(null); f.setMsg(null); setProgress({ done: 0, total: rows.length, current: null });
+    setAnnounce(`Writing ${rows.length} figure${rows.length === 1 ? "" : "s"}, one at a time. The Stop button pauses after the current row.`);
     const result = await runImport(rows, {
       post: async (body) => {
         const r = await api(`/api/halls/${hall.id}/inputs`, { method: "POST", body });
@@ -91,23 +109,31 @@ export default function SiteRegistryImport({ hall, api, onWritten }: { hall: { i
       },
       sleep: (ms) => new Promise((res) => setTimeout(res, ms)),
       isCancelled: () => cancelled.current,
+      verify: async () => {
+        const r = await api(`/api/halls/${hall.id}/inputs`);
+        return r.body?.ok && Array.isArray(r.body.inputs) ? (r.body.inputs as RegistryInput[]) : null;
+      },
       gapMs: 150,
       onProgress: (p) => {
         if (!mounted.current) return;
         setProgress({ done: p.done, total: p.total, current: p.current });
+        // The live region is told only every 10 rows and when a wait begins (the report announces the end): not once per row.
+        if (p.waitingSeconds !== null) setAnnounce(`Waiting for the registry's allowance before row ${p.current} is tried again.`);
+        else if (p.done > 0 && p.done % 10 === 0 && p.done !== lastAnnounced.current) { lastAnnounced.current = p.done; setAnnounce(`Written ${p.done} of ${p.total}.`); }
         setWaitUntil(p.waitingSeconds === null ? null : Date.now() + p.waitingSeconds * 1000);
         setNow(Date.now());
       },
     });
     if (!mounted.current) return;
-    setRunning(false); setWaitUntil(null); setReport(result); setPreview(null); setOkReplace(false);
+    setRunning(false); setWaitUntil(null); setReport(result); setPreview(null); setOkReplace(false); setOkFlagged(false); setAnnounce("");
     const inputs = result.written.map((w) => w.input).filter((x): x is RegistryInput => x !== null);
-    if (inputs.length) onWritten(inputs);
+    if (result.afterStop?.current) onSynced?.(result.afterStop.current);
+    else if (inputs.length) onWritten(inputs);
     if (fileInput.current) fileInput.current.value = "";
   }
 
   const c = preview?.counts;
-  const canConfirm = Boolean(preview && c && c.writes > 0 && (c.supersede === 0 || okReplace) && !running);
+  const canConfirm = Boolean(preview && c && c.writes > 0 && (c.supersede === 0 || okReplace) && (c.flagged === 0 || okFlagged) && !running);
   const waiting = waitUntil !== null ? Math.max(0, Math.ceil((waitUntil - now) / 1000)) : null;
 
   return (
@@ -138,46 +164,25 @@ export default function SiteRegistryImport({ hall, api, onWritten }: { hall: { i
           <p className="text-[13px] text-mute mt-1" id="import-preview-summary">
             {c.total} row{c.total === 1 ? "" : "s"}: {c.new} new, {c.supersede} replacing a current figure, {c.unchanged} unchanged, <strong className={c.rejected ? "text-red-400" : "text-white"}>{c.rejected} rejected</strong>.
             {" "}{c.writes} would be written, one at a time.
+            {preview.commentLines > 0 && ` ${preview.commentLines} comment line${preview.commentLines === 1 ? "" : "s"} (starting with #) skipped.`}
             {c.needDatabaseCheck > 0 && ` ${c.needDatabaseCheck} cite${c.needDatabaseCheck === 1 ? "s" : ""} a project file whose review status this page cannot see; the database decides, and they are written first.`}
           </p>
           {c.writes > WRITES_PER_HOUR && (
             <p className="text-[13px] text-queue mt-1">The registry allows {WRITES_PER_HOUR} writes an hour for your account and this import has {c.writes}. It will wait out short pauses and otherwise stop and say when to continue.</p>
           )}
-          <div className="mt-3 overflow-x-auto">
-            <table className="w-full min-w-[52rem] text-left border-collapse">
-              <caption className="text-left text-mute text-[12px] mb-2">Every row of the file and what will happen to it. Origin and class are as declared in the file.</caption>
-              <thead>
-                <tr className="border-b border-line text-faint data text-[10px] uppercase">
-                  {["Row", "Field", "What will happen", "Value", "Origin", "Class", "Source file", "Why / notes"].map((h) => <th key={h} scope="col" className="px-3 py-2 font-normal">{h}</th>)}
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-line/60">
-                {preview.rows.map((r) => (
-                  <tr key={r.n} data-status={r.status}>
-                    <th scope="row" className="px-3 py-2 align-top text-[13px] font-normal text-white">{r.n}</th>
-                    <td className="px-3 py-2 align-top text-[13px] break-all">{r.fieldPath || "(empty)"}</td>
-                    <td className={`px-3 py-2 align-top text-[13px] ${r.status === "rejected" ? "text-red-400" : r.status === "supersede" ? "text-queue" : "text-white"}`}>{STATUS_TEXT[r.status]}</td>
-                    <td className="px-3 py-2 align-top text-[13px] break-all">{r.shown.value || <span className="text-faint">(none)</span>}</td>
-                    <td className="px-3 py-2 align-top text-[13px]">{r.shown.origin || <span className="text-faint">(none)</span>}</td>
-                    <td className="px-3 py-2 align-top text-[13px]">{r.shown.evidenceClass || <span className="text-faint">(none)</span>}</td>
-                    <td className="px-3 py-2 align-top text-[13px] break-all">{r.shown.source || <span className="text-faint">none</span>}</td>
-                    <td className="px-3 py-2 align-top text-[13px]">
-                      {r.reasons.length > 0 && <ul className="list-disc pl-4 text-red-400">{r.reasons.map((x) => <li key={x}>{x}</li>)}</ul>}
-                      {r.replaces && <p className="text-mute">{r.status === "unchanged" ? "Same as the current figure: " : "Replaces: "}{replacesText(r.replaces)}. The earlier figure stays in the history.</p>}
-                      {r.warnings.length > 0 && <ul className="list-disc pl-4 text-queue">{r.warnings.map((x) => <li key={x}>{x}</li>)}</ul>}
-                      {r.status === "new" && r.reasons.length === 0 && r.warnings.length === 0 && <span className="text-faint">First figure for this field.</span>}
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
+          <PreviewTable rows={preview.rows} />
 
           <div className="mt-4">
             {c.supersede > 0 && (
               <label htmlFor="import-confirm-replace" className="flex items-start gap-2 text-[13px] text-mute mb-3">
                 <input id="import-confirm-replace" type="checkbox" checked={okReplace} onChange={(e) => setOkReplace(e.target.checked)} disabled={running} className="mt-1" />
                 <span>I understand that {c.supersede} row{c.supersede === 1 ? "" : "s"} will replace a current figure. The earlier figures stay in the history.</span>
+              </label>
+            )}
+            {c.flagged > 0 && (
+              <label htmlFor="import-confirm-flagged" className="flex items-start gap-2 text-[13px] text-mute mb-3">
+                <input id="import-confirm-flagged" type="checkbox" checked={okFlagged} onChange={(e) => setOkFlagged(e.target.checked)} disabled={running} className="mt-1" />
+                <span>I understand that {c.flagged} row{c.flagged === 1 ? "" : "s"} raise the declared class, change the origin or withdraw a figure. These are declarations in my file; nothing here checks them.</span>
               </label>
             )}
             <div className="flex flex-wrap gap-3 items-center">
@@ -192,21 +197,60 @@ export default function SiteRegistryImport({ hall, api, onWritten }: { hall: { i
 
       {running && (
         <div className="mt-4">
-          <p role="status" className="text-[13px] text-white">
+          <p className="text-[13px] text-white" id="import-progress">
             {waiting !== null && waiting > 0
               ? `Waiting about ${waiting} second${waiting === 1 ? "" : "s"} for the registry's allowance, then row ${progress?.current ?? ""} is tried again.`
               : `Written ${progress?.done ?? 0} of ${progress?.total ?? 0}${progress?.current ? `; writing row ${progress.current}` : ""}.`}
           </p>
-          <button type="button" onClick={() => { cancelled.current = true; }} className={`${quietButton} mt-2`}>Stop after the current row</button>
+          <button type="button" ref={stopButton} id="import-stop" aria-describedby="import-progress" onClick={() => { cancelled.current = true; }} className={`${quietButton} mt-2`}>Stop after the current row</button>
+          <p className="data text-[10px] text-faint mt-1">While rows are being written, the hall, site and organisation controls are paused so this run is not abandoned.</p>
         </div>
       )}
+      {/* Announced to screen readers every 10 rows and when a wait begins, never once per row; the report (which takes focus) announces the end. */}
+      <p role="status" id="import-announce" className="sr-only">{announce}</p>
 
       {report && <ReportView report={report} headRef={reportHead} hallLabel={hall.label} />}
     </section>
   );
 }
 
-function ReportView({ report, headRef, hallLabel }: { report: ImportReport; headRef: React.RefObject<HTMLHeadingElement>; hallLabel: string }) {
+/** Every row of a preview. The wrapper scrolls sideways on a narrow screen, so it is a focusable, named region (a keyboard user can scroll it). */
+export function PreviewTable({ rows }: { rows: RowPlan[] }) {
+  return (
+  <div className="mt-3 overflow-x-auto" role="region" aria-labelledby="import-preview-title" tabIndex={0}>
+    <table className="w-full min-w-[52rem] text-left border-collapse">
+      <caption className="text-left text-mute text-[12px] mb-2">Every row of the file and what will happen to it. Origin and class are as declared in the file.</caption>
+      <thead>
+        <tr className="border-b border-line text-faint data text-[10px] uppercase">
+          {["Row", "Field", "What will happen", "Value", "Origin", "Class", "Source file", "Why / notes"].map((h) => <th key={h} scope="col" className="px-3 py-2 font-normal">{h}</th>)}
+        </tr>
+      </thead>
+      <tbody className="divide-y divide-line/60">
+        {rows.map((r) => (
+          <tr key={r.n} data-status={r.status}>
+            <th scope="row" className="px-3 py-2 align-top text-[13px] font-normal text-white">{r.n}</th>
+            <td className="px-3 py-2 align-top text-[13px] break-all">{r.fieldPath || "(empty)"}</td>
+            <td className={`px-3 py-2 align-top text-[13px] ${r.status === "rejected" ? "text-red-400" : r.status === "supersede" ? "text-queue" : "text-white"}`}>{STATUS_TEXT[r.status]}</td>
+            <td className="px-3 py-2 align-top text-[13px] break-all">{r.shown.value || <span className="text-faint">(none)</span>}</td>
+            <td className="px-3 py-2 align-top text-[13px]">{r.shown.origin || <span className="text-faint">(none)</span>}</td>
+            <td className="px-3 py-2 align-top text-[13px]">{r.shown.evidenceClass || <span className="text-faint">(none)</span>}</td>
+            <td className="px-3 py-2 align-top text-[13px] break-all">{r.shown.source || <span className="text-faint">none</span>}</td>
+            <td className="px-3 py-2 align-top text-[13px]">
+              {r.reasons.length > 0 && <ul className="list-disc pl-4 text-red-400">{r.reasons.map((x) => <li key={x}>{x}</li>)}</ul>}
+              {r.flags.length > 0 && <ul className="list-disc pl-4 text-queue font-semibold" aria-label="Provenance changes">{r.flags.map((x) => <li key={x}>{x}</li>)}</ul>}
+              {r.replaces && <p className="text-mute">{r.status === "unchanged" ? "Same as the current figure: " : "Replaces: "}{replacesText(r.replaces)}. The earlier figure stays in the history.</p>}
+              {r.warnings.length > 0 && <ul className="list-disc pl-4 text-queue">{r.warnings.map((x) => <li key={x}>{x}</li>)}</ul>}
+              {r.status === "new" && r.reasons.length === 0 && r.warnings.length === 0 && <span className="text-faint">First figure for this field.</span>}
+            </td>
+          </tr>
+        ))}
+      </tbody>
+    </table>
+  </div>
+  );
+}
+
+export function ReportView({ report, headRef, hallLabel }: { report: ImportReport; headRef: React.RefObject<HTMLHeadingElement>; hallLabel: string }) {
   const title = report.outcome === "complete" ? "Import finished" : report.outcome === "cancelled" ? "Import stopped at your request" : "Import stopped: not everything was written";
   return (
     <div className="mt-5" role="region" aria-labelledby="import-report-title">
@@ -216,8 +260,17 @@ function ReportView({ report, headRef, hallLabel }: { report: ImportReport; head
         {report.notAttempted.length > 0 ? `, ${report.notAttempted.length} not tried` : ""}{report.failed ? ", 1 failed" : ""}.
       </p>
       {report.failed && (
-        <p role="alert" className="text-[13px] text-red-400 mt-2">
-          Row {report.failed.n} ({report.failed.fieldPath}) was NOT written{report.failed.outcomeUnknown ? " (outcome unknown)" : ""}: {report.failed.message}
+        report.failed.outcomeUnknown ? (
+          <p role="alert" className="text-[13px] text-red-400 mt-2">Row {report.failed.n} ({report.failed.fieldPath}): {report.failed.message}</p>
+        ) : (
+          <p role="alert" className="text-[13px] text-red-400 mt-2">Row {report.failed.n} ({report.failed.fieldPath}) was NOT written: {report.failed.message}</p>
+        )
+      )}
+      {report.afterStop && (
+        <p className="text-[13px] text-mute mt-2" id="import-after-stop">
+          {report.afterStop.read
+            ? `After the stop the hall's figures were read again. ${report.afterStop.landed.length > 0 ? `Rows ${report.afterStop.landed.join(", ")} ARE in the hall (their answer was lost or came too late). ` : ""}${report.afterStop.absent.length > 0 ? `Rows ${report.afterStop.absent.join(", ")} are not in the hall.` : "Every remaining row is in the hall."}`
+            : "The hall's figures could not be read again after the stop. Reload the page and check them before importing again."}
         </p>
       )}
       {report.written.length > 0 && (
@@ -228,7 +281,7 @@ function ReportView({ report, headRef, hallLabel }: { report: ImportReport; head
       )}
       {report.notAttempted.length > 0 && (
         <details className="mt-2 text-[13px]" open>
-          <summary className="cursor-pointer text-mute">Not written ({report.notAttempted.length})</summary>
+          <summary className="cursor-pointer text-mute">Never tried ({report.notAttempted.length})</summary>
           <ul className="list-disc pl-5 mt-1">{report.notAttempted.map((w) => <li key={w.n}>Row {w.n}: {w.fieldPath}</li>)}</ul>
         </details>
       )}

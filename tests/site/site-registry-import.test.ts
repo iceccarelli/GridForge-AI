@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
-  HALL_FIELD_LIMIT, IMPORT_COLUMNS, IMPORT_MAX_BYTES, IMPORT_MAX_ROWS, MAX_AUTO_WAIT_SECONDS, allowedPaths, buildPreview, importTemplateCsv, importTemplateJson, parseImport, runImport, sniffFormat,
+  HALL_FIELD_LIMIT, UNKNOWN_MESSAGE, numberLiteralProblem, outcomeUnknown, provenanceFlags, IMPORT_COLUMNS, IMPORT_MAX_BYTES, IMPORT_MAX_ROWS, MAX_AUTO_WAIT_SECONDS, allowedPaths, buildPreview, importTemplateCsv, importTemplateJson, parseImport, runImport, sniffFormat,
   writeOrder, type ImportContext, type PostResult, type RawRow, type RowPlan, type WriteBody,
 } from "@/lib/site-registry-import";
 import { EXPECTED_HALL_FIELDS } from "@/lib/site-registry-fields";
@@ -10,6 +10,9 @@ import type { RegistryInput } from "@/lib/site-registry-model";
 
 const FILE_A = "11111111-1111-4111-8111-111111111111";
 const FILE_B = "22222222-2222-4222-8222-222222222222";
+// ids with LETTERS in them: an all-digit id reads the same in either case and would prove nothing about case handling
+const HEX_A = "abcdef01-aaaa-4bbb-8ccc-ddddeeeeffff";
+const HEX_B = "fedcba98-bbbb-4aaa-9ddd-eeeeffff0000";
 const TODAY = "2026-11-07";
 
 const cur = (over: Partial<RegistryInput> = {}): RegistryInput => ({
@@ -290,7 +293,7 @@ describe("the preview: what will happen to every row", () => {
   });
   it("counts add up, and writes are exactly the new and superseding rows", () => {
     const p = buildPreview([row({ ...base }, 1), row({ ...base, field_path: "grid.firm_capacity_mva", unit: "MVA", value: 41 }, 2), row({ ...base, field_path: "grid.firm_capacity_mva" }, 3), row({ ...base, origin: "" }, 4)], ctx([cur()]));
-    expect(p.counts).toEqual({ total: 4, new: 1, supersede: 1, unchanged: 0, rejected: 2, writes: 2, needDatabaseCheck: 0 });
+    expect(p.counts).toEqual({ total: 4, new: 1, supersede: 1, unchanged: 0, rejected: 2, writes: 2, needDatabaseCheck: 0, flagged: 0 });
   });
   it("rows that rely on a file the page cannot check are written first", () => {
     const p = buildPreview([
@@ -332,7 +335,7 @@ describe("the template", () => {
 // ------------------------------------------------------------------------------------------------- the run
 
 const plan = (n: number, fieldPath = `grid.f${n}`): RowPlan => ({
-  n, status: "new", fieldPath, shown: { value: "", origin: "", evidenceClass: "", source: "", asOf: "" }, reasons: [], warnings: [], replaces: null, needsDatabaseCheck: false,
+  n, status: "new", fieldPath, shown: { value: "", origin: "", evidenceClass: "", source: "", asOf: "" }, reasons: [], warnings: [], flags: [], replaces: null, needsDatabaseCheck: false,
   body: { fieldPath, value: n, unit: null, evidenceClass: "E1", origin: "assumed", asOf: "2026-10-01", projectEvidenceId: null, intakeEvidenceFileId: null, supersedes: null },
 });
 const created = (b: WriteBody): PostResult => ({ status: 201, body: { ok: true, id: `id-${b.fieldPath}`, input: { id: `id-${b.fieldPath}`, fieldPath: b.fieldPath } } });
@@ -455,13 +458,13 @@ describe("the run", () => {
       expect(r.outcome).toBe("stopped");
       expect(r.written.map((w) => w.n)).toEqual([1]);
       expect(r.failed).toMatchObject({ n: 2, status: null, outcomeUnknown: true });
-      expect(r.failed!.message).toMatch(/not known whether this row was written/);
+      expect(r.failed!.message).toMatch(/result of this row is unknown.*check the hall's figures before importing again/);
       expect(r.notAttempted).toEqual([{ n: 3, fieldPath: "grid.f3" }]);
     });
     it("a 2xx that is not the route's {ok:true} answer is not counted as written", async () => {
       const r = await runImport([plan(1)], { post: async () => ({ status: 200, body: { ok: false } }), sleep: async () => {} });
       expect(r.written).toEqual([]);
-      expect(r.failed).toMatchObject({ n: 1, status: 200 });
+      expect(r.failed).toMatchObject({ n: 1, status: 200, outcomeUnknown: true });
     });
     it("cancelling stops before the next row and lists the rest as not tried (no failure)", async () => {
       let cancel = false;
@@ -484,5 +487,290 @@ describe("the run", () => {
   it("nothing is written by previewing: buildPreview and writeOrder take no post function at all", () => {
     expect(buildPreview.length).toBe(2);
     expect(writeOrder.length).toBe(1);
+  });
+});
+
+
+// ------------------------------------------------------------------------------------------------- rework: results that are not known, provenance, hostile values
+
+const hold = (over: Partial<RegistryInput> & { fieldPath: string }): RegistryInput => cur({ id: `h-${over.fieldPath}`, ...over });
+
+describe("a result that is not known is never reported as 'not written'", () => {
+  it.each([[500], [502], [503], [504], [408], [599]])("a %i is an unknown outcome", (status) => {
+    expect(outcomeUnknown({ status, body: { ok: false, error: "The site registry is unavailable just now. Nothing was changed." } })).toBe(true);
+  });
+  it("a success that is not the route's own 201 {ok:true} is unknown too (an unreadable body reaches the page as {})", () => {
+    for (const r of [{ status: 201, body: {} }, { status: 201, body: { ok: false } }, { status: 201, body: null }, { status: 200, body: { ok: true } }, { status: 204, body: {} }]) expect(outcomeUnknown(r), JSON.stringify(r)).toBe(true);
+    expect(outcomeUnknown({ status: 201, body: { ok: true, id: "x" } })).toBe(false);
+  });
+  it.each([[400], [401], [403], [404], [409], [413], [422], [429]])("a %i is a refusal, not an unknown", (status) => {
+    expect(outcomeUnknown({ status, body: { ok: false } })).toBe(false);
+  });
+  it("a 503 after the commit: the run stops, says the result is UNKNOWN, never 'Nothing was changed', and the rest are not tried", async () => {
+    const r = await runImport([plan(1), plan(2), plan(3)], {
+      post: async (b) => (b.value === 2 ? { status: 503, body: { ok: false, error: "The site registry is unavailable just now. Nothing was changed." } } : created(b)),
+      sleep: async () => {},
+    });
+    expect(r.outcome).toBe("stopped");
+    expect(r.written.map((w) => w.n)).toEqual([1]);
+    expect(r.failed).toMatchObject({ n: 2, status: 503, outcomeUnknown: true });
+    expect(r.failed!.message).toContain(UNKNOWN_MESSAGE);
+    expect(r.failed!.message).not.toMatch(/Nothing was changed|NOT written|not written/i);
+    expect(r.notAttempted).toEqual([{ n: 3, fieldPath: "grid.f3" }]);
+  });
+  it("a 201 whose body could not be read is NOT counted as written (this is what `status === 201` alone would get wrong)", async () => {
+    const r = await runImport([plan(1), plan(2)], { post: async () => ({ status: 201, body: {} }), sleep: async () => {} });
+    expect(r.written).toEqual([]);
+    expect(r.failed).toMatchObject({ n: 1, status: 201, outcomeUnknown: true });
+    expect(r.notAttempted).toEqual([{ n: 2, fieldPath: "grid.f2" }]);
+  });
+  it("a thrown request and an unknown status read the same", async () => {
+    const thrown = await runImport([plan(1)], { post: async () => { throw new Error("reset"); }, sleep: async () => {} });
+    expect(thrown.failed).toMatchObject({ status: null, outcomeUnknown: true, message: UNKNOWN_MESSAGE });
+  });
+
+  describe("after any stop the hall is read again and the report says which rows actually landed", () => {
+    const landedRow = (n: number, over: Record<string, unknown> = {}): RegistryInput => cur({ id: `new-${n}`, fieldPath: `grid.f${n}`, value: n, unit: null, origin: "assumed", evidenceClass: "E1", asOf: "2026-10-01", ...over });
+    it("an answer lost after the commit: the failed row is reported as IN the hall, the others as not", async () => {
+      const r = await runImport([plan(1), plan(2), plan(3)], {
+        post: async (b) => (b.value === 2 ? { status: 502, body: {} } : created(b)),
+        sleep: async () => {},
+        verify: async () => [landedRow(1), landedRow(2)],
+      });
+      expect(r.afterStop).toMatchObject({ read: true, landed: [2], absent: [3] });
+    });
+    it("a refusal (409, 400, 429): verify runs too, and a row that did not land is absent", async () => {
+      for (const status of [409, 400, 429]) {
+        let verified = 0;
+        const r = await runImport([plan(1), plan(2)], {
+          post: async (b) => (b.value === 2 ? { status, body: { ok: false, reason: "superseded" }, retryAfter: 4000 } : created(b)),
+          sleep: async () => {},
+          verify: async () => { verified++; return [landedRow(1)]; },
+        });
+        expect(verified, String(status)).toBe(1);
+        expect(r.afterStop).toMatchObject({ read: true, landed: [], absent: [2] });
+        expect(r.afterStop!.current!.map((i) => i.fieldPath)).toEqual(["grid.f1"]);       // handed back so the page's table is not stale
+      }
+    });
+    it("a figure with the same path but different content, or the superseded old one, is not 'landed'", async () => {
+      const p = plan(2);
+      p.body!.supersedes = "old";
+      const r = await runImport([p], {
+        post: async () => ({ status: 503, body: {} }), sleep: async () => {},
+        verify: async () => [landedRow(2, { id: "old", value: 2 })],
+      });
+      expect(r.afterStop).toMatchObject({ landed: [], absent: [2] });
+      const r2 = await runImport([plan(2)], { post: async () => ({ status: 503, body: {} }), sleep: async () => {}, verify: async () => [landedRow(2, { value: 99 })] });
+      expect(r2.afterStop).toMatchObject({ landed: [], absent: [2] });
+    });
+    it("a hall that cannot be read again says so; no verify at all means no claim; success and cancel never verify", async () => {
+      const bad = await runImport([plan(1)], { post: async () => ({ status: 503, body: {} }), sleep: async () => {}, verify: async () => null });
+      expect(bad.afterStop).toEqual({ read: false, landed: [], absent: [], current: null });
+      const thrown = await runImport([plan(1)], { post: async () => ({ status: 503, body: {} }), sleep: async () => {}, verify: async () => { throw new Error("x"); } });
+      expect(thrown.afterStop?.read).toBe(false);
+      expect((await runImport([plan(1)], { post: async () => ({ status: 503, body: {} }), sleep: async () => {} })).afterStop).toBeNull();
+      let calls = 0;
+      const ok = await runImport([plan(1)], { post: async (b) => created(b), sleep: async () => {}, verify: async () => { calls++; return []; } });
+      expect(ok.afterStop).toBeNull();
+      expect(calls).toBe(0);
+    });
+  });
+});
+
+describe("the preview: the file's ids, characters and numbers", () => {
+  const known = (id: string, reviewStatus: string, kind = "project_evidence") => hold({ fieldPath: "grid.current_site_peak_mw", unit: "MW", value: 10, origin: "measured", evidenceClass: "E3", source: { kind, id, filename: "f.pdf", reviewStatus } });
+  it("a source id is the same id in any letter case: a known rejected or unverified file is caught whatever case the file writes it in", () => {
+    const upper = HEX_A.toUpperCase();
+    expect(upper).not.toBe(HEX_A);
+    const claim = { origin: "measured", class: "E5", source_kind: "project", source_id: upper };
+    const rejected = one({ ...claim, class: "E1" }, [known(HEX_A, "rejected")]);
+    expect(rejected.status).toBe("rejected");
+    expect(rejected.reasons.join()).toMatch(/reviewed and rejected/);
+    const unverified = one(claim, [known(HEX_A, "unverified")]);
+    expect(unverified.status).toBe("rejected");
+    expect(unverified.reasons.join()).toMatch(/reviewed and verified/);
+    const verified = one(claim, [known(HEX_A, "verified")]);
+    expect(verified.status).toBe("new");
+    expect(verified.needsDatabaseCheck).toBe(false);
+    expect(verified.body?.projectEvidenceId).toBe(HEX_A);                        // the body carries the lower-case form
+    expect(one({ ...claim, source_id: HEX_A }, [known(HEX_A.toUpperCase(), "rejected")]).status).toBe("rejected");        // and a known id written in upper case matches a lower-case claim
+  });
+  it("the unchanged comparison is case-blind for the file id too", () => {
+    const current = cur({ origin: "vendor", evidenceClass: "E2", source: { kind: "intake_evidence", id: HEX_A, filename: "q.pdf", reviewStatus: null } });
+    const row = { origin: "vendor", class: "E2", unit: "MVA", value: 40, as_of: "2026-01-15", field_path: "grid.firm_capacity_mva", source_kind: "intake" };
+    expect(one({ ...row, source_id: HEX_A.toUpperCase() }, [current]).status).toBe("unchanged");
+    expect(one({ ...row, source_id: HEX_A }, [{ ...current, source: { ...current.source!, id: HEX_A.toUpperCase() } }]).status).toBe("unchanged");
+    expect(one({ ...row, source_id: HEX_B }, [current]).status).toBe("supersede");
+  });
+  it("a file id the page knows as the other kind of file is rejected, in both directions", () => {
+    const asIntake = known(FILE_A, "unverified", "intake_evidence");
+    const r1 = one({ origin: "measured", class: "E3", source_kind: "project", source_id: FILE_A }, [asIntake]);
+    expect(r1.status).toBe("rejected");
+    expect(r1.reasons.join()).toMatch(/other kind of file; check source_kind/);
+    const asProject = known(FILE_A, "verified");
+    const r2 = one({ origin: "measured", class: "E3", source_kind: "intake", source_id: FILE_A }, [asProject]);
+    expect(r2.status).toBe("rejected");
+    expect(r2.reasons.join()).toMatch(/other kind of file/);
+    expect(one({ origin: "measured", class: "E3", source_kind: "project", source_id: FILE_A }, [asProject]).status).toBe("new");
+  });
+  it("class and origin are accepted in any letter case and sent upper and lower case as the database wants them", () => {
+    const r = one({ origin: "MEASURED", class: "e3", source_kind: "INTAKE", source_id: FILE_A });
+    expect(r.status).toBe("new");
+    expect(r.body).toMatchObject({ origin: "measured", evidenceClass: "E3", intakeEvidenceFileId: FILE_A });
+    expect(one({ class: "e5", origin: "assumed" }).reasons.join()).toMatch(/cannot claim a class above E3; E5 is refused/);     // the cap sees the class however it is cased
+    expect(one({ class: " e1 " }).body?.evidenceClass).toBe("E1");
+  });
+
+  describe("text with control, zero-width or direction-changing characters is refused with its reason", () => {
+    const text = (v: string, fromCsv = true) => one({ field_path: "hall.note", value: v, unit: "" }, [hold({ fieldPath: "hall.note", unit: null, value: "old" })], fromCsv);
+    it.each([["NUL", "a\u0000b"], ["escape", "a\u001bb"], ["DEL", "a\u007fb"], ["C1", "a\u0085b"], ["zero-width space", "a\u200bb"], ["zero-width joiner", "a\u200db"], ["LRM", "a\u200eb"],
+      ["right-to-left override", "a\u202eb"], ["isolate", "a\u2066b"], ["pop isolate", "a\u2069b"], ["word joiner", "a\u2060b"], ["BOM", "a\ufeffb"], ["line separator", "a\u2028b"], ["newline inside", "a\nb"]])("%s", (_n, v) => {
+      for (const csvFlag of [true, false]) {
+        const r = text(v, csvFlag);
+        expect(r.status, `${_n} csv=${csvFlag}`).toBe("rejected");
+        expect(r.reasons.join()).toMatch(/control, zero-width or direction-changing character/);
+      }
+    });
+    it("ordinary text, accents and CJK are fine", () => {
+      for (const v of ["busway", "Zürich", "日本語", "a b"]) expect(text(v).status, v).toBe("supersede");
+    });
+  });
+
+  describe("numbers that cannot be stored faithfully are refused, not rounded", () => {
+    it("numberLiteralProblem", () => {
+      expect(numberLiteralProblem("1e-400", 0)).toMatch(/too small/);
+      expect(numberLiteralProblem("0.000e-400", 0)).toBeNull();                  // a literal zero is zero
+      expect(numberLiteralProblem("0", 0)).toBeNull();
+      expect(numberLiteralProblem("1e-320", 1e-320)).toMatch(/too small/);       // subnormal
+      expect(numberLiteralProblem("0.1234567890123456789", 0.12345678901234568)).toMatch(/more than 15 significant digits/);
+      expect(numberLiteralProblem("1234567890.12345", 1234567890.12345)).toBeNull();      // exactly 15
+      expect(numberLiteralProblem("1234567890.123456", 1234567890.123456)).toMatch(/15 significant/);
+      expect(numberLiteralProblem("100000", 100000)).toBeNull();
+      expect(numberLiteralProblem("-0.30000000000000004", -0.30000000000000004)).toMatch(/15 significant/);
+      expect(numberLiteralProblem("1.5e3", 1500)).toBeNull();
+    });
+    it("in a CSV the row is rejected with that reason", () => {
+      for (const [v, re] of [["1e-400", /too small/], ["0.1234567890123456789", /15 significant/], ["1e-320", /too small/]] as const) {
+        const r = one({ value: v }, [], true);
+        expect(r.status, v).toBe("rejected");
+        expect(r.reasons.join()).toMatch(re);
+      }
+      for (const v of ["0.1", "30", "1234567890.12345", "0", "-0.5", "1.5e3"]) expect(one({ value: v }, [], true).status, v).toBe("new");
+    });
+    it("in a JSON file the number as WRITTEN is checked (where the engine exposes it), so 1e-400 is not silently 0", () => {
+      const text = `[{"field_path":"grid.contracted_mw","value":1e-400,"unit":"MW","origin":"assumed","class":"E1","as_of":"2026-10-01"},
+        {"field_path":"grid.firm_capacity_mva","value":0.1234567890123456789,"unit":"MVA","origin":"assumed","class":"E1","as_of":"2026-10-01"},
+        {"field_path":"hall.rack_positions","value":120,"origin":"assumed","class":"E1","as_of":"2026-10-01"}]`;
+      const p = parseImport(text, "json");
+      expect(p.ok).toBe(true);
+      if (!p.ok) return;
+      const prev = buildPreview(p.rows, ctx());
+      expect(prev.rows.map((r) => r.status)).toEqual(["rejected", "rejected", "new"]);
+      expect(prev.rows[0]!.reasons.join()).toMatch(/too small/);
+      expect(prev.rows[1]!.reasons.join()).toMatch(/15 significant/);
+    });
+  });
+});
+
+describe("comment lines are counted, not silently lost", () => {
+  it("parseImport reports how many lines of a CSV were skipped, and the preview carries the count", () => {
+    const p = parseImport(`# a\n# b\n${CSV_HEAD}\n# c\ngrid.contracted_mw,30,MW,assumed,E1,2026-10-01,,\n`, "csv");
+    expect(p).toMatchObject({ ok: true, commentLines: 3 });
+    if (!p.ok) return;
+    expect(buildPreview(p.rows, ctx(), p.commentLines).commentLines).toBe(3);
+    expect(buildPreview(p.rows, ctx()).commentLines).toBe(0);
+    expect(parseImport(importTemplateCsv(), "csv")).toMatchObject({ commentLines: 6 });
+    expect(parseImport("[]", "json")).toMatchObject({ ok: false });
+    const j = parseImport(`[${JSON.stringify(base)}]`, "json");
+    expect(j).toMatchObject({ ok: true, commentLines: 0 });
+  });
+});
+
+describe("a replacement that changes a field's provenance is flagged, apart from an ordinary correction", () => {
+  const row = (cells: Record<string, unknown>, current = [cur()]) => one({ field_path: "grid.firm_capacity_mva", unit: "MVA", value: 40, ...cells }, current);
+  it("a raised declared class is flagged", () => {
+    const r = row({ class: "E3" });
+    expect(r.status).toBe("supersede");
+    expect(r.flags).toEqual(["Raises the declared class E1 → E3."]);
+  });
+  it("a lowered or equal class is not", () => {
+    expect(row({ class: "E0", as_of: "2026-10-01" }).flags).toEqual([]);
+    expect(row({ value: 41 }).flags).toEqual([]);                                               // an ordinary correction of a number
+  });
+  it("a changed declared origin is flagged, with both origins named", () => {
+    const r = row({ origin: "vendor" });
+    expect(r.flags).toEqual(["Changes the declared origin: declared assumed → declared vendor."]);
+    const both = row({ origin: "modelled", class: "E3", value: 41 });
+    expect(both.flags).toEqual(["Raises the declared class E1 → E3.", "Changes the declared origin: declared assumed → declared modelled."]);
+  });
+  it("withdrawing a figure (replacing it with missing) is flagged, with what it was", () => {
+    const r = row({ origin: "missing", value: null, unit: null, class: "E0" });
+    expect(r.status).toBe("supersede");
+    expect(r.flags).toContain("Withdraws the figure: 40 MVA will read as missing.");
+  });
+  it("a first figure, a rejected row and an unchanged row carry no flags; recording over a missing figure is not a withdrawal", () => {
+    expect(one({}).flags).toEqual([]);
+    expect(row({ class: "E9" }).flags).toEqual([]);
+    expect(row({ value: 40, unit: "MVA", class: "E1", as_of: "2026-01-15" }).flags).toEqual([]);
+    const gap = hold({ fieldPath: "grid.firm_capacity_mva", origin: "missing", value: null, unit: null, evidenceClass: "E0" });
+    expect(row({ class: "E2" }, [gap]).flags).toEqual(["Raises the declared class E0 → E2.", "Changes the declared origin: missing → declared assumed."]);
+    expect(row({ class: "E0" }, [gap]).flags.join()).not.toMatch(/Withdraws/);
+  });
+  it("the preview counts the flagged rows", () => {
+    const p = buildPreview([
+      row0(1, { class: "E3" }), row0(2, { value: 41, field_path: "grid.contracted_mw", unit: "MW" }), row0(3, { origin: "vendor", field_path: "grid.current_site_peak_mw", unit: "MW" }),
+    ], ctx([cur(), cur({ id: "k2", fieldPath: "grid.contracted_mw", unit: "MW" }), cur({ id: "k3", fieldPath: "grid.current_site_peak_mw", unit: "MW" })]));
+    expect(p.counts).toMatchObject({ supersede: 3, flagged: 2 });
+    function row0(n: number, cells: Record<string, unknown>): RawRow { return { n, fromCsv: false, cells: { field_path: "grid.firm_capacity_mva", value: 40, unit: "MVA", origin: "assumed", class: "E1", as_of: "2026-10-01", ...cells } }; }
+  });
+  it("provenanceFlags works on the body that would be sent", () => {
+    const body: WriteBody = { fieldPath: "grid.firm_capacity_mva", value: 44, unit: "MVA", evidenceClass: "E5", origin: "measured", asOf: "2026-10-01", projectEvidenceId: FILE_A, intakeEvidenceFileId: null, supersedes: "c1" };
+    expect(provenanceFlags(cur(), body)).toEqual(["Raises the declared class E1 → E5.", "Changes the declared origin: declared assumed → declared measured."]);
+  });
+});
+
+describe("a row is UNCHANGED only if value, unit, origin, class, source and date all match; any one difference is a replacement", () => {
+  const row = { field_path: "grid.firm_capacity_mva", value: 40, unit: "MVA", origin: "assumed", class: "E1", as_of: "2026-01-15" };
+  it("the baseline is unchanged", () => { expect(one(row, [cur()], false).status).toBe("unchanged"); });
+  it.each([
+    ["value", { value: 41 }],
+    ["class (the same number at a changed class)", { class: "E2" }],
+    ["origin", { origin: "vendor" }],
+    ["as-of date", { as_of: "2026-01-16" }],
+  ])("a different %s is a supersede", (_n, change) => {
+    const r = one({ ...row, ...change }, [cur()], false);
+    expect(r.status).toBe("supersede");
+    expect(r.body?.supersedes).toBe("c1");
+  });
+  it("a different unit on the recorded figure is a supersede (the recorded unit was another)", () => {
+    expect(one(row, [cur({ unit: "kVA" })], false).status).toBe("supersede");
+    expect(one(row, [cur({ unit: null })], false).status).toBe("supersede");
+  });
+  it("a different source is a supersede; the same source (in any letter case) is unchanged; adding or dropping a file is a supersede", () => {
+    const withFile = (id: string | null) => cur({ origin: "vendor", evidenceClass: "E2", source: id ? { kind: "intake_evidence", id, filename: "q.pdf", reviewStatus: null } : null });
+    const v = { ...row, origin: "vendor", class: "E2" };
+    expect(one({ ...v, source_kind: "intake", source_id: FILE_A }, [withFile(FILE_A)], false).status).toBe("unchanged");
+    expect(one({ ...v, source_kind: "intake", source_id: FILE_B }, [withFile(FILE_A)], false).status).toBe("supersede");
+    expect(one({ ...v, source_kind: "intake", source_id: FILE_A }, [withFile(null)], false).status).toBe("supersede");
+    expect(one(v, [withFile(FILE_A)], false).status).toBe("supersede");
+  });
+});
+
+describe("error text stays short", () => {
+  it("a header of many unknown columns names the first five and counts the rest", () => {
+    const cols = Array.from({ length: 12 }, (_, i) => `x${i}`);
+    const p = parseImport(`${cols.join(",")}\n1`, "csv");
+    expect(p).toMatchObject({ ok: false });
+    if (p.ok) return;
+    expect(p.error).toContain("“x0”, “x1”, “x2”, “x3”, “x4”");
+    expect(p.error).toContain("and 7 more");
+    expect(p.error).not.toContain("x5");
+    expect(p.error.length).toBeLessThan(300);
+    const j = parseImport(JSON.stringify({ rows: [], ...Object.fromEntries(cols.map((c) => [c, 1])) }), "json");
+    expect(j.ok === false && j.error).toContain("and 7 more");
+    const longName = parseImport(`${"y".repeat(5000)}\n1`, "csv");
+    expect(longName.ok === false && longName.error.length).toBeLessThan(300);
+    const rowKeys = parseImport(JSON.stringify([{ ...base, ...Object.fromEntries(cols.map((c) => [c, 1])) }]), "json");
+    expect(rowKeys.ok && rowKeys.rows[0]!.error).toContain("and 7 more");
   });
 });

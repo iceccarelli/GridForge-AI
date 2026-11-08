@@ -23,7 +23,8 @@ export const csvLine = (cells: unknown[]): string => cells.map(csvCell).join(","
 /** Rows to a CSV document: CRLF line ends, a leading byte-order mark so a spreadsheet reads the UTF-8, and a trailing line end. */
 export const toCsv = (rows: unknown[][]): string => "﻿" + rows.map(csvLine).join("\r\n") + "\r\n";
 
-export type CsvParse = { ok: true; rows: string[][]; tooMany: boolean } | { ok: false; error: string };
+/** `comments`: how many comment lines were skipped (a line that starts with #), so the caller can say so rather than let them vanish. */
+export type CsvParse = { ok: true; rows: string[][]; tooMany: boolean; comments: number } | { ok: false; error: string };
 
 /**
  * Parse CSV text. A leading byte-order mark is dropped; a line whose first character is # (outside quotes) is a comment and skipped; empty lines
@@ -39,6 +40,7 @@ export function parseCsv(input: string, maxRecords = 1000): CsvParse {
   let quotedInRow = false;   // some cell of this record was quoted (so a record of one empty quoted cell is still a record)
   let atStart = true;        // at the first character of a record
   let line = 1;
+  let comments = 0;
   let i = 0;
   const n = text.length;
 
@@ -47,6 +49,7 @@ export function parseCsv(input: string, maxRecords = 1000): CsvParse {
     endCell();
     const blank = row.length === 1 && row[0] === "" && !quotedInRow;
     const comment = row.length === 1 && row[0]!.startsWith("#");          // a comment written as a quoted cell (it had a comma in it)
+    if (comment) comments++;
     if (!blank && !comment) rows.push(row);
     row = []; atStart = true; quotedInRow = false;
     return rows.length > maxRecords;
@@ -67,6 +70,7 @@ export function parseCsv(input: string, maxRecords = 1000): CsvParse {
     }
     if (atStart && ch === "#") {                      // a comment line: to the end of the line
       while (i < n && text[i] !== "\n" && text[i] !== "\r") i++;
+      comments++;
       continue;
     }
     atStart = false;
@@ -78,12 +82,12 @@ export function parseCsv(input: string, maxRecords = 1000): CsvParse {
     if (ch === "\r" || ch === "\n") {
       if (ch === "\r" && text[i + 1] === "\n") i++;
       i++; line++;
-      if (endRecord()) return { ok: true, rows: rows.slice(0, maxRecords), tooMany: true };
+      if (endRecord()) return { ok: true, rows: rows.slice(0, maxRecords), tooMany: true, comments };
       continue;
     }
     cell += ch; i++;
   }
   if (quoted) return { ok: false, error: `Line ${line}: a quoted cell is never closed.` };
   if (!atStart) endRecord();
-  return { ok: true, rows: rows.slice(0, maxRecords), tooMany: rows.length > maxRecords };
+  return { ok: true, rows: rows.slice(0, maxRecords), tooMany: rows.length > maxRecords, comments };
 }

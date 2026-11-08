@@ -23,6 +23,7 @@ import {
   EVIDENCE_CLASS_CODES, EXPECTED_HALL_FIELDS, FIELD_PATH_PATTERN, ORIGINS, ORIGINS_CAPPED_AT_E3, ORIGINS_NEEDING_A_SOURCE, UNIT_PATTERN, type Origin,
 } from "@/lib/site-registry-fields";
 import { parseCsv, toCsv } from "@/lib/site-registry-csv";
+import { aspectsBetween } from "@/lib/site-registry-diff";
 import { classRank, originText, sourceText, valueText, type RegistryInput } from "@/lib/site-registry-model";
 
 export const IMPORT_MAX_ROWS = 200;
@@ -43,11 +44,15 @@ const NUMBER = /^-?\d+(\.\d+)?([eE][+-]?\d+)?$/;
 
 // --------------------------------------------------------------------------------------------------------------- parsing
 
-export type RawRow = { n: number; cells: Partial<Record<Column, unknown>>; fromCsv: boolean; error?: string };
-export type Parsed = { ok: true; rows: RawRow[]; format: "csv" | "json" } | { ok: false; error: string };
+export type RawRow = { n: number; cells: Partial<Record<Column, unknown>>; fromCsv: boolean; error?: string; /** A problem with the number as WRITTEN in a JSON file (it would be rounded or underflow), found while parsing. */ valueProblem?: string };
+/** `commentLines`: lines of a CSV that start with # and were skipped; the preview says how many. */
+export type Parsed = { ok: true; rows: RawRow[]; format: "csv" | "json"; commentLines: number } | { ok: false; error: string };
 
 const byteLength = (s: string) => new TextEncoder().encode(s).length;
 const isColumn = (k: string): k is Column => (IMPORT_COLUMNS as readonly string[]).includes(k);
+
+/** At most five names, each shortened, then "and N more": a hostile header cannot make an error message as long as the file. */
+const listNames = (names: string[]): string => names.slice(0, 5).map((u) => `“${u.slice(0, 40)}”`).join(", ") + (names.length > 5 ? ` and ${names.length - 5} more` : "");
 
 /** Which format a file is, from its name, else from its first character. */
 export function sniffFormat(fileName: string, text: string): "csv" | "json" {
@@ -67,7 +72,7 @@ function parseCsvRows(text: string): Parsed {
   if (p.rows.length === 0) return { ok: false, error: "The file has no header row. Start from the template." };
   const header = p.rows[0]!.map((h) => h.trim().toLowerCase());
   const unknown = header.filter((h) => !isColumn(h));
-  if (unknown.length) return { ok: false, error: `Unknown column${unknown.length > 1 ? "s" : ""}: ${unknown.map((u) => `“${u.slice(0, 40)}”`).join(", ")}. The columns are ${IMPORT_COLUMNS.join(", ")}.` };
+  if (unknown.length) return { ok: false, error: `Unknown column${unknown.length > 1 ? "s" : ""}: ${listNames(unknown)}. The columns are ${IMPORT_COLUMNS.join(", ")}.` };
   const dup = header.find((h, i) => header.indexOf(h) !== i);
   if (dup) return { ok: false, error: `The column “${dup}” appears twice.` };
   const missing = REQUIRED_COLUMNS.filter((c) => !header.includes(c));
@@ -81,17 +86,27 @@ function parseCsvRows(text: string): Parsed {
     header.forEach((h, k) => { if (isColumn(h) && cells[k] !== undefined) out.cells[h] = cells[k]; });
     return out;
   });
-  return { ok: true, rows, format: "csv" };
+  return { ok: true, rows, format: "csv", commentLines: p.comments };
 }
 
 function parseJsonRows(text: string): Parsed {
   let doc: unknown;
-  try { doc = JSON.parse(text); } catch { return { ok: false, error: "The file is not valid JSON." }; }
+  // Where the engine gives the reviver the number's own text (context.source), a number that JSON.parse would round or flush to zero is noted against its row.
+  const problems = new WeakMap<object, string>();
+  try {
+    doc = JSON.parse(text, function (this: unknown, key: string, val: unknown, ctx?: { source?: string }) {
+      if (key === "value" && typeof val === "number" && typeof ctx?.source === "string" && this && typeof this === "object") {
+        const p = numberLiteralProblem(ctx.source, val);
+        if (p) problems.set(this, p);
+      }
+      return val;
+    } as Parameters<typeof JSON.parse>[1]);
+  } catch { return { ok: false, error: "The file is not valid JSON." }; }
   let list: unknown = doc;
   if (doc && typeof doc === "object" && !Array.isArray(doc)) {
     const keys = Object.keys(doc);
     const extra = keys.filter((k) => k !== "rows" && k !== "comment");
-    if (extra.length) return { ok: false, error: `Unknown top-level key${extra.length > 1 ? "s" : ""}: ${extra.map((k) => `“${k.slice(0, 40)}”`).join(", ")}. Use a list of rows, or {"rows": [...]}.` };
+    if (extra.length) return { ok: false, error: `Unknown top-level key${extra.length > 1 ? "s" : ""}: ${listNames(extra)}. Use a list of rows, or {"rows": [...]}.` };
     list = (doc as { rows?: unknown }).rows;
   }
   if (!Array.isArray(list)) return { ok: false, error: "Expected a list of rows, or an object with a \"rows\" list." };
@@ -104,10 +119,12 @@ function parseJsonRows(text: string): Parsed {
     for (const [k, v] of Object.entries(item as Record<string, unknown>)) {
       if (isColumn(k)) out.cells[k] = v; else unknown.push(k);
     }
-    if (unknown.length) out.error = `Unknown key${unknown.length > 1 ? "s" : ""}: ${unknown.map((k) => `“${k.slice(0, 40)}”`).join(", ")}.`;
+    const vp = problems.get(item as object);
+    if (vp) out.valueProblem = vp;
+    if (unknown.length) out.error = `Unknown key${unknown.length > 1 ? "s" : ""}: ${listNames(unknown)}.`;
     return out;
   });
-  return { ok: true, rows, format: "json" };
+  return { ok: true, rows, format: "json", commentLines: 0 };
 }
 
 // --------------------------------------------------------------------------------------------------------------- the preview
@@ -128,6 +145,8 @@ export interface RowPlan {
   shown: { value: string; origin: string; evidenceClass: string; source: string; asOf: string };
   reasons: string[];
   warnings: string[];
+  /** For a replacement: what it does to the field's provenance (raises the class, changes the origin, withdraws the figure). Empty for any other row. */
+  flags: string[];
   replaces: RegistryInput | null;
   /** true: the row cites a project file above E3 whose review status this page cannot see; the database decides at write time. */
   needsDatabaseCheck: boolean;
@@ -136,7 +155,9 @@ export interface RowPlan {
 
 export interface Preview {
   rows: RowPlan[];
-  counts: { total: number; new: number; supersede: number; unchanged: number; rejected: number; writes: number; needDatabaseCheck: number };
+  /** Lines of a CSV that start with # and were skipped. */
+  commentLines: number;
+  counts: { flagged: number; total: number; new: number; supersede: number; unchanged: number; rejected: number; writes: number; needDatabaseCheck: number };
 }
 
 export interface ImportContext {
@@ -173,6 +194,22 @@ function textCell(v: unknown): { ok: true; value: string | null } | { ok: false 
   return { ok: true, value: t === "" ? null : t };
 }
 
+/** The characters the database refuses in a registry name (lib/sites.ts BAD_CHARS): control, zero-width and direction-changing characters. */
+const BAD_CHARS = /[\u0000-\u001f\u007f-\u009f\u200b-\u200f\u061c\u202a-\u202e\u2060-\u2069\ufeff\u2028\u2029]/;
+
+/**
+ * A number as written that a double cannot hold faithfully: more than 15 significant digits (it would be rounded), or a non-zero literal that flushes to zero or a
+ * subnormal. Such a figure is refused rather than silently rounded.
+ */
+export function numberLiteralProblem(literal: string, parsed: number): string | null {
+  const mantissa = literal.replace(/^[+-]/, "").split(/[eE]/)[0] ?? "";
+  const sig = mantissa.replace(".", "").replace(/^0+/, "").replace(/0+$/, "");
+  if (sig === "") return null;                                                   // a literal zero
+  if (parsed === 0 || (Number.isFinite(parsed) && Math.abs(parsed) < 2.2250738585072014e-308)) return "That number is too small to store: it would be rounded to zero.";
+  if (sig.length > 15) return "That number has more than 15 significant digits, so it cannot be stored exactly. Round it yourself to the precision you can stand behind.";
+  return null;
+}
+
 type ParsedValue = { ok: true; value: number | string | boolean | null } | { ok: false; reason: string };
 
 function parseValue(v: unknown, fromCsv: boolean): ParsedValue {
@@ -185,11 +222,14 @@ function parseValue(v: unknown, fromCsv: boolean): ParsedValue {
   if (fromCsv) {
     if (NUMBER.test(t)) {
       const n = Number(t);
-      return Number.isFinite(n) && Math.abs(n) <= 1e15 ? { ok: true, value: n } : { ok: false, reason: "That number is out of range (at most 1e15, and finite)." };
+      if (!Number.isFinite(n) || Math.abs(n) > 1e15) return { ok: false, reason: "That number is out of range (at most 1e15, and finite)." };
+      const problem = numberLiteralProblem(t, n);
+      return problem ? { ok: false, reason: problem } : { ok: true, value: n };
     }
     if (t === "true" || t === "false") return { ok: true, value: t === "true" };
   }
   if (t.length > 200) return { ok: false, reason: "A text value is at most 200 characters." };
+  if (BAD_CHARS.test(t)) return { ok: false, reason: "A text value may not contain a control, zero-width or direction-changing character." };
   return { ok: true, value: t };
 }
 
@@ -198,11 +238,32 @@ const sameValue = (a: unknown, b: unknown) => a === b;
 /** The review status the page knows for a source file id: only what the hall's current figures cite. */
 function knownSources(current: RegistryInput[]): Map<string, { kind: string; reviewStatus: string | null }> {
   const m = new Map<string, { kind: string; reviewStatus: string | null }>();
-  for (const i of current) if (i.source) m.set(i.source.id, { kind: i.source.kind, reviewStatus: i.source.reviewStatus });
+  for (const i of current) if (i.source) m.set(i.source.id.toLowerCase(), { kind: i.source.kind, reviewStatus: i.source.reviewStatus });
   return m;
 }
 
-export function buildPreview(rows: RawRow[], ctx: ImportContext): Preview {
+/**
+ * What a replacement does to the PROVENANCE of a field, the way the diff reads it (aspectsBetween): a RAISED declared class, a CHANGED declared origin, or a figure WITHDRAWN
+ * (replaced by "missing"). These rows need their own acknowledgement; an ordinary correction of a number does not.
+ */
+export function provenanceFlags(cur: RegistryInput, body: WriteBody): string[] {
+  const proposed: RegistryInput = {
+    id: "proposed", fieldPath: body.fieldPath, value: body.value, unit: body.unit, evidenceClass: body.evidenceClass, origin: body.origin, asOf: body.asOf, recordedBy: "",
+    source: body.projectEvidenceId || body.intakeEvidenceFileId
+      ? { kind: body.projectEvidenceId ? "project_evidence" : "intake_evidence", id: (body.projectEvidenceId ?? body.intakeEvidenceFileId)!, filename: null, reviewStatus: null }
+      : null,
+  };
+  const out: string[] = [];
+  const aspects = aspectsBetween(cur, proposed);
+  const cls = aspects.find((a) => a.what === "declared class");
+  if (cls?.direction === "raised") out.push(`Raises the declared class ${cls.from} → ${cls.to}.`);
+  const origin = aspects.find((a) => a.what === "declared origin");
+  if (origin) out.push(`Changes the declared origin: ${origin.from} → ${origin.to}.`);
+  if (body.origin === "missing" && cur.origin !== "missing") out.push(`Withdraws the figure: ${valueText(cur)} will read as missing.`);
+  return out;
+}
+
+export function buildPreview(rows: RawRow[], ctx: ImportContext, commentLines = 0): Preview {
   const allowed = allowedPaths(ctx.current);
   const currentBy = new Map(ctx.current.map((i) => [i.fieldPath, i]));
   const sources = knownSources(ctx.current);
@@ -260,6 +321,7 @@ export function buildPreview(rows: RawRow[], ctx: ImportContext): Preview {
     // ---- value and unit
     const pv = parseValue(c.value, raw.fromCsv);
     if (!pv.ok) reasons.push(pv.reason);
+    else if (raw.valueProblem) reasons.push(raw.valueProblem);
     const value = pv.ok ? pv.value : null;
     const unitCell = textCell(c.unit);
     const unit = unitCell.ok ? unitCell.value : null;
@@ -291,7 +353,8 @@ export function buildPreview(rows: RawRow[], ctx: ImportContext): Preview {
     const kindCell = textCell(c.source_kind);
     const idCell = textCell(c.source_id);
     const kind = kindCell.ok && kindCell.value ? kindCell.value.toLowerCase() : null;
-    const sid = idCell.ok ? idCell.value : null;
+    // A UUID is the same id in any letter case: every lookup and comparison below is on the lower-cased form.
+    const sid = idCell.ok && idCell.value ? idCell.value.toLowerCase() : null;
     let projectEvidenceId: string | null = null;
     let intakeEvidenceFileId: string | null = null;
     let needsDatabaseCheck = false;
@@ -337,6 +400,7 @@ export function buildPreview(rows: RawRow[], ctx: ImportContext): Preview {
     let status: RowStatus = "rejected";
     let body: WriteBody | null = null;
     let replaces: RowPlan["replaces"] = null;
+    const flags: string[] = [];
     if (reasons.length === 0 && allowedPath && origin && cls && asOf) {
       body = {
         fieldPath: allowedPath.path, value, unit, evidenceClass: cls, origin, asOf, projectEvidenceId, intakeEvidenceFileId, supersedes: cur ? cur.id : null,
@@ -346,21 +410,24 @@ export function buildPreview(rows: RawRow[], ctx: ImportContext): Preview {
         if (ctx.current.length + newFields > HALL_FIELD_LIMIT) { reasons.push(`A hall holds at most ${HALL_FIELD_LIMIT} different fields.`); body = null; newFields--; }
         else status = "new";
       } else {
-        const sameSource = (cur.source?.id ?? null) === (projectEvidenceId ?? intakeEvidenceFileId ?? null);
+        const sameSource = (cur.source?.id.toLowerCase() ?? null) === (projectEvidenceId ?? intakeEvidenceFileId ?? null);
         const same = sameValue(cur.value ?? null, value) && (cur.unit ?? null) === unit && cur.origin === origin && cur.evidenceClass === cls && cur.asOf === asOf && sameSource;
         status = same ? "unchanged" : "supersede";
         replaces = cur;
         if (same) body = null;
+        else flags.push(...provenanceFlags(cur, body));
       }
     }
     if (status === "rejected") { body = null; needsDatabaseCheck = false; }
-    plans.push({ n: raw.n, status, fieldPath, shown, reasons, warnings, replaces: status === "supersede" || status === "unchanged" ? replaces : null, needsDatabaseCheck, body });
+    plans.push({ n: raw.n, status, fieldPath, shown, reasons, warnings, replaces: status === "supersede" || status === "unchanged" ? replaces : null, flags: status === "supersede" ? flags : [], needsDatabaseCheck, body });
   }
 
   const count = (s: RowStatus) => plans.filter((p) => p.status === s).length;
   return {
     rows: plans,
+    commentLines,
     counts: {
+      flagged: plans.filter((p) => p.flags.length > 0).length,
       total: plans.length, new: count("new"), supersede: count("supersede"), unchanged: count("unchanged"), rejected: count("rejected"),
       writes: count("new") + count("supersede"), needDatabaseCheck: plans.filter((p) => p.needsDatabaseCheck).length,
     },
@@ -387,6 +454,8 @@ export interface RunDeps {
   post: (body: WriteBody) => Promise<PostResult>;
   sleep: (ms: number) => Promise<void>;
   isCancelled?: () => boolean;
+  /** Read the hall's current figures again (after a stop). Null or a throw: they could not be read. */
+  verify?: () => Promise<RegistryInput[] | null>;
   onProgress?: (p: { done: number; total: number; current: number | null; waitingSeconds: number | null }) => void;
   /** Pause between two writes, in ms. */
   gapMs?: number;
@@ -399,7 +468,20 @@ export interface ImportReport {
   written: WrittenRow[];
   failed: FailedRow | null;
   notAttempted: { n: number; fieldPath: string }[];
+  /**
+   * After a stop, the hall's figures are read AGAIN and every row that is not confirmed written is compared with them, because a request can reach the database and its
+   * answer be lost. `read` false: they could not be read (the person must reload and check). `landed`: rows of the failed or untried set that ARE in the hall. `absent`: those that are not.
+   */
+  afterStop: { read: boolean; landed: number[]; absent: number[]; current: RegistryInput[] | null } | null;
 }
+
+/** An answer that does not tell whether the row was written: a server error, a timeout, or a success that is not the route's own `{ok: true}` 201. */
+export function outcomeUnknown(r: PostResult): boolean {
+  if (r.status >= 500 || r.status === 408) return true;
+  return r.status >= 200 && r.status < 300 && !(r.status === 201 && r.body?.ok === true);
+}
+
+export const UNKNOWN_MESSAGE = "The result of this row is unknown — reload and check the hall's figures before importing again.";
 
 function failureText(status: number, body: any): string {
   const base = typeof body?.error === "string" && body.error ? body.error : "That did not work.";
@@ -411,18 +493,42 @@ function failureText(status: number, body: any): string {
   return base + issue;
 }
 
+/** Does the hall hold exactly what this row would have written? (An unchanged row is never in the plan, so a match can only be this row's own write.) */
+function rowLanded(body: WriteBody, current: RegistryInput[]): boolean {
+  const c = current.find((i) => i.fieldPath === body.fieldPath);
+  if (!c || c.id === body.supersedes) return false;
+  return (c.value ?? null) === body.value && (c.unit ?? null) === body.unit && c.origin === body.origin && c.evidenceClass === body.evidenceClass && c.asOf === body.asOf
+    && (c.source?.id.toLowerCase() ?? null) === (body.projectEvidenceId ?? body.intakeEvidenceFileId ?? null);
+}
+
 /**
  * Write the rows ONE AT A TIME, in order. A 429 (the allowance) is waited out when the wait is short (the same row is retried, at most three times) and
- * otherwise ends the run; any other refusal, and any request that did not complete, ENDS THE RUN at once. The report lists exactly which rows were written,
- * which one failed and why, and which were never tried: there is no half-silent state, and no row after a failure is attempted.
+ * otherwise ends the run; any other refusal, and any request whose result is not known, ENDS THE RUN at once. After a stop the hall's figures are read again
+ * and the report says which of the remaining rows actually landed. The report lists exactly which rows were written, which one failed and why, and which were
+ * never tried: there is no half-silent state, and no row after a failure is attempted.
  */
 export async function runImport(rows: RowPlan[], deps: RunDeps): Promise<ImportReport> {
   const written: WrittenRow[] = [];
   const total = rows.length;
   const rest = (from: number) => rows.slice(from).map((r) => ({ n: r.n, fieldPath: r.fieldPath }));
+  /** End the run at row k, then look at what the hall now holds. */
+  const stopAt = async (k: number, failed: FailedRow): Promise<ImportReport> => {
+    const base = { outcome: "stopped" as const, written, failed, notAttempted: rest(k + 1) };
+    let current: RegistryInput[] | null = null;
+    if (deps.verify) { try { current = await deps.verify(); } catch { current = null; } }
+    const unconfirmed = rows.slice(k);
+    return {
+      ...base,
+      afterStop: !deps.verify ? null : current === null ? { read: false, landed: [], absent: [], current: null } : {
+        read: true, current,
+        landed: unconfirmed.filter((r) => rowLanded(r.body!, current!)).map((r) => r.n),
+        absent: unconfirmed.filter((r) => !rowLanded(r.body!, current!)).map((r) => r.n),
+      },
+    };
+  };
   for (let k = 0; k < rows.length; k++) {
     const row = rows[k]!;
-    if (deps.isCancelled?.()) return { outcome: "cancelled", written, failed: null, notAttempted: rest(k) };
+    if (deps.isCancelled?.()) return { outcome: "cancelled", written, failed: null, notAttempted: rest(k), afterStop: null };
     if (k > 0 && deps.gapMs) await deps.sleep(deps.gapMs);
     deps.onProgress?.({ done: written.length, total, current: row.n, waitingSeconds: null });
     let attempts = 0;
@@ -431,12 +537,9 @@ export async function runImport(rows: RowPlan[], deps: RunDeps): Promise<ImportR
       try {
         res = await deps.post(row.body!);
       } catch {
-        return {
-          outcome: "stopped", written, notAttempted: rest(k + 1),
-          failed: { n: row.n, fieldPath: row.fieldPath, status: null, outcomeUnknown: true, message: "The request did not complete, so it is not known whether this row was written. Reload the hall and check before you import again." },
-        };
+        return stopAt(k, { n: row.n, fieldPath: row.fieldPath, status: null, outcomeUnknown: true, message: UNKNOWN_MESSAGE });
       }
-      if (res.status === 201 && res.body?.ok) {
+      if (res.status === 201 && res.body?.ok === true) {
         written.push({ n: row.n, fieldPath: row.fieldPath, id: String(res.body.id ?? ""), input: (res.body.input as RegistryInput | undefined) ?? null });
         break;
       }
@@ -446,23 +549,22 @@ export async function runImport(rows: RowPlan[], deps: RunDeps): Promise<ImportR
         if (wait <= MAX_AUTO_WAIT_SECONDS && attempts <= MAX_429_RETRIES_PER_ROW) {
           deps.onProgress?.({ done: written.length, total, current: row.n, waitingSeconds: wait });
           await deps.sleep(wait * 1000 + 500);
-          if (deps.isCancelled?.()) return { outcome: "cancelled", written, failed: null, notAttempted: rest(k) };
+          if (deps.isCancelled?.()) return { outcome: "cancelled", written, failed: null, notAttempted: rest(k), afterStop: null };
           continue;
         }
         const mins = Math.ceil(wait / 60);
-        return {
-          outcome: "stopped", written, notAttempted: rest(k + 1),
-          failed: { n: row.n, fieldPath: row.fieldPath, status: 429, outcomeUnknown: false, message: `The registry's allowance for writes is used up (${WRITES_PER_HOUR} an hour for your account). Try again in about ${mins} minute${mins === 1 ? "" : "s"}; this row was not written. Rows already written will show as unchanged in the next preview.` },
-        };
+        return stopAt(k, {
+          n: row.n, fieldPath: row.fieldPath, status: 429, outcomeUnknown: false,
+          message: `The registry's allowance for writes is used up (${WRITES_PER_HOUR} an hour for your account). Try again in about ${mins} minute${mins === 1 ? "" : "s"}; this row was not written. Rows already written will show as unchanged in the next preview.`,
+        });
       }
-      return {
-        outcome: "stopped", written, notAttempted: rest(k + 1),
-        failed: { n: row.n, fieldPath: row.fieldPath, status: res.status, outcomeUnknown: false, message: failureText(res.status, res.body) },
-      };
+      // The server's own words are NOT used when the result is unknown: a 503 says "nothing was changed" even when the answer was lost after the commit.
+      if (outcomeUnknown(res)) return stopAt(k, { n: row.n, fieldPath: row.fieldPath, status: res.status, outcomeUnknown: true, message: `${UNKNOWN_MESSAGE} (The server answered ${res.status}.)` });
+      return stopAt(k, { n: row.n, fieldPath: row.fieldPath, status: res.status, outcomeUnknown: false, message: failureText(res.status, res.body) });
     }
   }
   deps.onProgress?.({ done: written.length, total, current: null, waitingSeconds: null });
-  return { outcome: "complete", written, failed: null, notAttempted: [] };
+  return { outcome: "complete", written, failed: null, notAttempted: [], afterStop: null };
 }
 
 // --------------------------------------------------------------------------------------------------------------- the template
