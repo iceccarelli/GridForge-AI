@@ -143,7 +143,7 @@ export function EffectBody({ answer, base }: { answer: Answer; base: CompareResu
     {view ? (
       <div className="flex flex-col gap-4" data-testid="effect-result">
         <p className="text-sm text-ghost">
-          {answer.offered} accepted quotation{answer.offered === 1 ? "" : "s"} offered to the engine; it used {view.used.length}
+          {answer.offered} accepted quotation{answer.offered === 1 ? "" : "s"} offered to the engine; it applied {answer.applied.length}
           {view.ignored.length ? ` and ignored ${view.ignored.length}` : ""}.
         </p>
         {view.scenarios.map((s) => (
@@ -152,6 +152,7 @@ export function EffectBody({ answer, base }: { answer: Answer; base: CompareResu
             <p className="mt-2 text-sm text-mute" data-testid="capex-move">
               Capex <span className="data text-ghost">{eur(s.capex_before_eur)}</span> → <span className="data text-ghost">{eur(s.capex_after_eur)}</span>
               {s.capex_delta_eur !== 0 ? <> ({s.capex_delta_eur > 0 ? "+" : "−"}{eur(Math.abs(s.capex_delta_eur))})</> : " (no change)"}
+              {!s.complete_after ? <span className="ml-1 text-queue" data-testid="modelled-incomplete"> · modelled, incomplete: a lower bound, not a price</span> : null}
             </p>
             <p className="mt-1 text-sm text-mute" data-testid="complete-after">
               Capex complete: before {yn(s.complete_before)}, after <strong className={s.complete_after ? "text-verified" : "text-queue"}>{yn(s.complete_after)}</strong>

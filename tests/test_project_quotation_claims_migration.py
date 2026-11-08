@@ -173,7 +173,8 @@ def test_a_claim_is_stored_unverified_tied_to_its_file_and_the_same_claim_twice_
     p = claim(pid, fid)
     first = submit(db, p)
     assert first["created"] is True
-    assert submit(db, p) == {"created": False, "id": first["id"]}
+    assert submit(db, p) == {"created": False, "id": first["id"], "state": "validated"}
+    assert first["state"] == "validated"
     assert n(db, f"select count(*) from cost_evidence where project_id='{pid}'") == 1
     assert n(db, f"select count(*) from project_events where project_id='{pid}' and event_type='cost_evidence_received'") == 1
     row = psql(db, f"select state, source_file_id::text, deliverable_id is null, response_digest = (select sha256 from project_evidence where id='{fid}'), lead_time_weeks, synthetic "
@@ -219,22 +220,67 @@ def test_a_claim_cannot_cite_another_projects_file_or_an_expired_or_inverted_val
     assert n(db, f"select count(*) from cost_evidence where project_id in ('{a}','{b}')") == 0
 
 
+def cp(n):
+    return chr(n)
+
+
 @pytest.mark.parametrize("over,needle", [
     ({"supplier": "ACME" + BIDI + "SYN"}, "cost_evidence_origin"),
-    ({"scope": "a\nb"}, "cost_evidence_origin"),
+    ({"supplier": "ACME" + cp(0xAD) + "SYN"}, "cost_evidence_origin"),                  # soft hyphen
+    ({"supplier": "ACME" + cp(0x180E) + "SYN"}, "cost_evidence_origin"),                # Mongolian vowel separator
+    ({"supplier": "ACME" + cp(0xFE0F) + "SYN"}, "cost_evidence_origin"),                # variation selector
+    ({"supplier": "ACME" + cp(0xE0100) + "SYN"}, "cost_evidence_origin"),               # variation selector supplement
+    ({"scope": "a" + cp(0xE0041) + "b"}, "cost_evidence_origin"),                       # a tag character
+    ({"scope": "a\nb"}, "cost_evidence_origin"),                                        # a newline: [[:cntrl:]] let it pass under C.utf8
+    ({"scope": "a\tb"}, "cost_evidence_origin"),
+    ({"scope": "a\rb"}, "cost_evidence_origin"),
+    ({"reference": "a\nb"}, "cost_evidence_origin"),
+    ({"submitted_by": "a" + cp(0x200B) + "b"}, "cost_evidence_origin"),
+    ({"notes": "a" + cp(0x1B) + "[31mb"}, "cost_evidence_origin"),                      # an ESC in the notes
+    ({"notes": "a" + cp(0x2066) + "b"}, "cost_evidence_origin"),
+    ({"notes": "a" + cp(0xE0041) + "b"}, "cost_evidence_origin"),
     ({"lead_time_weeks": 521}, "cost_evidence_origin"),
     ({"lead_time_weeks": 0}, "cost_evidence_origin"),
     ({"claimed_quote_type": "contracted"}, "cost_evidence_origin"),
     ({"submitted_by": "   "}, "cost_evidence_origin"),
     ({"notes": "x" * 1001}, "cost_evidence_origin"),
     ({"value": 1e10}, "cost_evidence_origin"),
+    ({"value": 0.001}, "cost_evidence_origin"),                                         # below a cent
     ({"value": 0}, "violates check constraint"),
+    ({"quoted_quantity": 1e-320, "quoted_quantity_unit": "unit"}, "cost_evidence_origin"),   # would make the engine's capex infinite
+    ({"quoted_quantity": 0.0001, "quoted_quantity_unit": "unit"}, "cost_evidence_origin"),
+    ({"unit": "EUR/m2;--"}, "cost_evidence_origin"),
 ])
 def test_the_database_refuses_a_claim_the_site_would_have_refused(db, over, needle):
     pid = project(db)
     fid = file(db, pid)
     refused(db, submit_sql(claim(pid, fid, **over)), needle)
     assert n(db, f"select count(*) from cost_evidence where project_id='{pid}'") == 0
+
+
+def test_ordinary_text_goes_through_including_accents_cjk_and_line_breaks_in_notes_only(db):
+    pid = project(db)
+    fid = file(db, pid)
+    ok = submit(db, claim(pid, fid, supplier="Soci\u00e9t\u00e9 \u00c9lectrique \u682a\u5f0f\u4f1a\u793e", notes="line one\nline two\r\n\tindented", quoted_quantity=0.001, quoted_quantity_unit="unit"))
+    assert ok["created"] is True
+
+
+def test_the_101st_claim_of_a_project_is_refused_and_a_retry_of_the_100th_is_not(db):
+    pid = project(db)
+    fid = file(db, pid)
+    first = claim(pid, fid)
+    fill = (f"select count(gf_submit_project_quotation(jsonb_build_object('project_id', '{pid}', 'source_file_id', '{fid}', 'line_digest', md5(g::text) || md5(g::text), "
+            "'cost_key', 'cdu.addition', 'unit', 'EUR', 'value', 100 + g, 'supplier', 'SYNTHETIC-SUPPLIER-A', 'received_on', '2026-10-01', 'valid_until', '2099-12-31', "
+            f"'scope', 'synthetic scope', 'comparability', 'exact', 'claimed_quote_type', 'firm_quote', 'submitted_by', 'A. Holder'), '{q(EVENT)}'::jsonb)) from generate_series(1, 100) g")
+    assert n(db, fill) == 100
+    assert n(db, f"select count(*) from cost_evidence where project_id='{pid}'") == 100
+    refused(db, submit_sql(first), "at most 100 quotation claims")
+    assert n(db, f"select count(*) from cost_evidence where project_id='{pid}'") == 100
+    # a byte-identical retry of one already recorded is still answered, not counted against the limit
+    again = psql(db, f"select gf_submit_project_quotation(jsonb_build_object('project_id', '{pid}', 'source_file_id', '{fid}', 'line_digest', md5('7') || md5('7'), 'cost_key', 'cdu.addition', "
+                     "'unit', 'EUR', 'value', 107, 'supplier', 'SYNTHETIC-SUPPLIER-A', 'received_on', '2026-10-01', 'valid_until', '2099-12-31', 'scope', 'synthetic scope', "
+                     f"'comparability', 'exact', 'claimed_quote_type', 'firm_quote', 'submitted_by', 'A. Holder'), '{q(EVENT)}'::jsonb)->>'created'").stdout.strip()
+    assert again == "false"
 
 
 def test_a_line_is_either_an_engagement_line_or_a_project_line_never_both_or_neither(db):
@@ -290,6 +336,36 @@ def test_a_review_of_a_project_quotation_waits_for_the_per_project_per_item_lock
     assert state(db, eid) == "accepted"
 
 
+def _held_lock_blocks(db, pid, statement, key="cdu.addition"):
+    """Hold the documented lock key for ~3 s in another session and return how long `statement` waited behind it."""
+    import time
+    holder = subprocess.Popen(_cmd(db) + ["-c", f"select pg_advisory_xact_lock(hashtextextended('project:{pid}:{key}', 0)), pg_sleep(3)"], stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+    time.sleep(1.0)
+    t0 = time.time()
+    psql(db, statement)
+    waited = time.time() - t0
+    holder.communicate()
+    return waited
+
+
+def test_a_withdrawal_of_a_project_quotation_waits_for_the_same_lock(db):
+    pid = project(db)
+    eid = submit(db, claim(pid, file(db, pid, verified=True)))["id"]
+    psql(db, review_sql(eid))
+    waited = _held_lock_blocks(db, pid, f"select gf_retire_cost_evidence('{q(json.dumps({'evidence_id': eid, 'retired_by': 'R'}))}'::jsonb, '{q(EVENT)}'::jsonb)")
+    assert waited >= 1.5, f"the withdrawal did not wait for the lock ({waited:.2f}s)"
+    assert state(db, eid) == "withdrawn"
+
+
+def test_saving_a_comparison_on_a_project_quotation_waits_for_the_same_lock(db):
+    pid = project(db)
+    eid = submit(db, claim(pid, file(db, pid, verified=True)))["id"]
+    psql(db, review_sql(eid))
+    waited = _held_lock_blocks(db, pid, save_sql(pid, [eid]))
+    assert waited >= 1.5, f"the save did not wait for the lock ({waited:.2f}s)"
+    assert n(db, f"select count(*) from project_comparisons where project_id='{pid}'") == 1
+
+
 def test_a_project_quotation_of_another_item_or_project_does_not_retire_it(db):
     a, b = project(db), project(db)
     fa, fb = file(db, a, verified=True), file(db, b, verified=True)
@@ -343,3 +419,147 @@ def test_a_hall_figure_of_origin_quotation_cites_the_same_file_row(db):
     out = json.loads(psql(db, f"select gf_record_hall_input('{actor}', '{hall}', 'plant.cdu_quote_eur', '317450'::jsonb, 'EUR', 'E3', 'quotation', '{fid}', null, '2026-10-01')").stdout.split("\n")[0])
     assert out["ok"] is True and out["input"]["source"]["id"] == fid
     assert n(db, f"select count(*) from project_evidence where project_id='{pid}'") == 1
+
+
+# ---------------------------------------------------------------------------------------------------------------------------------------------
+# The gates hold for a direct INSERT too (row triggers), and each clause of the file gate is exercised ALONE, in the function and in the trigger.
+# A fixture the application could never create is built as the database OWNER (a trigger disabled for one statement); mutating any ONE clause of
+# the gate in either place then fails a test.
+# ---------------------------------------------------------------------------------------------------------------------------------------------
+REVIEW_TRIGGER = "cost_evidence_review_guard"
+LINE_TRIGGER = "cost_evidence_line_guard"
+
+
+def owner(db, sql, check=True):
+    return psql(db, sql, check=check)
+
+
+def raw_line_sql(pid, fid, **over):
+    """A full project line as a raw INSERT (what a service_role caller who skips the functions would write)."""
+    c = {"project_id": pid, "source_file_id": fid, "line_digest": h(str(uuid.uuid4())), "cost_key": "cdu.addition", "unit": "EUR", "value": 317450,
+         "supplier": "SYNTHETIC-SUPPLIER-A", "received_on": "2026-10-01", "valid_until": "2099-12-31", "scope": "s", "comparability": "exact",
+         "claimed_quote_type": "firm_quote", "submitted_by": "A. Holder"}
+    c.update(over)
+    return ("insert into cost_evidence (deliverable_id, project_id, source_file_id, line_digest, cost_key, unit, value, submitted_value, currency, supplier, received_on, "
+            "valid_until, scope, specification, response_digest, validation_status, comparability, synthetic, claimed_quote_type, submitted_by) values "
+            f"(null, '{c['project_id']}', '{c['source_file_id']}', '{c['line_digest']}', '{c['cost_key']}', '{c['unit']}', {c['value']}, {c['value']}, 'EUR', '{c['supplier']}', "
+            f"'{c['received_on']}', '{c['valid_until']}', '{c['scope']}', '{{}}', '{h('r')}', 'validated', '{c['comparability']}', false, '{c['claimed_quote_type']}', '{c['submitted_by']}') returning id")
+
+
+def raw_review_sql(eid, decision="accepted", reviewer="Reviewer X"):
+    basis = "'firm_quote', 'exact'" if decision == "accepted" else "null, null"
+    return (f"insert into cost_evidence_reviews (evidence_id, decision, basis, comparability, reviewer) values ('{eid}', '{decision}', {basis}, '{reviewer}')")
+
+
+def bad_file_state(db, kind):
+    """-> (project id, evidence id of a project line whose FILE violates exactly one clause of the gate)."""
+    pid = project(db)
+    other = project(db)
+    if kind == "other_project_file":
+        fid = file(db, other, verified=True)                        # a properly verified file... of another project
+        eid = psql(db, "set session_replication_role = replica; " + raw_line_sql(pid, fid)).stdout.split("\\n")[0].replace("SET", "").strip() or None
+        eid = psql(db, f"select id from cost_evidence where project_id='{pid}' and source_file_id='{fid}'").stdout.strip()
+        return pid, eid
+    fid = file(db, pid)
+    sha = psql(db, f"select sha256 from project_evidence where id='{fid}'").stdout.strip()
+    guard_off = "alter table project_evidence disable trigger project_evidence_guard; alter table project_evidence_reviews disable trigger project_evidence_reviews_guard;"
+    guard_on = "alter table project_evidence enable trigger project_evidence_guard; alter table project_evidence_reviews enable trigger project_evidence_reviews_guard;"
+    ins = lambda decision, confirmed: (f"insert into project_evidence_reviews (evidence_id, project_id, decision, reviewer, reason, sha256_confirmed) values "
+                                       f"('{fid}', '{pid}', '{decision}', 'F', 'fixture', {confirmed})")
+    mark = f"update project_evidence set review_status='verified' where id='{fid}'"
+    if kind == "unverified":
+        pass
+    elif kind == "status_verified_without_a_decision":
+        owner(db, guard_off + mark + ";" + guard_on)
+    elif kind == "decision_with_a_different_digest":
+        owner(db, guard_off + ins("verified", f"'{h('not the file')}'") + ";" + mark + ";" + guard_on)
+    elif kind == "decision_is_a_rejection":
+        owner(db, guard_off + ins("rejected", f"'{sha}'") + ";" + mark + ";" + guard_on)
+    elif kind == "decision_without_status":
+        owner(db, guard_off + ins("verified", f"'{sha}'") + ";" + guard_on)       # decision on record, file's review_status left 'unverified'
+    else:
+        raise AssertionError(kind)
+    eid = submit(db, claim(pid, fid))["id"]
+    return pid, eid
+
+
+GATE_CASES = ["unverified", "status_verified_without_a_decision", "decision_with_a_different_digest", "decision_is_a_rejection", "decision_without_status", "other_project_file"]
+
+
+@pytest.mark.parametrize("kind", GATE_CASES)
+def test_the_file_gate_in_the_function_alone_refuses_each_clause(db, kind):
+    pid, eid = bad_file_state(db, kind)
+    refused(db, f"alter table cost_evidence_reviews disable trigger {REVIEW_TRIGGER}; " + review_sql(eid), "file has not been verified")
+    assert state(db, eid) == "validated"
+
+
+@pytest.mark.parametrize("kind", GATE_CASES)
+def test_the_file_gate_in_the_row_trigger_alone_refuses_each_clause_on_a_raw_insert(db, kind):
+    pid, eid = bad_file_state(db, kind)
+    refused(db, raw_review_sql(eid), "file has not been verified")
+    assert n(db, f"select count(*) from cost_evidence_reviews where evidence_id='{eid}'") == 0
+
+
+def test_a_raw_acceptance_on_an_unverified_file_is_refused_and_a_raw_rejection_is_allowed(db):
+    """The repro of the review: a claim on an UNVERIFIED file, then a raw INSERT of an 'accepted' review row for every project line."""
+    pid = project(db)
+    eid = submit(db, claim(pid, file(db, pid)))["id"]
+    refused(db, "insert into cost_evidence_reviews (evidence_id, decision, basis, comparability, reviewer) "
+                f"select id, 'accepted', 'firm_quote', 'exact', 'x' from cost_evidence where source_file_id is not null and project_id = '{pid}'", "file has not been verified")
+    psql(db, raw_review_sql(eid, "rejected"))
+    assert state(db, eid) == "rejected"
+
+
+def test_a_raw_acceptance_on_a_verified_file_passes_the_gate_and_an_engagement_line_is_untouched(db):
+    pid = project(db)
+    eid = submit(db, claim(pid, file(db, pid, verified=True)))["id"]
+    psql(db, raw_review_sql(eid))
+    assert state(db, eid) == "accepted"
+
+
+def test_a_raw_insert_of_a_project_line_is_held_to_the_same_rules(db):
+    a, b = project(db), project(db)
+    mine, theirs = file(db, a), file(db, b)
+    psql(db, raw_line_sql(a, mine))                                                         # the clean one goes in
+    refused(db, raw_line_sql(a, theirs), "not part of this project")                       # another project's file
+    refused(db, raw_line_sql(a, mine, valid_until="2020-01-01", received_on="2019-01-01"), "already expired")
+    refused(db, raw_line_sql(a, mine, received_on="2098-01-01", valid_until="2099-01-01"), "quotation date is in the future")
+    rej = file(db, a)
+    psql(db, f"select gf_review_evidence('{q(json.dumps({'evidence_id': rej, 'decision': 'rejected', 'reviewer': 'F', 'reason': 'no'}))}'::jsonb, '{q(EVENT)}'::jsonb)")
+    refused(db, raw_line_sql(a, rej), "was reviewed and rejected")
+    assert n(db, f"select count(*) from cost_evidence where project_id in ('{a}','{b}')") == 1
+
+
+@pytest.mark.parametrize("clause,over,needle", [
+    ("project", {"other": True}, "not part of this project"),
+    ("expired", {"valid_until": "2020-01-01", "received_on": "2019-01-01"}, "already expired"),
+    ("future date", {"received_on": "2098-01-01", "valid_until": "2099-01-01"}, "quotation date is in the future"),
+])
+def test_the_function_alone_refuses_the_same_lines(db, clause, over, needle):
+    """The function's own copy of each line rule, with the row trigger off, so removing it from the function fails here."""
+    a, b = project(db), project(db)
+    other = over.pop("other", False)
+    fid = file(db, b if other else a)
+    refused(db, f"alter table cost_evidence disable trigger {LINE_TRIGGER}; " + submit_sql(claim(a, fid, **over)), needle)
+
+
+def test_the_reviewer_cannot_be_the_person_who_submitted_the_quotation(db):
+    pid = project(db)
+    eid = submit(db, claim(pid, file(db, pid, verified=True), submitted_by="A. Holder"))["id"]
+    for who in ("A. Holder", "  a. holder ", "A. HOLDER"):
+        refused(db, review_sql(eid, reviewer=who), "cannot be the person who submitted")
+        refused(db, raw_review_sql(eid, "rejected", reviewer=who), "cannot be the person who submitted")
+    assert state(db, eid) == "validated"
+    psql(db, review_sql(eid, reviewer="Someone Else"))
+    assert state(db, eid) == "accepted"
+
+
+def test_a_claim_can_be_entered_again_with_a_correction_after_a_rejection(db):
+    pid = project(db)
+    fid = file(db, pid, verified=True)
+    first = submit(db, claim(pid, fid, notes="excludes civils"))
+    psql(db, review_sql(first["id"], "rejected"))
+    same = submit(db, claim(pid, fid, notes="excludes civils", line_digest=psql(db, f"select line_digest from cost_evidence where id='{first['id']}'").stdout.strip()))
+    assert same == {"created": False, "id": first["id"], "state": "rejected"}          # the same claim is the same (rejected) line
+    fixed = submit(db, claim(pid, fid, notes="includes civils"))                        # a corrected one has a new digest in the site, and is a new line here
+    assert fixed["created"] is True and fixed["id"] != first["id"]

@@ -6,9 +6,13 @@
 -- project routes that submit or list a quotation claim answer 503 ("not available"), nothing else changes, and every earlier quotation (the
 -- ones that arrive through a Procurement Specification engagement) behaves exactly as before.
 --
--- REPLAY ORDER. This migration holds the FINAL definitions of gf_review_cost_evidence, gf_retire_cost_evidence and gf_save_comparison and of the
--- cost_evidence_state view. Re-running 0022, 0023 or 0026 after it silently replaces them with older, weaker ones (no file gate; a project-level
--- line could not be named by a saved comparison). Migrations are applied once, in order (scripts/apply-migration.py gate 2).
+-- REPLAY ORDER. This migration holds the FINAL definitions of gf_review_cost_evidence, gf_retire_cost_evidence and gf_save_comparison, of the
+-- cost_evidence_state view and of the two row triggers below. Re-running 0022, 0023 or 0026 after it silently replaces the functions and the view
+-- with older, weaker ones (no file gate in the function; a project-level line could not be named by a saved comparison). The ROW TRIGGERS are what
+-- keep the file gate in force even then: they are not touched by 0022/0023/0026, so a replay of those cannot remove them, and only a replay of 0054
+-- itself changes them (CREATE OR REPLACE FUNCTION + DROP TRIGGER IF EXISTS, so it is idempotent). Migrations are applied once, in order
+-- (scripts/apply-migration.py gate 2). tests/test_project_quotation_final_gate.py reads the FINAL function and trigger definitions from a database
+-- built by the whole chain, and from one with 0022/0026 replayed after it, and fails if any gate is missing.
 --
 -- Why. 0022 takes a quotation only from a released Procurement Specification (an engagement bought on this site) and ties no quotation to a
 -- document. A buyer who already holds a supplier's PDF could not use it: the document could be uploaded as project evidence (0015) and
@@ -30,6 +34,23 @@
 --   E. gf_save_comparison (final): a saved comparison may name an accepted PROJECT line of its own project (stamped with this project, a file
 --      attached, not synthetic, EUR); the earlier rule for engagement lines is unchanged.
 --   F. cost_evidence_state is recreated with the new columns APPENDED, so every existing column keeps its name, type and position.
+--   G. TWO ROW TRIGGERS make the rules hold for a direct INSERT too (a service_role / PostgREST caller who skips the functions), as 0048 did for
+--      review decisions. gf_cost_evidence_review_guard (BEFORE INSERT on cost_evidence_reviews): for a PROJECT line, an acceptance needs the file to
+--      belong to the line's project, review_status 'verified' AND a 'verified' decision row whose sha256_confirmed equals the stored digest (GF009);
+--      and the reviewer may not be the submitter (GF014: compared trimmed and case-insensitively, as for observations). gf_cost_evidence_line_guard
+--      (BEFORE INSERT on cost_evidence): a project line's file must be its own project's (GF010), not rejected (GF011), its validity date may not
+--      have passed and its quotation date may not be in the future (GF012). Neither trigger touches an engagement line. A restore under
+--      session_replication_role = replica skips them, like the other guards.
+--   H. Text and number bounds in the CHECK are the SAME bounds the site applies: no control, invisible or direction-changing code point (the list is
+--      in gf_quotation_text_ok and in lib/cost-evidence-claims.ts BAD_RANGES, cross-checked by a test: it does NOT use [[:cntrl:]], which depends on
+--      the cluster's locale), a price of at least 0.01 EUR, a quantity of at least 0.001 (a denormal would make the engine's capex infinite).
+--
+-- QUOTATION DATE RULE (project claims). The engine resolves two accepted lines for one cost key by their quoted_on, newest winning. A project claim
+-- is therefore refused if its quotation date is in the future, so a budgetary claim dated tomorrow cannot displace a contracted or firm
+-- engagement quotation on the day it is accepted. Engagement lines (0022) are unchanged.
+--
+-- RE-ENTERING A REJECTED CLAIM. A decision is final. A rejected claim is not re-opened: record the quotation again with the corrected figure, dates,
+-- notes or document and it is a NEW line (the digest covers every claimed field), reviewed afresh. The same claim, byte for byte, is the same line.
 --
 -- WHAT THIS DOES NOT DO. It does not verify that a price is true, that a lead time will be met, or that the supplier exists: a verified file is a
 -- file whose bytes are unchanged since upload, and an accepted record is a named person's decision (typed under the shared admin password, as in
@@ -50,6 +71,15 @@ alter table public.cost_evidence
   add column if not exists notes text,
   add column if not exists submitted_by text;
 
+-- Text a reviewer reads must be what it looks like. The same code points as lib/cost-evidence-claims.ts BAD_RANGES (a test compares them one by one);
+-- never [[:cntrl:]], whose meaning depends on the cluster's locale (under C.utf8 a newline passed). `multiline` (the notes) allows tab, LF and CR only.
+create or replace function public.gf_quotation_text_ok(t text, multiline boolean) returns boolean
+language sql immutable as $fn$
+  select t is not null
+     and t !~ E'[\\u0001-\\u0008\\u000b\\u000c\\u000e-\\u001f\\u007f-\\u009f\\u00ad\\u034f\\u061c\\u115f-\\u1160\\u17b4-\\u17b5\\u180b-\\u180e\\u200b-\\u200f\\u2028-\\u202e\\u2060-\\u206f\\u3164\\ufe00-\\ufe0f\\ufeff\\uffa0\\ufff9-\\ufffb\\U000e0000-\\U000e007f\\U000e0100-\\U000e01ef]'
+     and (multiline or t !~ E'[\\u0009\\u000a\\u000d]')
+$fn$;
+
 do $$
 begin
   if not exists (select 1 from pg_constraint where conname = 'cost_evidence_origin' and conrelid = 'public.cost_evidence'::regclass) then
@@ -64,13 +94,13 @@ begin
         and (notes is null or length(notes) <= 1000)
         and validation_status = 'validated' and synthetic = false
         and coalesce(valid_until >= received_on, false)
-        and coalesce(value <= 1000000000, false)
+        and coalesce(value >= 0.01 and value <= 1000000000, false)
+        and (quoted_quantity is null or (quoted_quantity >= 0.001 and quoted_quantity <= 1000000000))
+        and unit ~ '^[A-Za-z0-9/]{1,20}$' and (quoted_quantity_unit is null or quoted_quantity_unit ~ '^[A-Za-z0-9/]{1,20}$')
         and length(supplier) <= 120 and length(scope) <= 300
-        -- No control character and no bidirectional / invisible formatting character in text a reviewer will read.
-        and supplier !~ E'[[:cntrl:]\\u061c\\u200b-\\u200f\\u202a-\\u202e\\u2060-\\u2069\\ufeff]'
-        and scope !~ E'[[:cntrl:]\\u061c\\u200b-\\u200f\\u202a-\\u202e\\u2060-\\u2069\\ufeff]'
-        and (notes is null or notes !~ E'[\\u061c\\u200b-\\u200f\\u202a-\\u202e\\u2060-\\u2069\\ufeff]')
-        and (reference is null or reference !~ E'[[:cntrl:]\\u061c\\u200b-\\u200f\\u202a-\\u202e\\u2060-\\u2069\\ufeff]'))
+        and public.gf_quotation_text_ok(supplier, false) and public.gf_quotation_text_ok(scope, false) and public.gf_quotation_text_ok(submitted_by, false)
+        and (notes is null or public.gf_quotation_text_ok(notes, true))
+        and (reference is null or (length(reference) <= 120 and public.gf_quotation_text_ok(reference, false))))
     );
   end if;
 end
@@ -123,11 +153,14 @@ begin
   if (p->>'valid_until')::date < (p->>'received_on')::date then
     raise exception 'the validity date is earlier than the quotation date' using errcode = 'GF012';
   end if;
+  if (p->>'received_on')::date > current_date then
+    raise exception 'the quotation date is in the future' using errcode = 'GF012';
+  end if;
 
   perform pg_advisory_xact_lock(hashtextextended('project-quotation:' || proj::text, 0));
   select * into existing from public.cost_evidence where project_id = proj and deliverable_id is null and line_digest = p->>'line_digest';
   if found then
-    return jsonb_build_object('created', false, 'id', existing.id);
+    return jsonb_build_object('created', false, 'id', existing.id, 'state', (select s.state from public.cost_evidence_state s where s.id = existing.id));
   end if;
   select count(*) into n from public.cost_evidence where project_id = proj and deliverable_id is null;
   if n >= 100 then
@@ -146,7 +179,7 @@ begin
   returning * into r;
   perform public.gf_emit(proj, p_event, jsonb_build_object('evidence_id', r.id, 'cost_key', r.cost_key,
                          'validation_status', r.validation_status, 'synthetic', false, 'source_file_id', f.id));
-  return jsonb_build_object('created', true, 'id', r.id);
+  return jsonb_build_object('created', true, 'id', r.id, 'state', 'validated');
 end;
 $$;
 
@@ -291,13 +324,71 @@ end;
 $$;
 
 -- ---------------------------------------------------------------------------
+-- G. Row triggers: the same rules for a direct INSERT (service_role / PostgREST), as 0048 did for review decisions
+-- ---------------------------------------------------------------------------
+create or replace function public.gf_cost_evidence_line_guard() returns trigger
+language plpgsql as $$
+declare f public.project_evidence;
+begin
+  if new.source_file_id is null then
+    return new;                                              -- an engagement line: not this guard's business
+  end if;
+  select * into f from public.project_evidence where id = new.source_file_id;
+  if not found or f.project_id is distinct from new.project_id then
+    raise exception 'that file is not part of this project' using errcode = 'GF010';
+  end if;
+  if f.review_status = 'rejected' then
+    raise exception 'that file was reviewed and rejected, so a quotation cannot rest on it' using errcode = 'GF011';
+  end if;
+  if new.valid_until is null or new.valid_until < current_date then
+    raise exception 'that quotation has already expired' using errcode = 'GF012';
+  end if;
+  if new.received_on is null or new.received_on > current_date then
+    raise exception 'the quotation date is in the future' using errcode = 'GF012';
+  end if;
+  return new;
+end;
+$$;
+
+drop trigger if exists cost_evidence_line_guard on public.cost_evidence;
+create trigger cost_evidence_line_guard before insert on public.cost_evidence
+  for each row execute function public.gf_cost_evidence_line_guard();
+
+create or replace function public.gf_cost_evidence_review_guard() returns trigger
+language plpgsql as $$
+declare e public.cost_evidence;
+begin
+  select * into e from public.cost_evidence where id = new.evidence_id;
+  if not found or e.source_file_id is null then
+    return new;                                              -- an engagement line (or none): the 0022 rules alone
+  end if;
+  if lower(btrim(new.reviewer)) = lower(btrim(e.submitted_by)) then
+    raise exception 'the reviewer cannot be the person who submitted the quotation' using errcode = 'GF014';
+  end if;
+  if new.decision = 'accepted' and not exists (
+       select 1 from public.project_evidence pe
+         join public.project_evidence_reviews er on er.evidence_id = pe.id
+        where pe.id = e.source_file_id and pe.project_id = e.project_id
+          and pe.review_status = 'verified' and er.decision = 'verified' and er.sha256_confirmed = pe.sha256) then
+    raise exception 'the quotation''s file has not been verified, so the quotation cannot be accepted' using errcode = 'GF009';
+  end if;
+  return new;
+end;
+$$;
+
+drop trigger if exists cost_evidence_review_guard on public.cost_evidence_reviews;
+create trigger cost_evidence_review_guard before insert on public.cost_evidence_reviews
+  for each row execute function public.gf_cost_evidence_review_guard();
+
+-- ---------------------------------------------------------------------------
 -- Privileges, per 0020/0022/0026: the gf_* functions are service_role-only; the view is service-role-only.
 -- ---------------------------------------------------------------------------
 do $$
 declare r text; f text;
 begin
   foreach f in array array['public.gf_submit_project_quotation(jsonb, jsonb)', 'public.gf_review_cost_evidence(jsonb, jsonb)',
-                           'public.gf_retire_cost_evidence(jsonb, jsonb)', 'public.gf_save_comparison(jsonb, jsonb, jsonb, jsonb)'] loop
+                           'public.gf_retire_cost_evidence(jsonb, jsonb)', 'public.gf_save_comparison(jsonb, jsonb, jsonb, jsonb)',
+                           'public.gf_cost_evidence_line_guard()', 'public.gf_cost_evidence_review_guard()', 'public.gf_quotation_text_ok(text, boolean)'] loop
     execute format('revoke all on function %s from public', f);
     foreach r in array array['anon', 'authenticated'] loop
       if exists (select 1 from pg_roles where rolname = r) then

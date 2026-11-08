@@ -65,6 +65,8 @@ export function ProjectEvidenceReview({
   counts,
   quotations,
   quotationsError,
+  quotationsMore = 0,
+  quotationsMoreIsLowerBound = false,
 }: {
   observations: ObservationItem[];
   actuals: ActualItem[];
@@ -80,6 +82,9 @@ export function ProjectEvidenceReview({
   quotations?: QueuedClaim[];
   /** Why the quotations could not be read, if they could not (shown instead of an empty queue). */
   quotationsError?: string | null;
+  /** Pending quotations beyond the page shown (lib/project-quotation-claims.ts claimQueue). */
+  quotationsMore?: number;
+  quotationsMoreIsLowerBound?: boolean;
 }) {
   const [done, setDone] = useState<Done[]>([]);
   const decided = new Set(done.map((d) => d.id));
@@ -144,6 +149,8 @@ export function ProjectEvidenceReview({
         <QuotationReview
           items={quotations ?? []}
           initialError={quotationsError}
+          more={quotationsMore}
+          moreIsLowerBound={quotationsMoreIsLowerBound}
           decidedFiles={Object.fromEntries(done.filter((d) => d.decision).map((d) => [d.id, d.decision as "verified" | "rejected"]))}
         />
       )}

@@ -63,6 +63,8 @@ export default async function EvidenceReviewPage() {
         initialError={q.ok ? null : q.error}
         quotations={quotes.ok ? quotes.claims : undefined}
         quotationsError={quotes.ok ? null : quotes.status === 503 ? null : quotes.error}
+        quotationsMore={quotes.ok ? quotes.more : 0}
+        quotationsMoreIsLowerBound={quotes.ok ? quotes.moreIsLowerBound : false}
       />
     </div>
   );

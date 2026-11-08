@@ -43,12 +43,20 @@ export function leadTimeText(c: Pick<ClaimView, "lead_time_weeks" | "state" | "f
   return `${w} quoted: customer-supplied, unverified; not used by the engine`;
 }
 
-export function ClaimsList({ claims, empty }: { claims: ClaimView[]; empty?: string }) {
+/** What the badge says. "Counted" would claim more than is known: an accepted quotation is OFFERED to the engine, and only the engine says it APPLIED one. */
+export function claimBadge(c: Pick<ClaimView, "id" | "counted">, applied?: readonly string[]): { text: string; positive: boolean } {
+  if (applied?.includes(c.id)) return { text: "applied by the engine", positive: true };
+  if (c.counted) return { text: "offered to the engine", positive: true };
+  return { text: "not yet counted", positive: false };
+}
+
+export function ClaimsList({ claims, empty, applied }: { claims: ClaimView[]; empty?: string; applied?: readonly string[] }) {
   if (claims.length === 0) return <p className="text-faint">{empty ?? "No supplier quotation has been recorded for this project."}</p>;
   return (
     <ul className="space-y-2" aria-label="Supplier quotations of this project">
       {claims.map((c) => {
         const lead = leadTimeText(c);
+        const badge = claimBadge(c, applied);
         return (
           <li key={c.id} data-claim-id={c.id} data-state={c.state} data-counted={c.counted ? "yes" : "no"} className="rounded border border-line p-2.5">
             <div className="flex flex-wrap items-start justify-between gap-2">
@@ -56,9 +64,9 @@ export function ClaimsList({ claims, empty }: { claims: ClaimView[]; empty?: str
                 {c.supplier} <span className="text-faint">· {c.item}</span>
               </p>
               <span
-                className={`shrink-0 rounded border px-1.5 py-0.5 font-mono text-[10px] uppercase tracking-[0.1em] ${c.counted ? "border-verified/50 text-verified" : "border-queue/50 text-queue"}`}
+                className={`shrink-0 rounded border px-1.5 py-0.5 font-mono text-[10px] uppercase tracking-[0.1em] ${badge.positive ? "border-verified/50 text-verified" : "border-queue/50 text-queue"}`}
               >
-                {c.counted ? "counted" : "not yet counted"}
+                {badge.text}
               </span>
             </div>
             <p className="mt-1 break-words">

@@ -10,7 +10,7 @@ import { createElement as h } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
 import { NO_EQUIPMENT_STATEMENT, LEAD_TIME_NOTE, NOT_COUNTED_REASON, QUOTE_TYPE_LABEL } from "@/lib/cost-evidence-claims";
-import { QuotationSection, ClaimsList } from "@/components/QuotationClaims";
+import { QuotationSection, ClaimsList, claimBadge } from "@/components/QuotationClaims";
 import { QuotationEffectPanel, EffectBody, type Answer } from "@/components/QuotationEffectPanel";
 import { QuotationReview, type QueuedClaim } from "@/components/QuotationReview";
 import type { CompareResult } from "@/lib/ttp-compare";
@@ -93,8 +93,12 @@ describe("zero hardware margin: no quotation surface implies GridForge supplies,
     // The statement is the one sentence every scan lets through, so it is pinned word for word and its remainder is scanned.
     expect(NO_EQUIPMENT_STATEMENT).toBe(
       "GridForge sells no equipment, takes no margin on any purchase and quotes no equipment itself. These are your own supplier's quotations: we " +
-        "record them, have a named person check the document and the record, and apply them to the engine's comparison for your project."
+        "record them, a reviewer checks the stored document and the record (the reviewer's name is text typed under a shared admin password, not a verified " +
+        "identity), and we apply them to the engine's comparison for your project."
     );
+    // It does not claim a named, verified person: the reviewer's name is typed text under one shared password.
+    expect(NO_EQUIPMENT_STATEMENT).not.toMatch(/named person/i);
+    expect(NO_EQUIPMENT_STATEMENT).toMatch(/typed under a shared admin password, not a verified identity/);
     const remainder = NO_EQUIPMENT_STATEMENT.replace("GridForge sells no equipment, takes no margin on any purchase and quotes no equipment itself.", "");
     expect(offences(remainder)).toEqual([]);
   });
@@ -129,5 +133,34 @@ describe("zero hardware margin: no quotation surface implies GridForge supplies,
     // ...and lets through the sentence that denies the practice, and plain statements about the customer's own quotations
     expect(offences(NO_EQUIPMENT_STATEMENT)).toEqual([]);
     expect(offences("Your supplier's quotation is applied to the engine's comparison. A reviewer accepts the record.")).toEqual([]);
+  });
+});
+
+describe("the words say what is known, no more", () => {
+  const html = (el: Parameters<typeof renderToStaticMarkup>[0]) => renderToStaticMarkup(el).replace(/&#x27;/g, "'");
+  it("an accepted quotation is 'offered to the engine'; only the engine's own account makes it 'applied'; nothing says 'counted'", () => {
+    const acc = claim({ id: "c1", state: "accepted", counted: true, reason: null });
+    expect(claimBadge(acc)).toEqual({ text: "offered to the engine", positive: true });
+    expect(claimBadge(acc, ["c1"])).toEqual({ text: "applied by the engine", positive: true });
+    expect(claimBadge(acc, ["other"])).toEqual({ text: "offered to the engine", positive: true });
+    expect(claimBadge(claim())).toEqual({ text: "not yet counted", positive: false });
+    const list = html(h(ClaimsList, { claims: [acc, claim({ id: "c2" })] }));
+    expect(list).toContain("offered to the engine");
+    expect(list).not.toMatch(/>counted</);
+  });
+  it("reports how many the engine APPLIED (the route's `applied`), not how many it merely held", () => {
+    const body = html(h(EffectBody, { answer: { ...answer, offered: 2, applied: ["c1"] }, base }));
+    expect(body).toMatch(/2 accepted quotations offered to the engine; it applied 1/);
+    expect(body).not.toMatch(/it used/);
+  });
+  it("says 'modelled, incomplete' beside the capex whenever the engine says capex is not complete, and not when it is", () => {
+    expect(html(h(EffectBody, { answer, base }))).toContain("modelled, incomplete");
+    const complete = JSON.parse(JSON.stringify(withQ));
+    complete.cost_evidence.effect.scenarios[0].capex_complete_after = true;
+    const done = html(h(EffectBody, { answer: { ...answer, result: complete }, base }));
+    expect(done).not.toContain("modelled, incomplete");
+  });
+  it("never calls the reviewer a verified or named person", () => {
+    for (const [, render] of SURFACES) expect(render().replace(/&#x27;/g, "'")).not.toMatch(/named (person|reviewer)/i);
   });
 });

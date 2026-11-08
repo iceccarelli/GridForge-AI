@@ -11,7 +11,10 @@ import { spawn, spawnSync, type ChildProcess } from "node:child_process";
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { siteUrl } from "@/lib/site";
 import { RATE_POLICIES, resetMemoryLimiter } from "@/lib/rate-limit";
-import { PostgrestFake } from "./postgrest-fake";
+import { PostgrestFake, PgError } from "./postgrest-fake";
+import { evidenceQueue, reviewEvidence } from "@/lib/cost-evidence";
+import { claimQueue, QUEUE_LIMIT } from "@/lib/project-quotation-claims";
+import { LIMITS } from "@/lib/cost-evidence-claims";
 import { installProjectRpcs } from "./project-rpc-fake";
 import { engineAvailable } from "./_engine-guard";
 
@@ -218,7 +221,7 @@ describe("what a holder is shown", () => {
 });
 
 describe.skipIf(!hasPython)("what the engine is and is not sent", () => {
-  it("offers only accepted, in-project, in-date lines; asks the engine nothing when none is accepted", async () => {
+  it("offers only accepted lines of this project (an accepted but expired one is offered and the engine ignores it); asks the engine nothing when none is accepted", async () => {
     project("tok-a", "p-a"); project("tok-b", "p-b"); file(FILE_A, "p-a", { review_status: "verified" }); file(FILE_B, "p-b", { review_status: "verified" });
     line("l-pending", "p-a", FILE_A, { cost_key: "plant.uprate" });
     line("l-rejected", "p-a", FILE_A, { state: "rejected", cost_key: "busway.replacement" });
@@ -257,5 +260,82 @@ describe.skipIf(!hasPython)("what the engine is and is not sent", () => {
     const extra = await POST(post("/x", { compare: { hall: HALL }, cost_evidence: [{ key: "cdu.addition", value: 1 }] }), ctx("tok-a"));
     expect(extra.status).toBe(422);                                                      // a browser cannot send the engine a quotation of its own
     expect(engineBodies).toHaveLength(0);
+  });
+});
+
+describe("the limits and the honest answers around a claim", () => {
+  it("answers the 101st claim of a project with a 409 that says the limit, and stores nothing", async () => {
+    project("tok-a", "p-a"); file(FILE_A, "p-a");
+    db.rpcs.set("gf_submit_project_quotation", () => { throw new PgError("GF013", "a project holds at most 100 quotation claims", 400); });
+    const r = await submit("tok-a", claim());
+    expect(r.status).toBe(409);
+    expect((await j(r)).error).toContain(`(${LIMITS.maxClaimsPerProject})`);
+    expect(LIMITS.maxClaimsPerProject).toBe(100);
+  });
+
+  it("says plainly when an identical claim was already recorded, and what became of it; it never says 'Recorded' for a change that stored nothing", async () => {
+    project("tok-a", "p-a"); file(FILE_A, "p-a");
+    db.rpcs.set("gf_submit_project_quotation", () => ({ created: false, id: "line-1", state: "rejected" }));
+    const r = await submit("tok-a", claim());
+    expect(r.status).toBe(200);
+    const b = await j(r);
+    expect(b).toMatchObject({ ok: true, created: false, state: "rejected" });
+    expect(b.note).toMatch(/identical quotation is already recorded \(it is rejected\)/);
+    expect(b.note).toMatch(/Nothing new was stored/);
+    expect(b.note).toMatch(/rejected quotation is not re-opened, and a corrected one is recorded afresh/);
+    expect(b.note).not.toMatch(/^Recorded/);
+    expect(b.counted).toBeUndefined();
+  });
+
+  it("maps a reviewer who is the submitter to a 403, and an unverified file to a 409", async () => {
+    db.rpcs.set("gf_review_cost_evidence", () => { throw new PgError("GF014", "the reviewer cannot be the person who submitted the quotation", 400); });
+    const id = "11111111-1111-4111-8111-111111111111";
+    const same = await reviewEvidence({ evidence_id: id, decision: "accepted", reviewer: "A. Holder", basis: "firm_quote", comparability: "exact" });
+    expect(same.ok === false && same.status).toBe(403);
+    db.rpcs.set("gf_review_cost_evidence", () => { throw new PgError("GF009", "x", 400); });
+    const gate = await reviewEvidence({ evidence_id: id, decision: "accepted", reviewer: "R", basis: "firm_quote", comparability: "exact" });
+    expect(gate.ok === false && gate.status).toBe(409);
+  });
+});
+
+describe("the older engagement queue does not carry project quotations", () => {
+  it("lists engagement lines only, so a project line cannot be accepted there without its file and claims in view", async () => {
+    project("tok-a", "p-a"); file(FILE_A, "p-a");
+    line("l-project", "p-a", FILE_A);
+    db.insertRow("cost_evidence_state", { id: "l-engagement", project_id: "p-a", deliverable_id: "d-1", source_file_id: null, cost_key: "cdu.addition", state: "validated", submitted_at: "2026-11-08T09:00:00Z" });
+    for (const state of ["pending", "all"] as const) {
+      const q = await evidenceQueue(state);
+      expect(q.ok && q.items.map((i) => i.id)).toEqual(["l-engagement"]);
+    }
+  });
+});
+
+describe("the administrator's quotation queue", () => {
+  it("shows the OLDEST pending claims first and says how many more are not shown", async () => {
+    project("tok-a", "p-a"); file(FILE_A, "p-a");
+    for (let i = 0; i < QUEUE_LIMIT + 7; i++) line(`l-${String(i).padStart(4, "0")}`, "p-a", FILE_A, { submitted_at: `2026-11-08T10:${String(Math.floor(i / 60)).padStart(2, "0")}:${String(i % 60).padStart(2, "0")}Z` });
+    const q = await claimQueue("pending");
+    if (!q.ok) throw new Error("queue should read");
+    expect(q.claims).toHaveLength(QUEUE_LIMIT);
+    expect(q.claims[0].id).toBe("l-0000");                                   // the oldest, not the newest
+    expect(q.claims.at(-1)!.id).toBe(`l-${String(QUEUE_LIMIT - 1).padStart(4, "0")}`);
+    expect(q.more).toBe(7);
+    expect(q.moreIsLowerBound).toBe(false);
+  });
+  it("says nothing is hidden when everything fits", async () => {
+    project("tok-a", "p-a"); file(FILE_A, "p-a");
+    line("l-1", "p-a", FILE_A);
+    const q = await claimQueue("pending");
+    expect(q.ok && q.more).toBe(0);
+  });
+});
+
+describe("the comparison route spends the allowance before it reads the store", () => {
+  it("limits a caller who keeps asking for a project with no accepted quotation (there is no engine call to limit, only reads)", async () => {
+    project("tok-a", "p-a");
+    const policy = RATE_POLICIES.ttp_compare;
+    let last = 0;
+    for (let i = 0; i < policy.limit + 1; i++) last = (await compareRoute("tok-a")).status;
+    expect(last).toBe(429);
   });
 });

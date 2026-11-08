@@ -45,8 +45,24 @@ export async function POST(req: Request, ctx: { params: Promise<{ token: string 
   if (g.denied) return g.denied;
   const r = await submitClaim(p.project, body);
   if (!r.ok) return fail(r as typeof r & { details?: unknown });
+  if (!r.created) {
+    // Byte-identical to a claim already recorded: nothing was stored, and the answer says what became of it.
+    return NextResponse.json(
+      {
+        ok: true,
+        id: r.id,
+        created: false,
+        state: r.state === "validated" ? "received" : r.state,
+        note:
+          `An identical quotation is already recorded (it is ${r.state === "validated" ? "awaiting a reviewer" : r.state}). Nothing new was stored, and your entry changed nothing. ` +
+          "To record a different quotation, change what differs (the figure, the dates, the notes, the reference or the document). A decision is final: a rejected " +
+          "quotation is not re-opened, and a corrected one is recorded afresh and reviewed as a new record.",
+      },
+      { status: 200, headers: NO_STORE }
+    );
+  }
   return NextResponse.json(
-    { ok: true, id: r.id, created: r.created, state: "received", counted: false, note: "Recorded and not yet counted: a reviewer must verify the file and accept this record before it changes any number." },
-    { status: r.created ? 201 : 200, headers: NO_STORE }
+    { ok: true, id: r.id, created: true, state: "received", counted: false, note: "Recorded and not yet counted: a reviewer must verify the file and accept this record before it changes any number." },
+    { status: 201, headers: NO_STORE }
   );
 }

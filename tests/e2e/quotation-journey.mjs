@@ -231,7 +231,7 @@ try {
 
     // the holder sees it counted
     const after = (await holder.ctx.request.get(`${SITE}/api/projects/${token}/cost-evidence`).then((r) => r.json())).claims[0];
-    check(at("the holder's list now counts it, as a firm supplier quote"), after.counted === true && after.review?.basis_label === "firm supplier quote");
+    check(at("the holder's list now offers it to the engine, as a firm supplier quote"), after.counted === true && after.review?.basis_label === "firm supplier quote");
 
     // ---------------------------------------------------------------- 3. the comparison, asked again with the quotation
     const cmp = await session(width, height);
@@ -249,8 +249,9 @@ try {
     const result = panel.getByTestId("effect-result");
     await result.waitFor({ timeout: 60000 });
     const r = await result.innerText();
-    check(at("it says how many accepted quotations were offered and used"), /1 accepted quotation offered to the engine; it used 1/.test(r));
+    check(at("it says how many accepted quotations were offered and used"), /1 accepted quotation offered to the engine; it applied 1/.test(r));
     check(at("it shows capex before and after"), (await result.getByTestId("capex-move").count()) > 0 && /€[\d,]+ → €[\d,]+/.test(r));
+    check(at("it says the capex is modelled and incomplete when the engine says so"), !/Capex complete: before \w+, after no/.test(r) || /modelled, incomplete/.test(r));
     check(at("it shows whether capex is complete, as the engine says"), (await result.getByTestId("complete-after").count()) > 0 && /Capex complete: before (yes|no|not reported), after (yes|no|not reported)/.test(r));
     check(at("it names the steps that moved, from a library placeholder to a firm supplier quote"), /library placeholder \(not a price\)/.test(r) && /firm supplier quote/.test(r));
     check(at("it says the date did not move and why"), /does not take a lead time from a quotation|does not supply a lead time/.test(r));

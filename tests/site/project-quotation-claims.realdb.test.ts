@@ -21,6 +21,8 @@ import { adminToken } from "@/lib/admin";
 import { siteUrl } from "@/lib/site";
 import { resetMemoryLimiter } from "@/lib/rate-limit";
 import { effectView } from "@/lib/quotation-effect";
+import { BAD_CHARS, BAD_RANGES } from "@/lib/cost-evidence-claims";
+import { claimQueue } from "@/lib/project-quotation-claims";
 import type { CompareResult } from "@/lib/ttp-compare";
 
 const jar: { name: string; value: string }[] = [];
@@ -369,6 +371,12 @@ describe.skipIf(!enabled)("supplier quotation loop — real PostgreSQL via Postg
       ["a validity date before the quotation date", { quoted_on: day(-1), valid_until: day(-2) }],
       ["a quotation date in the future", { quoted_on: day(30) }],
       ["a price of zero", { price_eur: 0 }],
+      ["a price below a cent", { price_eur: 0.001 }],
+      ["a quantity that would make the engine's capex infinite", { cost_key: "plant.uprate", unit: "EUR", quoted_quantity: 1e-320 }],
+      ["a soft hyphen in the supplier", { supplier: "ACME" + String.fromCodePoint(0xad) + "SYN" }],
+      ["a tag character in the scope", { scope: "x" + String.fromCodePoint(0xe0041) }],
+      ["an escape character in the notes", { notes: "x" + String.fromCodePoint(0x1b) + "[31m" }],
+      ["a quotation dated tomorrow", { quoted_on: day(1) }],
       ["a negative price", { price_eur: -5 }],
       ["a price above the ceiling", { price_eur: 1e12 }],
       ["a price that is text", { price_eur: "317450" }],
@@ -448,4 +456,70 @@ describe.skipIf(!enabled)("supplier quotation loop — real PostgreSQL via Postg
     expect(refused.body.ok).toBe(false);                               // the registry answers a refused figure with ok:false, not a crash
     expect(JSON.stringify(refused.body)).toMatch(/rejected/);
   }, 120_000);
+
+  it("a claim edited after submission is a NEW line, an identical one says nothing was stored, and a rejected one is re-entered by correcting it", async () => {
+    jar.length = 0;
+    jar.push({ name: "gf_admin", value: adminToken()! });
+    const { token, id: pid } = await newProject();
+    const f = await upload(token, "reenter");
+    const first = await j(await submit(token, claim(f.id, { notes: "excludes civils" })));
+    // the same claim, byte for byte: 200, nothing stored, and the answer says what became of it
+    const dup = await submit(token, claim(f.id, { notes: "excludes civils" }));
+    expect(dup.status).toBe(200);
+    const dupBody = await j(dup);
+    expect(dupBody).toMatchObject({ created: false, id: first.id, state: "received" });
+    expect(dupBody.note).toMatch(/Nothing new was stored/);
+    // an edited note is a different claim: recorded, reviewed afresh
+    const edited = await submit(token, claim(f.id, { notes: "includes civils" }));
+    expect(edited.status).toBe(201);
+    expect((await j(edited)).id).not.toBe(first.id);
+    expect(await rows("cost_evidence", `&project_id=eq.${pid}`)).toHaveLength(2);
+    // a reviewer who is the submitter is refused, whatever the case or spacing
+    expect((await verifyFile(f.id)).status).toBe(201);
+    const same = await decide(first.id, { ...ACCEPT, reviewer: "  a. HOLDER " });
+    expect(same.status).toBe(403);
+    expect((await j(same)).error).toMatch(/cannot be the person who submitted/);
+    // reject it; the identical claim then reports the rejection and stores nothing, and the corrected one is a new line
+    expect((await decide(first.id, { decision: "rejected", reviewer: "R. Reviewer", reason: "wrong scope" })).status).toBe(201);
+    const again = await j(await submit(token, claim(f.id, { notes: "excludes civils" })));
+    expect(again).toMatchObject({ created: false, id: first.id, state: "rejected" });
+    expect(again.note).toMatch(/it is rejected/);
+    const fixed = await submit(token, claim(f.id, { notes: "excludes civils", scope: "supply and install of the CDUs, civils excluded" }));
+    expect(fixed.status).toBe(201);
+  }, 120_000);
+
+  it("shows the administrator the OLDEST pending claims first", async () => {
+    jar.length = 0;
+    const { token } = await newProject();
+    const f = await upload(token, "queue");
+    const a = await j(await submit(token, claim(f.id, { price_eur: 1001 })));
+    await new Promise((r) => setTimeout(r, 30));
+    const b = await j(await submit(token, claim(f.id, { price_eur: 1002 })));
+    const q = await claimQueue("pending");
+    if (!q.ok) throw new Error("queue should read");
+    const mine = q.claims.map((c) => c.id).filter((id) => id === a.id || id === b.id);
+    expect(mine).toEqual([a.id, b.id]);
+    expect(q.claims.map((c) => c.submitted_at)).toEqual([...q.claims.map((c) => c.submitted_at)].sort());
+  }, 60_000);
+
+  it("holds the site's list of forbidden code points and the database's to the SAME answer, code point by code point", () => {
+    const inRanges = (cp: number) => BAD_RANGES.some(([a, b]) => cp >= a && cp <= b);
+    const cps = new Set<number>([0x09, 0x0a, 0x0d, 0x20, 0x41, 0xa0, 0xe9, 0x301, 0x4e2d, 0x1f600, 0x2e, 0x7e]);
+    for (const [a, b] of BAD_RANGES) for (const cp of [a - 1, a, b, b + 1]) if (cp > 0) cps.add(cp);
+    for (const cp of [0x1f, 0x20, 0x7e, 0x7f, 0x9f, 0xa0, 0x202f, 0x2070, 0xfdff, 0xe0080, 0xe00ff, 0xe01f0]) cps.add(cp);
+    const list = [...cps].filter((cp) => cp > 0 && !(cp >= 0xd800 && cp <= 0xdfff)).sort((x, y) => x - y);
+    const out = ownerSql(`select cp || '|' || public.gf_quotation_text_ok(chr(cp), false) || '|' || public.gf_quotation_text_ok(chr(cp), true) from unnest(array[${list.join(",")}]) as cp order by cp`);
+    const got = new Map(out.split("\n").map((l) => l.split("|")).map(([cp, line, multi]) => [Number(cp), { line: line === "true", multi: multi === "true" }]));
+    const problems: string[] = [];
+    for (const cp of list) {
+      const bad = inRanges(cp);
+      const lineBad = bad || cp === 0x09 || cp === 0x0a || cp === 0x0d;
+      const db = got.get(cp)!;
+      if (db.line !== !lineBad) problems.push(`U+${cp.toString(16)} line: site ${!lineBad} db ${db.line}`);
+      if (db.multi !== !bad) problems.push(`U+${cp.toString(16)} notes: site ${!bad} db ${db.multi}`);
+      if (BAD_CHARS.test(String.fromCodePoint(cp)) !== lineBad) problems.push(`U+${cp.toString(16)} BAD_CHARS disagrees with the ranges`);
+    }
+    expect(problems).toEqual([]);
+    expect(list.length).toBeGreaterThan(60);
+  });
 });

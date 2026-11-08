@@ -7,6 +7,8 @@ import fs from "node:fs";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
 import {
+  BAD_CHARS,
+  BAD_RANGES,
   ENGINE_BASIS_LABEL,
   LIMITS,
   QUOTABLE_ITEMS,
@@ -50,6 +52,16 @@ describe("what a project holder may claim", () => {
     ["a supplier over the bound", { supplier: "x".repeat(LIMITS.supplier + 1) }],
     ["notes over the bound", { notes: "x".repeat(LIMITS.notes + 1) }],
     ["a price of zero", { price_eur: 0 }],
+    ["a price below a cent", { price_eur: 0.001 }],
+    ["a quantity that would make the engine's capex infinite", { quoted_quantity: 1e-320 }],
+    ["a quantity below the bound", { quoted_quantity: 0.0001 }],
+    ["a soft hyphen in the supplier", { supplier: "ACME" + String.fromCodePoint(0xad) + "SYN" }],
+    ["a Mongolian vowel separator in the supplier", { supplier: "ACME" + String.fromCodePoint(0x180e) + "SYN" }],
+    ["a tag character in the scope", { scope: "x" + String.fromCodePoint(0xe0041) }],
+    ["a variation selector in the reference", { reference: "x" + String.fromCodePoint(0xfe0f) }],
+    ["a variation selector from the supplement in the supplier", { supplier: "x" + String.fromCodePoint(0xe0100) }],
+    ["an escape character in the notes", { notes: "x" + String.fromCodePoint(0x1b) + "[31m" }],
+    ["a unit with a character outside the alphabet", { unit: "EUR/m2;--" }],
     ["a negative price", { price_eur: -1 }],
     ["a price over the ceiling", { price_eur: LIMITS.maxPriceEur + 1 }],
     ["a non-finite price", { price_eur: Infinity }],
@@ -80,6 +92,8 @@ describe("what a project holder may claim", () => {
     expect(c({ valid_until: "2026-10-01" })).toContain("valid_until");
     expect(c({ quoted_on: "2026-11-20", valid_until: "2026-11-15" })).toContain("valid_until");
     expect(c({ quoted_on: "2026-12-15" })).toContain("quoted_on");            // a quotation dated in the future
+    expect(c({ quoted_on: "2026-11-09" })).toContain("quoted_on");            // tomorrow: the engine keeps the NEWEST date, so a project claim may not lead
+    expect(c({ quoted_on: "2026-11-08" })).toEqual([]);                       // today is fine
     expect(c({ quoted_on: "2020-01-01" })).toContain("quoted_on");            // older than five years
   });
 
@@ -123,6 +137,41 @@ describe("what a project holder may claim", () => {
       expect(claimDigest("p1", o.data), JSON.stringify(over)).not.toBe(d);
     }
     expect(claimDigest("p2", base.data)).not.toBe(d);
+  });
+});
+
+describe("hostile text", () => {
+  it("refuses the first and the last code point of every range in a line of text, and in notes (apart from tab, LF and CR)", () => {
+    for (const [a, b] of BAD_RANGES) {
+      for (const cp of new Set([a, b])) {
+        const ch = String.fromCodePoint(cp);
+        expect(BAD_CHARS.test(ch), `U+${cp.toString(16)}`).toBe(true);
+        expect(parse({ scope: `x${ch}y` }).success, `scope U+${cp.toString(16)}`).toBe(false);
+        if (cp !== 0) expect(parse({ notes: `x${ch}y` }).success, `notes U+${cp.toString(16)}`).toBe(false);
+      }
+    }
+  });
+  it("lets ordinary text through, including accents, CJK and emoji, and line breaks in notes only", () => {
+    expect(parse({ supplier: "Soci\u00e9t\u00e9 \u00c9lectrique \u682a\u5f0f\u4f1a\u793e" }).success).toBe(true);
+    expect(parse({ notes: "line one\nline two\r\n\tindented" }).success).toBe(true);
+    expect(parse({ scope: "line one\nline two" }).success).toBe(false);
+    expect(parse({ scope: "tab\there" }).success).toBe(false);
+  });
+});
+
+describe("the identity of a claim", () => {
+  it("changes when the notes, the reference or the submitter change, so an edited resubmission is a new line and never silently 'recorded'", () => {
+    const base = parse({ notes: "excludes civils", reference: "R1" });
+    if (!base.success) throw new Error("fixture should parse");
+    const d = claimDigest("p1", base.data);
+    for (const over of [{ notes: "includes civils" }, { reference: "R2" }, { submitted_by: "B. Holder" }]) {
+      const o = parse({ notes: "excludes civils", reference: "R1", ...over });
+      if (!o.success) throw new Error("fixture should parse");
+      expect(claimDigest("p1", o.data), JSON.stringify(over)).not.toBe(d);
+    }
+    const same = parse({ notes: "excludes civils", reference: "R1" });
+    if (!same.success) throw new Error("fixture should parse");
+    expect(claimDigest("p1", same.data)).toBe(d);
   });
 });
 

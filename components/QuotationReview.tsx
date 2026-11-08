@@ -35,11 +35,16 @@ export function QuotationReview({
   items,
   decidedFiles = {},
   initialError,
+  more = 0,
+  moreIsLowerBound = false,
 }: {
   items: QueuedClaim[];
   /** Files decided in this browser session (id -> decision), so the gate follows a verification made just above without a reload. */
   decidedFiles?: Record<string, "verified" | "rejected">;
   initialError?: string | null;
+  /** How many further pending quotations the queue holds beyond the page shown (the oldest are shown first). */
+  more?: number;
+  moreIsLowerBound?: boolean;
 }) {
   const [decided, setDecided] = useState<Record<string, { decision: "accepted" | "rejected"; reviewer: string }>>({});
   const pending = items.filter((c) => c.state === "validated" && !decided[c.id]);
@@ -70,6 +75,11 @@ export function QuotationReview({
             </p>
           ))}
         </div>
+      ) : null}
+      {more > 0 ? (
+        <p role="note" className="mt-3 text-xs text-mute" data-testid="queue-more">
+          {moreIsLowerBound ? "At least " : ""}{more} more pending quotation{more === 1 ? " is" : "s are"} not shown. The oldest are shown first; decide these, then reload to bring in the next ones.
+        </p>
       ) : null}
       <div className="mt-4 grid gap-4">
         {!initialError && pending.length === 0 ? <p className="text-sm text-mute">No supplier quotation is awaiting a decision.</p> : null}

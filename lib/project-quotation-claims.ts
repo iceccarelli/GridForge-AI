@@ -13,6 +13,7 @@ import { digestOf } from "@/lib/run-identity";
 import { missingFunction } from "@/lib/calibration-permissions";
 import {
   FILE_STATUS_TEXT,
+  LIMITS,
   NOT_COUNTED_REASON,
   SUGGESTED_BASIS,
   basisLabel,
@@ -58,12 +59,17 @@ export function claimDigest(projectId: string, c: ClaimInput): string {
     valid_until: c.valid_until,
     lead: c.lead_time_weeks ?? null,
     scope: c.scope,
+    // Everything the submitter said is in the identity, so a resubmission with an edited note, reference or name is a NEW line (reviewed afresh)
+    // and only a byte-identical claim is "already recorded". A rejected claim is likewise re-entered by changing what was wrong.
+    notes: c.notes ?? null,
+    reference: c.reference ?? null,
+    submitted_by: c.submitted_by,
   });
 }
 
 // ---------------------------------------------------------------------------------------------------------------- submit
 
-export async function submitClaim(project: ProjectRow, raw: unknown, now: Date = new Date()): Promise<Result<{ id: string; created: boolean }>> {
+export async function submitClaim(project: ProjectRow, raw: unknown, now: Date = new Date()): Promise<Result<{ id: string; created: boolean; state: string }>> {
   if (!creds()) return STORE_UNCONFIGURED;
   const parsed = claimSchema.safeParse(raw);
   if (!parsed.success) {
@@ -85,7 +91,7 @@ export async function submitClaim(project: ProjectRow, raw: unknown, now: Date =
 
   const item = itemFor(c.cost_key)!;
   const { comparability, limitations } = claimComparability(c);
-  const done = await rpc<{ id: string; created: boolean }>("gf_submit_project_quotation", {
+  const done = await rpc<{ id: string; created: boolean; state: string }>("gf_submit_project_quotation", {
     p: {
       project_id: project.id,
       source_file_id: c.file_id,
@@ -114,13 +120,13 @@ export async function submitClaim(project: ProjectRow, raw: unknown, now: Date =
       if (missingFunction(done.code) || done.code === "42703") return NOT_AVAILABLE;
       if (done.code === "GF010") return { ok: false, status: 404, error: "That file is not part of this project." };
       if (done.code === "GF011") return { ok: false, status: 409, error: "That file was reviewed and rejected, so a quotation cannot rest on it." };
-      if (done.code === "GF012") return { ok: false, status: 422, error: "The validity date must be in the future and not earlier than the quotation date." };
-      if (done.code === "GF013") return { ok: false, status: 409, error: "This project already holds the most quotation claims it can." };
+      if (done.code === "GF012") return { ok: false, status: 422, error: "The validity date must be in the future, and the quotation date neither in the future nor later than the validity date." };
+      if (done.code === "GF013") return { ok: false, status: 409, error: `This project already holds the most quotation claims it can (${LIMITS.maxClaimsPerProject}).` };
       if (done.code === "23514" || done.code === "22P02" || done.code === "22003") return { ok: false, status: 422, error: "The quotation was refused: a value is outside what is accepted." };
     }
     return { ok: false, status: 502, error: "The quotation could not be saved. Nothing was recorded." };
   }
-  return { ok: true, id: done.data.id, created: done.data.created === true };
+  return { ok: true, id: done.data.id, created: done.data.created === true, state: done.data.state ?? "validated" };
 }
 
 // ---------------------------------------------------------------------------------------------------------------- read
@@ -333,23 +339,46 @@ export async function claimsFor(project: ProjectRow, now: Date = new Date()): Pr
   return { ok: true, claims: data.map((r) => claimView(r, f.files.get(r.source_file_id), todayUtc(now))) };
 }
 
-/** The administrator's queue: every project quotation claim, with its file, newest first. Admin routes only: this crosses projects. */
-export async function claimQueue(state: "pending" | "all", now: Date = new Date()): Promise<Result<{ claims: (ClaimView & { project_id: string })[] }>> {
+/** How many queue rows one page of the administrator's screen reads. */
+export const QUEUE_LIMIT = 200;
+
+/**
+ * The administrator's queue: project quotation claims with their files, OLDEST first (a flood of new junk cannot push a genuine older claim
+ * out of sight), and how many more are waiting beyond the page. Admin routes only: this crosses projects.
+ */
+export async function claimQueue(
+  state: "pending" | "all",
+  now: Date = new Date()
+): Promise<Result<{ claims: (ClaimView & { project_id: string })[]; more: number; moreIsLowerBound: boolean }>> {
   if (!creds()) return STORE_UNCONFIGURED;
   const filter = state === "pending" ? "&state=eq.validated" : "";
   const rows = await rest<ClaimRow[]>(
     "GET",
-    `cost_evidence_state?source_file_id=not.is.null${filter}&select=${CLAIM_COLUMNS}&order=submitted_at.desc,id.asc&limit=200`
+    `cost_evidence_state?source_file_id=not.is.null${filter}&select=${CLAIM_COLUMNS}&order=submitted_at.asc,id.asc&limit=${QUEUE_LIMIT + 1}`
   );
   if (!rows.ok) {
     if (rows.code === "42703" || rows.code === "PGRST204") return NOT_AVAILABLE;
     return { ok: false, status: 502, error: "The quotation queue could not be read." };
   }
-  const data = rows.data ?? [];
+  const all = rows.data ?? [];
+  const data = all.slice(0, QUEUE_LIMIT);
+  let more = 0;
+  let moreIsLowerBound = false;
+  if (all.length > QUEUE_LIMIT) {
+    // Say how many are waiting: ids only, bounded.
+    const ids = await rest<{ id: string }[]>("GET", `cost_evidence_state?source_file_id=not.is.null${filter}&select=id&limit=5000`);
+    if (ids.ok) {
+      more = Math.max(1, (ids.data ?? []).length - QUEUE_LIMIT);
+      moreIsLowerBound = (ids.data ?? []).length >= 5000;
+    } else {
+      more = 1;
+      moreIsLowerBound = true;
+    }
+  }
   const f = await filesFor([...new Set(data.map((r) => r.source_file_id))]);
   if (!f.ok) return f;
   const today = todayUtc(now);
-  return { ok: true, claims: data.map((r) => ({ ...claimView(r, f.files.get(r.source_file_id), today), project_id: r.project_id })) };
+  return { ok: true, claims: data.map((r) => ({ ...claimView(r, f.files.get(r.source_file_id), today), project_id: r.project_id })), more, moreIsLowerBound };
 }
 
 /** The files of this project that carry a quotation claim, for a screen that lets a person cite the same file elsewhere (the hall registry). */
