@@ -17,7 +17,7 @@
 //      names carry no class at all. A figure the engine would read ABOVE its declared class is not sent (it is missing, with that reason); a figure that
 //      carries no class puts a `ceiling` on the class the answer may be given.
 
-import { readDateBasis } from "@/lib/date-basis";
+import { formatWeeksDelta, readDateBasis } from "@/lib/date-basis";
 import { buildChains, stateAt } from "@/lib/site-registry-diff";
 import { classRank, type RegistryInput } from "@/lib/site-registry-model";
 import { EXPECTED_HALL_FIELDS } from "@/lib/site-registry-fields";
@@ -25,11 +25,14 @@ import { buildPreview, type RawRow, type WriteBody } from "@/lib/site-registry-i
 
 // --------------------------------------------------------------------------------------------------------------- the allowance and the cost
 
-/** Billable units of one engine diff (gridforge/api/metering.py UNIT_COST["/v1/diff"]); a drift test reads the engine's own table. */
+/** What the engine meters for one diff (gridforge/api/metering.py UNIT_COST["/v1/diff"]); a drift test reads the engine's own table. It is the OPERATOR's cost, never shown to a member as a charge. */
 export const ENGINE_DIFF_UNITS = 2;
-/** Runs per verified account per hour / per hall per day (lib/rate-limit.ts registry_diff, registry_diff_hall; a test pins them equal). */
-export const ENGINE_DIFF_PER_HOUR = 10;
-export const ENGINE_DIFF_PER_HALL_PER_DAY = 60;
+/** The allowances (lib/rate-limit.ts registry_diff, registry_diff_day, registry_diff_org, registry_diff_hall, registry_diff_global; a test pins them equal): a member's runs per hour and per day, per hall and per organisation per day, and the whole site's per day. */
+export const ENGINE_DIFF_PER_HOUR = 3;
+export const ENGINE_DIFF_PER_DAY = 10;
+export const ENGINE_DIFF_PER_HALL_PER_DAY = 10;
+export const ENGINE_DIFF_PER_ORG_PER_DAY = 20;
+export const ENGINE_DIFF_GLOBAL_PER_DAY = 150;
 
 export const ENGINE_DIFF_LABEL = "Modelled by the engine from the figures as recorded; origin and class are the recorder's declaration. Not a measurement.";
 
@@ -58,6 +61,8 @@ export interface EngineField {
   handling: ClassHandling;
   /** What the engine does when the figure is not given (for the placeholders list). */
   fallback: string;
+  /** The range the engine accepts, checked here so a figure it would refuse (97 for a fraction) is named locally and costs nothing. */
+  range?: { min: number; max: number; minOpen?: boolean; maxOpen?: boolean; what: string };
 }
 
 const NUMBER: ClassHandling = { how: "declared" };
@@ -65,8 +70,9 @@ const NONE: ClassHandling = { how: "none" };
 const fixed = (cls: number): ClassHandling => ({ how: "fixed", cls });
 const RATIO = ["", "-", "1"] as const;
 
-const f = (registry: string, engine: string, label: string, unit: string, kind: FieldKind, need: Need, handling: ClassHandling, fallback: string, opts: { units?: readonly string[]; own?: boolean } = {}): EngineField => ({
-  registry, engine, label, labelIsEngines: opts.own ?? true, unit, units: opts.units ?? (unit === "" || unit === "-" ? RATIO : [unit]), kind, need, handling, fallback,
+const FRACTION = { min: 0, max: 1, minOpen: true, what: "a fraction above 0 and at most 1 (0.97, not 97)" };
+const f = (registry: string, engine: string, label: string, unit: string, kind: FieldKind, need: Need, handling: ClassHandling, fallback: string, opts: { units?: readonly string[]; own?: boolean; range?: EngineField["range"] } = {}): EngineField => ({
+  registry, engine, label, labelIsEngines: opts.own ?? true, unit, units: opts.units ?? (unit === "" || unit === "-" ? RATIO : [unit]), kind, need, handling, fallback, ...(opts.range ? { range: opts.range } : {}),
 });
 
 export const SCALAR_FIELDS: readonly EngineField[] = [
@@ -85,10 +91,10 @@ export const SCALAR_FIELDS: readonly EngineField[] = [
   // ---- the engine defaults these without listing a gap, and each bounds the rack count
   f("hall.rack_positions", "hall.rack_positions", "Rack positions (total)", "", "count", "no_gap_default", NONE, "", { units: ["", "positions"], own: false }),
   // ---- optional: left out, the engine uses a labelled library figure
-  f("grid.power_factor", "grid.power_factor", "Site power factor", "-", "number", "optional", NUMBER, "library placeholder 0.97 (E0)"),
+  f("grid.power_factor", "grid.power_factor", "Site power factor", "-", "number", "optional", NUMBER, "library placeholder 0.97 (E0)", { range: FRACTION }),
   f("lv.voltage_v", "lv.voltage_V", "LV distribution voltage", "V", "number", "optional", NUMBER, "library placeholder 400 V (E0)"),
   f("lv.busway_runs", "lv.busway_runs", "Number of busway runs", "", "count", "optional", NONE, "library placeholder of 6 runs", { units: ["", "-", "runs"] }),
-  f("lv.busway_utilisation_limit", "lv.busway_utilisation_limit", "Busway utilisation limit", "-", "number", "optional", NUMBER, "library placeholder 0.8 (E0)"),
+  f("lv.busway_utilisation_limit", "lv.busway_utilisation_limit", "Busway utilisation limit", "-", "number", "optional", NUMBER, "library placeholder 0.8 (E0)", { range: FRACTION }),
   f("lv.existing_busway_load_kw", "lv.existing_busway_load_kW", "Load already on the busway", "kW", "number", "optional", NUMBER, "0 kW: nothing is subtracted from the installed busway"),
   f("hall.net_white_space_m2", "hall.net_white_space_m2", "Net white space", "m2", "number", "optional", NUMBER, "library placeholder 2,000 m2 (E0)", { units: ["m2", "m²"] }),
   f("hall.aisle_pitch_m", "hall.aisle_pitch_m", "Installed aisle pitch", "m", "number", "optional", NUMBER, "library placeholder 2.4 m (E0)"),
@@ -101,10 +107,16 @@ export const SCALAR_FIELDS: readonly EngineField[] = [
   f("thermal.tcs_target_supply_c", "thermal.tcs_target_supply_C", "TCS target supply temperature", "degC", "number", "optional", NUMBER, "the engine's library design value", { units: ["degC", "°C"] }),
   f("thermal.rdhx.capacity_kw_per_rack", "thermal.rdhx.capacity_kW_per_rack", "Rear-door heat exchanger capacity per rack", "kW", "number", "optional", NUMBER, "library default of 60 kW per rack (band 20-80)", { units: ["kW", "kW/rack"] }),
   f("site.design_drybulb_c", "site.design_drybulb_C", "Summer design dry bulb", "degC", "number", "optional", NUMBER, "library placeholder 32 degC (E0)", { units: ["degC", "°C"] }),
-  f("compute.utilisation", "compute.utilisation", "Annual average rack utilisation", "-", "number", "optional", NUMBER, "library placeholder 0.75 (E0)"),
+  f("compute.utilisation", "compute.utilisation", "Annual average rack utilisation", "-", "number", "optional", NUMBER, "library placeholder 0.75 (E0)", { range: FRACTION }),
+  f("lv.phases", "lv.phases", "LV distribution phases", "", "count", "optional", NONE, "three-phase distribution assumed (the engine's rack feed carries the square root of three)", { units: ["", "-", "phases"], own: false }),
+  f("hall.clear_height_m", "hall.clear_height_m", "Clear height", "m", "number", "optional", NUMBER, "library placeholder 3.0 m (E0)", { own: false }),
+  f("site.design_wetbulb_c", "site.design_wetbulb_C", "Summer design wet bulb", "degC", "number", "optional", NUMBER, "library placeholder 21 degC (E0)", { units: ["degC", "\u00b0C"], own: false }),
+  f("thermal.plant.available_head_kpa", "thermal.plant.available_head_kPa", "Available pump head", "kPa", "number", "optional", NUMBER, "library placeholder 250 kPa (E0)", { own: false }),
+  f("thermal.plant.free_cooling_hours_per_year", "thermal.plant.free_cooling_hours_per_year", "Free-cooling hours per year", "h", "number", "optional", NUMBER, "library placeholder 2,500 h (E0)", { units: ["h", "hours"], own: false }),
+  f("thermal.cdu_approach_k", "thermal.cdu_approach_K", "CDU approach temperature", "K", "number", "optional", NUMBER, "the engine's library design value", { own: false }),
   f("economics.electricity_eur_per_mwh", "economics.electricity_eur_per_MWh", "All-in grid electricity price", "EUR/MWh", "number", "optional", NUMBER, "library placeholder of 140 EUR/MWh (E0)"),
   f("economics.horizon_years", "economics.horizon_years", "Lifecycle horizon", "years", "count", "optional", NONE, "none: no lifecycle value is computed", { units: ["years", "year", "yr"] }),
-  f("economics.discount_rate", "economics.discount_rate", "Discount rate", "-", "number", "optional", fixed(5), "none: the lifecycle value is undiscounted"),
+  f("economics.discount_rate", "economics.discount_rate", "Discount rate", "-", "number", "optional", fixed(5), "none: the lifecycle value is undiscounted", { range: { min: 0, max: 0.5, maxOpen: true, what: "a fraction from 0 up to, not including, 0.5 (0.08, not 8)" } }),
 ];
 
 export type Section = "transformers" | "ups";
@@ -118,14 +130,14 @@ export const ITEM_FIELDS: Record<Section, readonly EngineField[]> = {
     f("transformers[].unit_rating_mva", "transformers[].unit_rating_MVA", "Transformer unit rating", "MVA", "number", "engine_required", fixed(5), "", { own: false }),
     f("transformers[].units", "transformers[].units", "Transformer units", "", "count", "no_gap_default", NONE, "", { units: ["", "units"], own: false }),
     f("transformers[].redundancy", "transformers[].redundancy", "Transformer redundancy", "", "text", "no_gap_default", NONE, "", { own: false }),
-    f("transformers[].derating_factor", "transformers[].derating_factor", "Transformer derating factor", "-", "number", "optional", fixed(3), "library placeholder 0.9 (E0)", { own: false }),
-    f("transformers[].replacement_lead_time_weeks", "transformers[].replacement_lead_time_weeks", "Power transformer replacement lead time", "weeks", "number", "optional", fixed(0), "library placeholder of 160 weeks (band 80-210), not a manufacturer's quote", { units: ["weeks", "week", "wk"] }),
+    f("transformers[].derating_factor", "transformers[].derating_factor", "Transformer derating factor", "-", "number", "optional", fixed(3), "library placeholder 0.9 (E0)", { own: false, range: FRACTION }),
+    f("transformers[].replacement_lead_time_weeks", "transformers[].replacement_lead_time_weeks", "Power transformer replacement lead time", "weeks", "number", "optional", fixed(0), "library placeholder of 160 weeks (band 80-210), not a manufacturer's quote", { units: ["weeks", "week", "wk"], range: { min: 0, max: 520, minOpen: true, what: "more than 0 and at most 520 weeks" } }),
   ],
   ups: [
     f("ups[].unit_rating_kw", "ups[].unit_rating_kW", "UPS module rating", "kW", "number", "engine_required", fixed(5), "", { own: false }),
     f("ups[].units", "ups[].units", "UPS units", "", "count", "no_gap_default", NONE, "", { units: ["", "units"], own: false }),
     f("ups[].redundancy", "ups[].redundancy", "UPS redundancy", "", "text", "no_gap_default", NONE, "", { own: false }),
-    f("ups[].step_load_capability", "ups[].step_load_capability", "UPS accepted instantaneous step load", "-", "number", "optional", fixed(0), "library placeholder 0.5 (E0)", { own: false }),
+    f("ups[].step_load_capability", "ups[].step_load_capability", "UPS accepted instantaneous step load", "-", "number", "optional", fixed(0), "library placeholder 0.5 (E0)", { own: false, range: FRACTION }),
   ],
 };
 
@@ -145,6 +157,15 @@ export const RECORDED_MINIMUM: readonly string[] = [
 ];
 
 const ALL_FIELDS: readonly EngineField[] = [...SCALAR_FIELDS, ...SECTIONS.flatMap((s) => ITEM_FIELDS[s])];
+/**
+ * What the engine fills from its library that this page cannot send at all (it takes no such recorded field), so it is ALWAYS part of a run and is listed with every answer.
+ * The engine lists `thermal.cdus` as a gap; `btm_options` and the scenario set are not gaps but the engine says "none declared" for them. A drift test compares the engine's own gap
+ * list for a built document with this list and with the placeholders.
+ */
+export const NOT_SENT_PLACEHOLDERS: readonly { path: string; label: string; fallback: string }[] = [
+  { path: "thermal.cdus", label: "Installed CDU schedule", fallback: "the hybrid and full-DLC scenarios assume three 1,350 kW N+1 CDUs already installed at no cost; this page cannot send a CDU schedule" },
+];
+
 const BY_REGISTRY = new Map(SCALAR_FIELDS.map((x) => [x.registry, x]));
 const ITEM_PATH = /^(transformers|ups)\[(\d{1,3})\]\.([a-z_]+)$/;
 
@@ -257,8 +278,9 @@ export function sendableClass(i: Pick<RegistryInput, "origin" | "evidenceClass" 
 export type Side = "from" | "to";
 
 export interface ClassNote { path: string; declared: string; sent: string; why: string }
-export interface Absent { path: string; field: EngineField; reason: string }
-export interface Placeholder { path: string; label: string; fallback: string }
+/** `unusable`: the figure IS recorded but not in a form the engine can take (wrong unit, out of range, a class it would raise). It blocks a run whatever its field's need: a recorded figure is never quietly replaced by the engine's default. */
+export interface Absent { path: string; field: EngineField; reason: string; unusable?: boolean }
+export interface Placeholder { path: string; label: string; fallback: string; /** withdrawn: recorded at the earlier point, not at the later one; added: the reverse; null: not recorded at either */ change?: "withdrawn" | "added" | null }
 export interface NotUsed { path: string; reason: string }
 export interface Uncarried { path: string; cls: number }
 
@@ -287,6 +309,10 @@ function prepare(field: EngineField, i: RegistryInput): Prepared {
   } else {
     if (typeof v !== "number" || !Number.isFinite(v)) return { ok: false, reason: `It is recorded as ${typeof v === "string" ? "text" : "something other than a number"}; the engine takes a number.` };
     if (field.kind === "count" && (!Number.isInteger(v) || v < 0)) return { ok: false, reason: "It is not a whole number of zero or more." };
+  }
+  if (field.range && typeof v === "number") {
+    const r = field.range;
+    if (v < r.min || v > r.max || (r.minOpen && v === r.min) || (r.maxOpen && v === r.max)) return { ok: false, reason: `${v} is outside what the engine takes: ${r.what}. This page does not rescale it.` };
   }
   if (field.kind !== "text") {
     const u = (i.unit ?? "").trim();
@@ -318,6 +344,7 @@ function setPath(doc: Record<string, unknown>, path: string, value: unknown): vo
 export function buildEngineDocument(rec: Recorded): Built {
   const built: Built = { doc: {}, classNotes: [], absent: [], placeholders: [], notUsed: [], uncarried: [], pathMap: new Map(), sentClass: new Map() };
   const reasons = new Map<string, string>();               // recorded path -> why it is not usable
+  const unusable = new Set<string>();                      // ...of those, the ones that ARE recorded but cannot be sent
   const ready = new Map<string, Extract<Prepared, { ok: true }>>();
   const seenIndexes: Record<Section, Set<number>> = { transformers: new Set(), ups: new Set() };
 
@@ -332,7 +359,7 @@ export function buildEngineDocument(rec: Recorded): Built {
     const i = r.input;
     if (i.origin === "missing" || i.value === null) { reasons.set(path, "It is recorded as missing."); continue; }
     const p = prepare(m.field, i);
-    if (!p.ok) { reasons.set(path, p.reason); built.notUsed.push({ path, reason: p.reason }); continue; }
+    if (!p.ok) { reasons.set(path, p.reason); unusable.add(path); built.notUsed.push({ path, reason: p.reason }); continue; }
     ready.set(path, p);
   }
 
@@ -347,10 +374,10 @@ export function buildEngineDocument(rec: Recorded): Built {
       built.sentClass.set(field.engine, field.handling.how === "fixed" ? null : code(p.cls));
       if (p.why) built.classNotes.push({ path: field.registry, declared: code(p.declared), sent: code(p.cls), why: p.why });
       if (field.handling.how === "none") built.uncarried.push({ path: field.registry, cls: p.cls });
-    } else if (field.need === "optional") {
+    } else if (field.need === "optional" && !unusable.has(field.registry)) {
       built.placeholders.push({ path: field.registry, label: field.label, fallback: field.fallback });
     } else {
-      built.absent.push({ path: field.registry, field, reason: reasons.get(field.registry) ?? "It is not recorded." });
+      built.absent.push({ path: field.registry, field, reason: reasons.get(field.registry) ?? "It is not recorded.", ...(unusable.has(field.registry) ? { unusable: true } : {}) });
     }
   }
 
@@ -384,8 +411,10 @@ export function buildEngineDocument(rec: Recorded): Built {
           built.sentClass.set(itemEnginePath(x, k), null);
           if (p.why) built.classNotes.push({ path, declared: code(p.declared), sent: code(p.cls), why: p.why });
           if (x.handling.how === "none") built.uncarried.push({ path, cls: p.cls });
-        } else if (x.need === "optional") {
+        } else if (x.need === "optional" && !unusable.has(path)) {
           built.placeholders.push({ path, label: x.label, fallback: x.fallback });
+        } else if (x.need === "optional") {
+          built.absent.push({ path, field: x, reason: reasons.get(path) ?? "It is not recorded.", unusable: true });
         }
       }
       items.push(item);
@@ -407,7 +436,7 @@ export interface MissingField {
   sides: Side[];
   reason: string;
   /** engine_required: the engine's intake requires it. no_gap_default: the engine would fill it from a library default without listing a gap. */
-  need: Exclude<Need, "optional">;
+  need: Exclude<Need, "optional"> | "unusable";
   /** true when the import template carries this field (otherwise it is recorded one at a time). */
   inTemplate: boolean;
 }
@@ -448,7 +477,7 @@ export function compareBuilt(from: Built, to: Built): Comparison {
     for (const a of b.absent) {
       const have = miss.get(a.path);
       if (have) have.sides.push(side);
-      else miss.set(a.path, { path: a.path, label: a.field.label, unit: a.field.unit, sides: [side], reason: "", need: a.field.need as MissingField["need"], inTemplate: IMPORTABLE.has(a.path) });
+      else miss.set(a.path, { path: a.path, label: a.field.label, unit: a.field.unit, sides: [side], reason: "", need: a.unusable ? "unusable" : (a.field.need as Exclude<Need, "optional">), inTemplate: IMPORTABLE.has(a.path) });
       reasonBy.set(a.path, { ...(reasonBy.get(a.path) ?? {}), [side]: a.reason });
     }
   }
@@ -469,7 +498,15 @@ export function compareBuilt(from: Built, to: Built): Comparison {
   return {
     missing: [...miss.values()].sort((a, b) => a.path.localeCompare(b.path)),
     classNotes,
-    placeholders: mergeSides(from.placeholders, to.placeholders, () => true).map(({ sides, ...p }) => ({ ...p, sides })),
+    placeholders: [
+      ...mergeSides(from.placeholders, to.placeholders, () => true).map(({ sides, ...p }) => {
+        // A figure recorded at one point and not at the other is compared with the engine's own default: said so, never an ordinary placeholder.
+        const sentOn = (b: Built) => [...b.pathMap.values()].includes(p.path);
+        const change = sides.length === 1 ? (sides[0] === "to" ? (sentOn(from) ? "withdrawn" : null) : (sentOn(to) ? "added" : null)) : null;
+        return { ...p, sides, change } as Placeholder & { sides: Side[] };
+      }),
+      ...NOT_SENT_PLACEHOLDERS.map((p) => ({ ...p, sides: ["from", "to"] as Side[], change: null })),
+    ],
     notUsed: mergeSides(from.notUsed, to.notUsed, (x, y) => x.reason === y.reason).map(({ sides, ...p }) => ({ ...p, sides })),
     ceiling: lowest === null ? null : { cls: code(lowest), paths: [...new Set(unc.filter((u) => u.cls === lowest).map((u) => u.path))].sort() },
     classChanges: classChanges.sort((a, b) => a.path.localeCompare(b.path)),
@@ -532,7 +569,8 @@ export interface WeeksView {
 export interface EnvelopeView { racksAsFound: number; racksAfterLadder: number; bindingName: string; bindingBasis: string; scenario: string }
 
 export interface EngineDiffView {
-  headline: string;
+  /** Built HERE from the figures below. The engine's own headline is never forwarded: it carries capex and prices. */
+  summary: string;
   material: boolean;
   racksDelta: number;
   explainedRacks: number;
@@ -576,10 +614,9 @@ const rackWeaker = (a: string | null, b: string | null): string | null => (a && 
  */
 export function shapeEngineDiff(raw: unknown, pathMaps: { from: Map<string, string>; to: Map<string, string> }): EngineDiffView | null {
   if (!isObj(raw)) return null;
-  const headline = clean(raw.headline, 600);
   const racksDelta = int(raw.racks_delta), explained = int(raw.explained_racks), unexplained = int(raw.unexplained_racks);
   const before = envelope(raw.before), after = envelope(raw.after);
-  if (!headline || racksDelta === null || explained === null || unexplained === null || !before || !after || !Array.isArray(raw.drivers) || typeof raw.binding_moved !== "boolean") return null;
+  if (racksDelta === null || explained === null || unexplained === null || !before || !after || !Array.isArray(raw.drivers) || typeof raw.binding_moved !== "boolean") return null;
   const recorded = (ep: string): string | null => pathMaps.to.get(ep) ?? pathMaps.from.get(ep) ?? null;
   const drivers: DriverView[] = [];
   for (const d of raw.drivers.slice(0, 60)) {
@@ -594,10 +631,16 @@ export function shapeEngineDiff(raw: unknown, pathMaps: { from: Map<string, stri
   const bd = raw as Record<string, unknown>;
   const info = readDateBasis({ date_basis: bd.date_basis, date_evidence_class: bd.date_evidence_class, date_binding_item: bd.date_binding_item, date_label: bd.date_label });
   const weeksDelta = typeof bd.weeks_delta === "number" && Number.isFinite(bd.weeks_delta) ? bd.weeks_delta : null;
+  const keys = { date_basis: bd.date_basis, date_evidence_class: bd.date_evidence_class, date_binding_item: bd.date_binding_item, date_label: bd.date_label };
+  const summary = [
+    racksDelta === 0 ? `Does not change the rack count (${after.racksAfterLadder})` : `${racksDelta > 0 ? "Raises" : "Lowers"} the rack count by ${Math.abs(racksDelta)} (from ${before.racksAfterLadder} to ${after.racksAfterLadder})`,
+    raw.binding_moved ? `what binds first moves from ${before.bindingName} to ${after.bindingName}` : `what binds first holds (${before.bindingName})`,
+    `time to full capacity: ${formatWeeksDelta(weeksDelta, keys, keys)}`,
+  ].join("; ") + ".";
   const notAttributed = [...(Array.isArray(bd.unprobed_inputs) ? bd.unprobed_inputs : []), ...(Array.isArray(bd.unprobeable_inputs) ? bd.unprobeable_inputs : [])]
     .map((p) => clean(p, 160)).filter((p): p is string => p !== null).slice(0, 60).map((p) => recorded(p) ?? p);
   return {
-    headline, material: raw.material === true, racksDelta, explainedRacks: explained, unexplainedRacks: unexplained, before, after, bindingMoved: raw.binding_moved,
+    summary, material: raw.material === true, racksDelta, explainedRacks: explained, unexplainedRacks: unexplained, before, after, bindingMoved: raw.binding_moved,
     racksClass: rackWeaker(classCode(isObj(raw.before) ? raw.before.racks_class : null), classCode(isObj(raw.after) ? raw.after.racks_class : null)),
     drivers,
     weeks: { delta: info.showsNumber ? weeksDelta : null, basis: info.basis, evidenceClass: info.evidenceClass, bindingItem: info.bindingItem, label: info.label },

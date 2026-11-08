@@ -11,13 +11,14 @@
 import crypto from "node:crypto";
 import { spawn, spawnSync, type ChildProcess } from "node:child_process";
 import path from "node:path";
-import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from "vitest";
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { siteUrl } from "@/lib/site";
 import { rest } from "@/lib/pgrest";
 import { RATE_POLICIES, accountSubject, subjectOf } from "@/lib/rate-limit";
 import { installAuth, tokenFor, unconfirmedBearerFor } from "./auth-fake";
 import { engineAvailable } from "./_engine-guard";
 import { RECORDED_MINIMUM } from "@/lib/site-registry-engine";
+import { idempotencyKeyFor } from "@/lib/site-registry-engine-server";
 import { REFERENCE_HALL, type RefFigure } from "./site-registry-reference-hall";
 import type { Backend } from "./site-registry-scenarios";
 
@@ -41,7 +42,8 @@ export function defineEngineDiffScenarios(backend: EngineBackend): void {
   let engine: ChildProcess | null = null;
   let ENGINE = "";
   let mode: Mode = "real";
-  let engineCalls: { path: string; body: any }[] = [];
+  let engineCalls: { path: string; body: any; headers: Record<string, string> }[] = [];
+  let flagBefore: string | undefined;
   let restore: () => void;
   let ip: string;
 
@@ -65,6 +67,8 @@ export function defineEngineDiffScenarios(backend: EngineBackend): void {
     const layered = globalThis.fetch;
     mode = "real";
     engineCalls = [];
+    flagBefore = process.env.GRIDFORGE_HALL_ENGINE_DIFF;
+    process.env.GRIDFORGE_HALL_ENGINE_DIFF = "1";                  // the feature is OFF unless the deployment says so; the scenarios that need it off unset it
     process.env.GRIDFORGE_API_URL = ENGINE;
     process.env.GRIDFORGE_API_KEY = KEY;
     // The store (fake or real) answers everything but the engine; the engine's URL is routed to the real engine, or to a stand-in for the cases that need one that misbehaves.
@@ -73,7 +77,7 @@ export function defineEngineDiffScenarios(backend: EngineBackend): void {
       if (!ENGINE || !url.startsWith(ENGINE)) return layered(input, init);
       const p = new URL(url).pathname;
       const body = typeof init?.body === "string" ? JSON.parse(init.body) : null;
-      if (p === "/v1/diff") engineCalls.push({ path: p, body });
+      if (p === "/v1/diff") engineCalls.push({ path: p, body, headers: Object.fromEntries(new Headers(init?.headers).entries()) });
       const json = (status: number, b: unknown) => new Response(JSON.stringify(b), { status, headers: { "content-type": "application/json" } });
       if (p === "/v1/diff") {
         if (mode === "down") throw new TypeError("fetch failed");
@@ -84,10 +88,12 @@ export function defineEngineDiffScenarios(backend: EngineBackend): void {
       }
       return realFetch(input, init);
     }) as typeof fetch;
-    restore = () => { globalThis.fetch = layered; auth.restore(); undoBackend(); };
+    restore = () => { globalThis.fetch = layered; auth.restore(); undoBackend(); if (flagBefore === undefined) delete process.env.GRIDFORGE_HALL_ENGINE_DIFF; else process.env.GRIDFORGE_HALL_ENGINE_DIFF = flagBefore; };
     ip = `10.${Math.floor(Math.random() * 250) + 1}.${Math.floor(Math.random() * 250) + 1}.${Math.floor(Math.random() * 250) + 1}`;
+    // The site-wide counters are shared by every test of a file on a shared database: each test starts them at zero, so what it counts is its own.
+    await rest("DELETE", "rate_limit_windows?bucket=in.(registry_diff_global,engine_registry,engine_registry_free)");
   });
-  afterEach(() => restore());
+  afterEach(() => { vi.restoreAllMocks(); restore(); });
 
   // ------------------------------------------------------------------------------------------------- helpers
 
@@ -107,8 +113,8 @@ export function defineEngineDiffScenarios(backend: EngineBackend): void {
   }
   const PATH = { orgs: () => "/api/orgs", members: (id: string) => `/api/orgs/${id}/members`, sites: () => "/api/sites", halls: (id: string) => `/api/sites/${id}/halls`, inputs: (id: string) => `/api/halls/${id}/inputs`, projects: (id: string) => `/api/halls/${id}/projects`, diff: (id: string) => `/api/halls/${id}/diff` };
 
-  async function call(name: keyof typeof PATH, method: string, as: string | { raw: Record<string, string> } | undefined, opts: { id?: string; body?: unknown; rawBody?: string; query?: string } = {}): Promise<Res> {
-    const headers: Record<string, string> = { "x-forwarded-for": ip };
+  async function call(name: keyof typeof PATH, method: string, as: string | { raw: Record<string, string> } | undefined, opts: { id?: string; body?: unknown; rawBody?: string; query?: string; ip?: string } = {}): Promise<Res> {
+    const headers: Record<string, string> = { "x-forwarded-for": opts.ip ?? ip };
     if (typeof as === "string") headers.authorization = `Bearer ${tokenFor(as)}`;
     else if (as) Object.assign(headers, as.raw);
     const text = opts.rawBody ?? (opts.body === undefined ? undefined : JSON.stringify(opts.body));
@@ -133,13 +139,25 @@ export function defineEngineDiffScenarios(backend: EngineBackend): void {
     return { owner, editor, viewer, org, site, hall };
   }
 
+  /**
+   * Attach a project to a hall. Forward-compatible: a tree that asks for `confirmNonProductionSite: true` to attach to a test or synthetic site answers 422 with reason
+   * `non_production_site_unconfirmed` to the plain request, and the request is repeated with the flag; a tree that does not know the flag (it would refuse it as an unknown key)
+   * never sees it.
+   */
+  async function attachProjectToHall(as: string, hall: string, token: string) {
+    let r = await call("projects", "POST", as, { id: hall, body: { projectToken: token } });
+    if (r.status === 422 && r.body?.reason === "non_production_site_unconfirmed") r = await call("projects", "POST", as, { id: hall, body: { projectToken: token, confirmNonProductionSite: true } });
+    expect(r.status, JSON.stringify(r.body)).toBe(201);
+    return r;
+  }
+
   /** A project the hall owns, with a reviewed and verified file (the way production gets one, 0048), carrying a storage reference that must never come back. */
   async function verifiedFile(t: { editor: string; hall: string }, review: "verified" | "rejected" | "unverified" = "verified") {
     const token = `tok-${uid()}${uid()}`;
     const p = await rest<any[]>("POST", "projects", { project_token: token, project_name: "North hall build" });
     expect(p.ok, JSON.stringify(p)).toBe(true);
     const projectId = (p as any).data[0].id as string;
-    expect((await call("projects", "POST", t.editor, { id: t.hall, body: { projectToken: token } })).status).toBe(201);
+    await attachProjectToHall(t.editor, t.hall, token);
     const sha = uid().repeat(7).slice(0, 64).padEnd(64, "a");
     const e = await rest<any[]>("POST", "project_evidence", {
       project_id: projectId, filename: "nameplate.pdf", media_type: "application/pdf", sha256: sha, byte_size: 100, storage_ref: `project-evidence/${SECRET}`, review_status: "unverified",
@@ -192,8 +210,8 @@ export function defineEngineDiffScenarios(backend: EngineBackend): void {
     for (let i = 0; i < times; i++) expect((await rest("POST", "rpc/gf_rate_limit_hit", { p_bucket: bucket, p_subject: subject, p_limit: limit, p_window_seconds: windowSeconds })).ok).toBe(true);
   };
 
-  const WHITELIST_TOP = ["ok", "ran", "reason", "message", "hall", "from", "to", "label", "units", "historyTruncated", "missing", "classNotes", "placeholders", "notUsed", "ceiling", "classChanges", "engine", "diff", "carriedBy"];
-  const WHITELIST_DIFF = ["headline", "material", "racksDelta", "explainedRacks", "unexplainedRacks", "before", "after", "bindingMoved", "racksClass", "drivers", "weeks", "inputs", "notAttributed"];
+  const WHITELIST_TOP = ["ok", "ran", "reason", "message", "hall", "from", "to", "label", "historyTruncated", "missing", "classNotes", "placeholders", "notUsed", "ceiling", "classChanges", "engine", "diff", "carriedBy"];
+  const WHITELIST_DIFF = ["summary", "material", "racksDelta", "explainedRacks", "unexplainedRacks", "before", "after", "bindingMoved", "racksClass", "drivers", "weeks", "inputs", "notAttributed"];
 
   // ------------------------------------------------------------------------------------------------- the door and the hall
 
@@ -307,8 +325,9 @@ export function defineEngineDiffScenarios(backend: EngineBackend): void {
       await record(t.editor, t.hall, { fieldPath: "grid.firm_capacity_mva", value: 14, unit: "MVA", evidenceClass: "E1" });
       const r = await diff(t.viewer, t.hall, { now: true }, { proposed: [row({ field_path: "grid.firm_capacity_mva", value: 9, unit: "MVA", origin: "assumed", class: "E1", as_of: "2026-02-01" })] });
       expect(r.status).toBe(200);
-      expect(r.body).toMatchObject({ ok: true, ran: false, reason: "missing", units: 0 });
-      expect(r.body.message).toMatch(/engine was not run.*no units were used/);
+      expect(r.body).toMatchObject({ ok: true, ran: false, reason: "missing" });
+      expect(r.body).not.toHaveProperty("units");
+      expect(r.body.message).toMatch(/engine was not run.*none of your runs was used/);
       const paths = r.body.missing.map((m: any) => m.path);
       expect(paths).toEqual(expect.arrayContaining(["compute.platform", "transformers[0].unit_rating_mva", "transformers[0].units", "ups[0].redundancy", "hall.rack_positions", "grid.contracted_mw", "hall.positions_available"]));
       expect(paths).not.toContain("grid.firm_capacity_mva");
@@ -344,7 +363,7 @@ export function defineEngineDiffScenarios(backend: EngineBackend): void {
       const t = await team();
       await recordReference(t);
       const r = await diff(t.viewer, t.hall, { asOf: today() }, { now: true });
-      expect(r.body).toMatchObject({ ran: false, reason: "identical", units: 0 });
+      expect(r.body).toMatchObject({ ran: false, reason: "identical" });
       expect(r.body.message).toMatch(/the same at these two points/);
       expect(engineCalls).toEqual([]);
       expect(await spent("registry_diff", t.viewer)).toBe(0);
@@ -361,13 +380,14 @@ export function defineEngineDiffScenarios(backend: EngineBackend): void {
       expect(r.status, JSON.stringify(r.body)).toBe(200);
       expect(r.headers.get("cache-control")).toBe("no-store");
       const b = r.body;
-      expect(b).toMatchObject({ ok: true, ran: true, units: 2, hall: { id: t.hall }, from: { kind: "now" }, to: { kind: "proposed", rows: { used: 1, unchanged: 0, excluded: [] } }, missing: [] });
+      expect(b).toMatchObject({ ok: true, ran: true, hall: { id: t.hall }, from: { kind: "now" }, to: { kind: "proposed", rows: { used: 1, unchanged: 0, excluded: [] } }, missing: [] });
       expect(b.label).toBe("Modelled by the engine from the figures as recorded; origin and class are the recorder's declaration. Not a measurement.");
       expect(b.engine).toMatchObject({ version: expect.any(String), digest: expect.stringMatching(/^[0-9a-f]{64}$/) });
       expect(b.diff.drivers.map((d: any) => [d.path, d.label, d.before, d.after])).toEqual([["grid.firm_capacity_mva", "Firm connection capacity", 14, 9]]);
       expect(b.diff.racksDelta).toBe(b.diff.explainedRacks + b.diff.unexplainedRacks);
       expect(b.diff.drivers[0].direction).toBe(b.diff.racksDelta < 0 ? "lowers" : b.diff.racksDelta > 0 ? "raises" : "no change");
-      expect(typeof b.diff.headline).toBe("string");
+      expect(b.diff.summary).toMatch(/^(Raises|Lowers|Does not change) the rack count/);
+      expect(JSON.stringify(b.diff)).not.toMatch(/capex|EUR|€|saving/i);          // the engine's own headline says capex and "not a saving": none of it is forwarded
       expect(b.diff.weeks.label.length).toBeGreaterThan(5);
       if (b.diff.weeks.delta !== null) expect(["assumed", "supported"]).toContain(b.diff.weeks.basis);
       expect(b.carriedBy).toMatch(/^E[0-5]$/);
@@ -591,65 +611,267 @@ export function defineEngineDiffScenarios(backend: EngineBackend): void {
 
   // ------------------------------------------------------------------------------------------------- the allowance
 
-  describe.runIf(hasPython)("each run costs the operator units, so the allowance is small, per verified account and per hall", () => {
+  describe.runIf(hasPython)("a run spends the operator's engine units for a free account, so every allowance is small, each is its own bucket, and a failure gives them all back", () => {
     const pending = (n = 9) => [row({ field_path: "grid.contracted_mw", value: n, unit: "MW", origin: "assumed", class: "E3", as_of: "2026-02-01" })];
+    const NOW = { now: true };
+    const GLOBAL = () => subjectOf("registry-diff-global")!;
+    const ORG = (org: string) => subjectOf(`org-diff:${org}`)!;
+    const counts = async (t: { viewer: string; org: string; hall: string }, who = t.viewer) => ({
+      hour: await spent("registry_diff", who), day: await spent("registry_diff_day", who), org: await hits("registry_diff_org", ORG(t.org)), hall: await spentHall(t.hall), global: await hits("registry_diff_global", GLOBAL()),
+    });
+    const ZERO = { hour: 0, day: 0, org: 0, hall: 0, global: 0 };
+    const total = (bucket: string) => hits(bucket);
+    async function ready() { const t = await team(); await recordReference(t); return t; }
 
-    it("the account's hourly allowance: the run after the last is a 429 with Retry-After and no engine call; a colleague on another account is not locked out", async () => {
-      const t = await team();
-      await recordReference(t);
+    it("the numbers: 3 an hour and 10 a day per account, 20 a day per organisation, 10 a day per hall, 150 a day for the site, and a provider budget of the registry's own (6 an hour per caller, 40 an hour in all)", async () => {
+      const { PROVIDER_BUDGETS } = await import("@/lib/rate-limit");
+      expect(RATE_POLICIES.registry_diff).toEqual({ bucket: "registry_diff", limit: 3, windowSeconds: 3600 });
+      expect(RATE_POLICIES.registry_diff_day).toEqual({ bucket: "registry_diff_day", limit: 10, windowSeconds: 86400 });
+      expect(RATE_POLICIES.registry_diff_org).toEqual({ bucket: "registry_diff_org", limit: 20, windowSeconds: 86400 });
+      expect(RATE_POLICIES.registry_diff_hall).toEqual({ bucket: "registry_diff_hall", limit: 10, windowSeconds: 86400 });
+      expect(RATE_POLICIES.registry_diff_global).toEqual({ bucket: "registry_diff_global", limit: 150, windowSeconds: 86400 });
+      expect(PROVIDER_BUDGETS["engine:registry:metered"]).toEqual({ caller: { bucket: "engine_registry_caller", limit: 6, windowSeconds: 3600 }, aggregate: { bucket: "engine_registry", limit: 40, windowSeconds: 3600 } });
+    });
+
+    it("a run draws on the registry's own provider budget and leaves every customer-class and public counter untouched", async () => {
+      const t = await ready();
+      expect((await diff(t.viewer, t.hall, NOW, { proposed: pending() })).status).toBe(200);
+      expect(await total("engine_registry_caller")).toBeGreaterThanOrEqual(1);
+      expect(await total("engine_registry")).toBeGreaterThanOrEqual(1);
+      for (const b of ["engine_customer_caller", "engine_customer", "engine_customer_free_caller", "engine_customer_free", "engine_public_caller", "engine_public", "engine_public_free_caller", "engine_public_free", "customer_generate", "ttp_compare"]) {
+        expect(await total(b), b).toBe(0);
+      }
+    });
+
+    it("the member's hourly allowance: the run after the last is a 429 with Retry-After and no engine call; a colleague on another account is not locked out; the refused request is given back", async () => {
+      const t = await ready();
       const limit = RATE_POLICIES.registry_diff.limit;
       await spend("registry_diff", accountSubject(t.viewer)!, limit - 1, limit, 3600);
-      const last = await diff(t.viewer, t.hall, { now: true }, { proposed: pending() });
-      expect(last.status, JSON.stringify(last.body)).toBe(200);
-      const over = await diff(t.viewer, t.hall, { now: true }, { proposed: pending(8) });
+      expect((await diff(t.viewer, t.hall, NOW, { proposed: pending() })).status).toBe(200);
+      const over = await diff(t.viewer, t.hall, NOW, { proposed: pending(8) });
       expect(over.status).toBe(429);
       expect(Number(over.headers.get("retry-after"))).toBeGreaterThan(0);
       expect(over.headers.get("cache-control")).toBe("no-store");
       expect(engineCalls).toHaveLength(1);
-      // the same account from another address is still over; a colleague is not
+      expect(await spent("registry_diff", t.viewer)).toBe(limit);                       // the refused one was given back: the counter stands at the cap
+      expect(await hits("registry_diff_org", ORG(t.org))).toBe(1);                      // and so were the organisation's and the hall's: only the run that ran is counted
+      expect(await spentHall(t.hall)).toBe(1);
       ip = "10.77.7.7";
-      expect((await diff(t.viewer, t.hall, { now: true }, { proposed: pending(7) })).status).toBe(429);
-      expect((await diff(t.editor, t.hall, { now: true }, { proposed: pending(7) })).status).toBe(200);
+      expect((await diff(t.viewer, t.hall, NOW, { proposed: pending(7) })).status).toBe(429);
+      expect((await diff(t.editor, t.hall, NOW, { proposed: pending(7) })).status).toBe(200);
     });
 
-    it("a figure-missing answer, an identical answer and a refused request are free: they do not use the allowance", async () => {
-      const t = await team();
-      await diff(t.viewer, t.hall, { now: true }, { proposed: pending() });                    // missing
-      await recordReference(t);
-      await diff(t.viewer, t.hall, { asOf: today() }, { now: true });                          // identical
-      await diff(t.viewer, t.hall, { now: true }, { asOf: "2999-01-01" });                     // refused
-      expect(await spent("registry_diff", t.viewer)).toBe(0);
+    it("the member's daily allowance is its own bucket: it stops a member who has the hour left", async () => {
+      const t = await ready();
+      const day = RATE_POLICIES.registry_diff_day;
+      await spend("registry_diff_day", accountSubject(t.viewer)!, day.limit - 1, day.limit, 86400);
+      expect((await diff(t.viewer, t.hall, NOW, { proposed: pending() })).status).toBe(200);
+      const over = await diff(t.viewer, t.hall, NOW, { proposed: pending(8) });
+      expect(over.status).toBe(429);
+      expect(over.body.reason).toBe("account_day_allowance");
+      expect(engineCalls).toHaveLength(1);
+      expect(await spent("registry_diff", t.viewer)).toBe(1);                           // the hour counter was given back for the refused run
     });
 
-    it("the hall's daily allowance, whoever asks; charged only after membership is known, so a stranger cannot spend it", async () => {
-      const t = await team();
-      await recordReference(t);
+    it("the organisation's daily allowance is keyed on the hall's organisation, taken only after membership is known, and a refused run costs the member and the hall nothing", async () => {
+      const t = await ready();
+      const lim = RATE_POLICIES.registry_diff_org;
+      await diff(person("stranger"), t.hall, NOW, { proposed: pending() });
+      expect(await hits("registry_diff_org", ORG(t.org))).toBe(0);                      // a stranger spends nothing of it
+      await spend("registry_diff_org", ORG(t.org), lim.limit - 1, lim.limit, 86400);
+      expect((await diff(t.viewer, t.hall, NOW, { proposed: pending() })).status).toBe(200);
+      const over = await diff(t.editor, t.hall, NOW, { proposed: pending(8) });
+      expect(over.status).toBe(429);
+      expect(over.body.reason).toBe("org_allowance");
+      expect(engineCalls).toHaveLength(1);
+      expect(await spent("registry_diff", t.editor)).toBe(0);                           // the editor's own allowance was never touched by the refused run
+      expect(await spent("registry_diff_day", t.editor)).toBe(0);
+      expect(await spentHall(t.hall)).toBe(1);
+      // another organisation is not affected
+      const other = await ready();
+      expect((await diff(other.viewer, other.hall, NOW, { proposed: pending() })).status).toBe(200);
+    });
+
+    it("the hall's daily allowance, whoever asks; a hall already at its cap costs the member and the organisation nothing", async () => {
+      const t = await ready();
       const day = RATE_POLICIES.registry_diff_hall;
-      await diff(person("stranger"), t.hall, { now: true }, { proposed: pending() });
+      await diff(person("stranger"), t.hall, NOW, { proposed: pending() });
       expect(await spentHall(t.hall)).toBe(0);
       await spend("registry_diff_hall", subjectOf(`hall-diff:${t.hall}`)!, day.limit - 1, day.limit, 86400);
-      expect((await diff(t.viewer, t.hall, { now: true }, { proposed: pending() })).status).toBe(200);
-      const over = await diff(t.editor, t.hall, { now: true }, { proposed: pending(8) });
+      expect((await diff(t.viewer, t.hall, NOW, { proposed: pending() })).status).toBe(200);
+      const over = await diff(t.editor, t.hall, NOW, { proposed: pending(8) });
       expect(over.status).toBe(429);
       expect(over.body.reason).toBe("hall_allowance");
       expect(Number(over.headers.get("retry-after"))).toBeGreaterThan(0);
       expect(engineCalls).toHaveLength(1);
+      expect(await spent("registry_diff", t.editor)).toBe(0);
+      expect(await hits("registry_diff_org", ORG(t.org))).toBe(1);                      // the organisation's hit for the refused run was given back
+      expect(await spentHall(t.hall)).toBe(day.limit);                                   // and the hall stands at its cap, not above it
     });
 
-    it("fails closed: when the counter cannot be read the request is refused with 503, not run", async () => {
+    it("a figure-missing answer, an identical answer and a refused request are free: they use no allowance of any kind", async () => {
       const t = await team();
+      await diff(t.viewer, t.hall, NOW, { proposed: pending() });                      // missing
       await recordReference(t);
+      await diff(t.viewer, t.hall, { asOf: today() }, NOW);                            // identical
+      await diff(t.viewer, t.hall, NOW, { asOf: "2999-01-01" });                       // refused
+      expect(await counts(t)).toEqual(ZERO);
+    });
+
+    it.each([["down", 503, "engine_unavailable"], ["missing", 503, "engine_route_missing"], ["refuse", 422, "engine_refused"], ["garbage", 502, "engine_answer_unreadable"]] as const)(
+      "an engine that fails (%s -> %s) gives back every allowance the run took: a failure never burns one", async (m, status, reason) => {
+        const t = await ready();
+        mode = m;
+        const r = await diff(t.viewer, t.hall, NOW, { proposed: pending() });
+        expect([r.status, r.body.reason]).toEqual([status, reason]);
+        expect(engineCalls.length).toBeGreaterThanOrEqual(1);                            // it WAS asked
+        expect(await counts(t)).toEqual(ZERO);
+        mode = "real";
+        expect((await diff(t.viewer, t.hall, NOW, { proposed: pending() })).status).toBe(200);          // and the member can still run, as if nothing had happened
+        expect((await counts(t)).hour).toBe(1);
+      });
+
+    it("the registry's provider budget is the technical ceiling: over it the run is a 429 before the engine is reached, and nothing is kept", async () => {
+      const t = await ready();
+      const agg = (await import("@/lib/rate-limit")).PROVIDER_BUDGETS["engine:registry:metered"].aggregate;
+      await spend(agg.bucket, subjectOf("aggregate")!, agg.limit, agg.limit, agg.windowSeconds);
+      const r = await diff(t.viewer, t.hall, NOW, { proposed: pending() });
+      expect(r.status).toBe(429);
+      expect(engineCalls).toEqual([]);
+      expect(await counts(t)).toEqual(ZERO);
+    });
+
+    it("the site-wide daily ceiling of 150 fails CLOSED with a 503, and the operator is told by a log line at 50% and at 100%", async () => {
+      const t = await ready();
+      const err = vi.spyOn(console, "error").mockImplementation(() => {});
+      const lim = RATE_POLICIES.registry_diff_global;
+      await spend("registry_diff_global", GLOBAL(), 74, lim.limit, 86400);
+      expect((await diff(t.viewer, t.hall, NOW, { proposed: pending(9) })).status).toBe(200);                     // the 75th: half
+      expect(err.mock.calls.flat().join("\n")).toMatch(/50% of the site-wide daily ceiling used \(75 of 150 runs\)/);
+      expect(err.mock.calls.flat().join("\n")).not.toMatch(/100%/);
+      await spend("registry_diff_global", GLOBAL(), 74, lim.limit, 86400);
+      expect((await diff(t.editor, t.hall, NOW, { proposed: pending(8) })).status).toBe(200);                     // the 150th: all of it
+      expect(err.mock.calls.flat().join("\n")).toMatch(/100% of the site-wide daily ceiling used \(150 of 150 runs\)/);
+      const calls = engineCalls.length;
+      const closed = await diff(t.owner, t.hall, NOW, { proposed: pending(7) });                                   // the 151st
+      expect(closed.status).toBe(503);
+      expect(closed.body.reason).toBe("unavailable");
+      expect(closed.body.error).toMatch(/temporarily unavailable/);
+      expect(engineCalls).toHaveLength(calls);                                                                     // not asked
+      expect(await spent("registry_diff", t.owner)).toBe(0);                                                       // and the refused run kept nothing
+      expect(await hits("registry_diff_global", GLOBAL())).toBe(lim.limit);                                        // the ceiling stands at 150, not above
+      expect(err.mock.calls.flat().join("\n")).toMatch(/ceiling of 150 runs is reached: runs are refused/);
+    });
+
+    it("fails closed: when a counter cannot be read the request is refused with 503, not run, and nothing is kept", async () => {
+      const t = await ready();
       const real = globalThis.fetch;
       globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
         const url = typeof input === "string" ? input : input instanceof URL ? input.href : input.url;
-        if (url.includes("gf_rate_limit_hit") && typeof init?.body === "string" && init.body.includes("registry_diff")) return new Response("{}", { status: 503 });
+        if (url.includes("gf_rate_limit_hit") && typeof init?.body === "string" && init.body.includes("registry_diff_day")) return new Response("{}", { status: 503 });
         return real(input, init);
       }) as typeof fetch;
       try {
-        const r = await diff(t.viewer, t.hall, { now: true }, { proposed: pending() });
+        const r = await diff(t.viewer, t.hall, NOW, { proposed: pending() });
         expect(r.status).toBe(503);
         expect(engineCalls).toEqual([]);
       } finally { globalThis.fetch = real; }
+      expect(await counts(t)).toEqual(ZERO);                                                                       // what was taken before the counter failed was given back
+    });
+
+    it("CONCURRENCY: 30 parallel requests of one member are exactly 3 engine calls (the hour), and the rest are 429", async () => {
+      const t = await ready();
+      const rs = await Promise.all(Array.from({ length: 30 }, (_, i) => call("diff", "POST", t.viewer, { id: t.hall, ip: `10.9.${i}.1`, body: { from: NOW, to: { proposed: pending(5 + (i % 4)) } } })));
+      const statuses = rs.map((r) => r.status).sort();
+      expect(engineCalls).toHaveLength(3);
+      expect(statuses.filter((s) => s === 200)).toHaveLength(3);
+      expect(statuses.filter((s) => s === 429)).toHaveLength(27);
+      expect((await counts(t)).hour).toBeGreaterThanOrEqual(3);
+    });
+
+    it("CONCURRENCY: 30 members of one hall asking at once are exactly 10 engine calls (the hall's day), whatever their accounts allow", async () => {
+      const t = await ready();
+      const crowd = Array.from({ length: 30 }, () => person("crowd"));
+      for (const who of crowd) expect((await call("members", "POST", t.owner, { id: t.org, body: { email: who, role: "viewer" } })).status).toBe(201);
+      const rs = await Promise.all(crowd.map((who, i) => call("diff", "POST", who, { id: t.hall, ip: `10.8.${i}.1`, body: { from: NOW, to: { proposed: pending(5 + (i % 5)) } } })));
+      expect(engineCalls).toHaveLength(RATE_POLICIES.registry_diff_hall.limit);
+      expect(rs.filter((r) => r.status === 200)).toHaveLength(10);
+      expect(rs.filter((r) => r.status === 429).map((r) => r.body.reason).every((x) => x === "hall_allowance" || x === "org_allowance")).toBe(true);
+      expect(rs.filter((r) => r.status === 200).length + rs.filter((r) => r.status === 429).length).toBe(30);
+    });
+  });
+
+  describe.runIf(hasPython)("the engine diff is OFF unless the deployment switches it on (GRIDFORGE_HALL_ENGINE_DIFF=1)", () => {
+    const pending = [row({ field_path: "grid.contracted_mw", value: 9, unit: "MW", origin: "assumed", class: "E3", as_of: "2026-02-01" })];
+    it.each([[undefined], [""], ["0"], ["true"], ["yes"], ["2"]])("flag = %j: 503 feature_off before anything is read or asked, nothing counted, even for a member of the hall", async (v) => {
+      const t = await team();
+      await recordReference(t);
+      if (v === undefined) delete process.env.GRIDFORGE_HALL_ENGINE_DIFF; else process.env.GRIDFORGE_HALL_ENGINE_DIFF = v;
+      const r = await diff(t.owner, t.hall, { now: true }, { proposed: pending });
+      expect(r.status).toBe(503);
+      expect(r.body).toMatchObject({ ok: false, reason: "feature_off" });
+      expect(r.body.error).toMatch(/not switched on for this deployment/);
+      expect(r.headers.get("cache-control")).toBe("no-store");
+      expect(engineCalls).toEqual([]);
+      expect(await spent("registry_diff", t.owner)).toBe(0);
+      expect(await hits("registry_diff_hall", subjectOf(`hall-diff:${t.hall}`))).toBe(0);
+      const probe = await call("diff", "GET", t.owner, { id: t.hall });
+      expect(probe.body).toMatchObject({ ok: true, enabled: false });
+    });
+
+    it("flag = 1: the probe says it is on, with the allowance, and reads no hall (a stranger's probe says the same)", async () => {
+      const t = await team();
+      const probe = await call("diff", "GET", t.viewer, { id: t.hall });
+      expect(probe.status).toBe(200);
+      expect(probe.body).toEqual({ ok: true, enabled: true, allowance: { perHour: 3, perDay: 10, perHallPerDay: 10, perOrganisationPerDay: 20 } });
+      expect((await call("diff", "GET", person("stranger"), { id: t.hall })).body).toEqual(probe.body);
+      expect((await call("diff", "GET", undefined, { id: t.hall })).status).toBe(401);
+    });
+  });
+
+  describe.runIf(hasPython)("a retry is the engine's own free replay: the Idempotency-Key is a hash of the two documents", () => {
+    it("is sent on every engine call, is the same for the same question whoever asks and whenever, and differs for a different question", async () => {
+      const t = await team();
+      await recordReference(t);
+      const ask = (who: string, n: number) => diff(who, t.hall, { now: true }, { proposed: [row({ field_path: "grid.contracted_mw", value: n, unit: "MW", origin: "assumed", class: "E3", as_of: "2026-02-01" })] });
+      expect((await ask(t.viewer, 9)).status).toBe(200);
+      expect((await ask(t.editor, 9)).status).toBe(200);
+      expect((await ask(t.viewer, 8)).status).toBe(200);
+      const keys = engineCalls.map((c) => c.headers["idempotency-key"]);
+      expect(keys.every((k) => /^[0-9a-f]{64}$/.test(k ?? ""))).toBe(true);
+      expect(keys[0]).toBe(keys[1]);
+      expect(keys[2]).not.toBe(keys[0]);
+      expect(keys[0]).toBe(idempotencyKeyFor(engineCalls[0]!.body.before, engineCalls[0]!.body.after));
+      // the engine's own replay: the same body under the same key is answered again, identically, and the engine says it is a replay
+      const again = await realFetch(`${ENGINE}/v1/diff`, { method: "POST", headers: { "content-type": "application/json", "x-api-key": KEY, "idempotency-key": keys[0]! }, body: JSON.stringify(engineCalls[0]!.body) });
+      expect(again.status).toBe(200);
+    });
+  });
+
+  describe.runIf(hasPython)("what a reader is told when the record and the engine's defaults meet", () => {
+    it("a figure recorded earlier and withdrawn now is flagged as a recorded figure compared with the engine's default, not an ordinary placeholder", async () => {
+      const t = await team();
+      await recordReference(t);
+      const r = await diff(t.viewer, t.hall, { now: true }, { proposed: [row({ field_path: "grid.power_factor", origin: "missing", class: "E0", as_of: "2026-02-01" })] });
+      expect(r.body.ran, JSON.stringify(r.body)).toBe(true);
+      const pf = r.body.placeholders.find((p: any) => p.path === "grid.power_factor");
+      expect(pf).toMatchObject({ sides: ["to"], change: "withdrawn" });
+      expect(r.body.placeholders.find((p: any) => p.path === "thermal.cdus")).toMatchObject({ sides: ["from", "to"], change: null });
+    });
+
+    it("a value the engine would refuse (a power factor of 97) is refused here by name: the engine is not asked and no allowance of any kind is used", async () => {
+      const t = await team();
+      await recordReference(t);
+      const ids = new Map<string, string>(((await call("inputs", "GET", t.viewer, { id: t.hall })).body.inputs as any[]).map((i) => [i.fieldPath, i.id]));
+      expect((await correct(t.editor, t.hall, ids, "grid.power_factor", { value: 97 })).status).toBe(201);
+      const r = await diff(t.viewer, t.hall, { now: true }, { proposed: [row({ field_path: "grid.contracted_mw", value: 9, unit: "MW", origin: "assumed", class: "E3", as_of: "2026-02-01" })] });
+      expect(r.body).toMatchObject({ ran: false, reason: "missing" });
+      expect(r.body.missing).toEqual([expect.objectContaining({ path: "grid.power_factor", need: "unusable", sides: ["from", "to"] })]);
+      expect(r.body.missing[0].reason).toMatch(/97 is outside what the engine takes: a fraction above 0 and at most 1 \(0\.97, not 97\)/);
+      expect(engineCalls).toEqual([]);
+      expect(await spent("registry_diff", t.viewer)).toBe(0);
+      expect(await spent("registry_diff_day", t.viewer)).toBe(0);
+      expect(await spentHall(t.hall)).toBe(0);
     });
   });
 

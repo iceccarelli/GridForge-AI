@@ -394,22 +394,23 @@ import { ENGINE_DIFF_LABEL } from "@/lib/site-registry-engine";
 
 describe("the engine capacity-envelope diff panel", () => {
   const api = async () => ({ status: 200, body: {} });
-  const idle = (over: Record<string, unknown> = {}) => html(React.createElement(EngineDiffRun, { api, hallId: "h1", from: { asOf: "2026-01-10" }, to: { now: true }, ...over } as never));
+  const idle = (over: Record<string, unknown> = {}) => html(React.createElement(EngineDiffRun, { api, hallId: "h1", from: { asOf: "2026-01-10" }, to: { now: true }, enabled: true, ...over } as never));
 
   it("is titled, says what it is and is not, and states the cost and the allowance BEFORE the button that spends them", () => {
     const out = idle();
     expect(out).toContain("Engine capacity-envelope diff");
     expect(out).toContain("Modelled by the engine from the figures as recorded; origin and class are the recorder&#x27;s declaration. Not a measurement.");
     expect(ENGINE_DIFF_LABEL).toBe("Modelled by the engine from the figures as recorded; origin and class are the recorder's declaration. Not a measurement.");
-    expect(out).toContain("This runs the engine (2 units) — limited to 10 per hour");
-    expect(out.indexOf("Run the engine")).toBeLessThan(out.indexOf("This runs the engine (2 units)"));        // the button is the first thing; the cost is its description
+    expect(out).toContain("Counts as 1 of your 3 engine runs this hour (and 10 today); the run is not billed to you.");
+    expect(out).not.toMatch(/units?\b/i);                                                                   // the operator's cost is not a member's concern, and is never shown as theirs
+    expect(out.indexOf("Run the engine")).toBeLessThan(out.indexOf("Counts as 1 of your"));        // the button is the first thing; the cost is its description
     expect(out).toMatch(/<button[^>]*id="engine-diff-run"[^>]*aria-describedby="engine-diff-cost"/);
     expect(out).not.toContain('data-testid="engine-result"');                                                 // nothing is run, and nothing is shown, until it is asked for
   });
 
   it("is asked on a click only: the request is made from the click handler and from nowhere else", () => {
     const src = fs.readFileSync("components/SiteRegistryEngineDiff.tsx", "utf8");
-    expect(src.match(/\/diff`/g)).toHaveLength(1);
+    expect(src.match(/\{ method: "POST"/g)).toHaveLength(1);                                                        // the one POST; the other /diff request is the GET that asks whether it is switched on
     expect(src).toContain("onClick={() => void run()}");
     expect(src.match(/(?<!function )\brun\(\)/g)).toHaveLength(1);                                                  // the one call is the click handler's
     expect(src).toMatch(/if \(!from \|\| !to \|\| reason\) return;/);
@@ -434,11 +435,11 @@ describe("the engine capacity-envelope diff panel", () => {
 
   const answer = (over: Partial<EngineAnswer> = {}): EngineAnswer => ({
     ok: true, ran: true, hall: { id: "h1", label: "Hall 1" }, from: { kind: "asOf", asOf: "2026-01-10", label: "the record at the end of 2026-01-10 (UTC)" }, to: { kind: "now", asOf: "2026-11-08", label: "the figures now" },
-    label: ENGINE_DIFF_LABEL, units: 2, historyTruncated: false, missing: [], classNotes: [{ path: "grid.firm_capacity_mva", side: "to", declared: "E5", sent: "E3", why: "The file it cites is not reviewed and verified now, so it is carried at E3 at most." }],
+    label: ENGINE_DIFF_LABEL, historyTruncated: false, missing: [], classNotes: [{ path: "grid.firm_capacity_mva", side: "to", declared: "E5", sent: "E3", why: "The file it cites is not reviewed and verified now, so it is carried at E3 at most." }],
     placeholders: [{ path: "economics.electricity_eur_per_mwh", label: "All-in grid electricity price", fallback: "library placeholder of 140 EUR/MWh (E0)", sides: ["from", "to"] }], notUsed: [{ path: "grid.queue_position", reason: "The engine's intake has no such input, so it takes no part in the run.", sides: ["to"] }],
     ceiling: { cls: "E1", paths: ["hall.rack_positions"] }, classChanges: [], engine: { version: "0.9.0", digest: "ab".repeat(32) }, carriedBy: "E0",
     diff: {
-      headline: "-19 racks (28 to 9); what binds first holds.", material: true, racksDelta: -19, explainedRacks: -19, unexplainedRacks: 0,
+      summary: "Lowers the rack count by 19 (from 28 to 9); what binds first holds (Rack feed / tap-off rating); time to full capacity: +8 wk (assumed lead time, not a date (E0; set by transformer capacity)).", material: true, racksDelta: -19, explainedRacks: -19, unexplainedRacks: 0,
       before: { racksAsFound: 0, racksAfterLadder: 28, bindingName: "Rack feed / tap-off rating", bindingBasis: "platform needs 205 A per rack; tap-offs rated 63 A (E3)", scenario: "Full DLC, grid only" },
       after: { racksAsFound: 0, racksAfterLadder: 9, bindingName: "Rack feed / tap-off rating", bindingBasis: "platform needs 205 A per rack; tap-offs rated 63 A (E3)", scenario: "Full DLC, grid only" },
       bindingMoved: false, racksClass: "E0", inputs: "changed", notAttributed: [],
@@ -450,7 +451,9 @@ describe("the engine capacity-envelope diff panel", () => {
 
   it("shows the headline, the rack delta as 'raises/lowers by N' with the class that carries it, explained and unexplained, the drivers table, binding, and the weeks with what they rest on", () => {
     const out = html(React.createElement(EngineResult, { a: answer() }));
-    expect(out).toContain("-19 racks (28 to 9); what binds first holds.");
+    expect(out).toContain("In short: ");
+    expect(out).toContain("Lowers the rack count by 19 (from 28 to 9); what binds first holds (Rack feed / tap-off rating); time to full capacity: +8 wk");
+    expect(out).not.toContain("The engine&#x27;s headline");
     expect(out).toContain("Lowers the rack count by 19 (from 28 to 9), carried by class E0.");
     expect(out).toContain("explains -19 racks; +0 racks are not explained by any one input");
     expect(out).toMatch(/<th scope="col"[^>]*>Recorded input<\/th>/);
@@ -463,7 +466,7 @@ describe("the engine capacity-envelope diff panel", () => {
     expect(out).toContain("held to E1 because this recorded figure carries no class in the engine: hall.rack_positions");
     expect(out).toContain("Engine 0.9.0");
     expect(out).toContain(">abababababab<");
-    expect(out).toContain("2 units used");
+    expect(out).not.toMatch(/units used|capex/i);
     expect(out).toContain("Modelled by the engine from the figures as recorded");
     expect(out).toMatch(/role="region"[^>]*aria-label="Which recorded inputs moved the rack count"[^>]*tabindex="0"/);          // the table scrolls sideways at 390 px: reachable by keyboard
   });
@@ -526,7 +529,25 @@ describe("the engine capacity-envelope diff panel", () => {
     expect(empty).not.toContain("Run the engine on this preview");
     const out = html(React.createElement(EngineDiffRun, { api, hallId: "h1", from: { now: true }, to: { proposed: [{ n: 1, fromCsv: false, cells: { field_path: "grid.contracted_mw" } }] }, idPrefix: "engine-import", title: "What the engine makes of this preview", buttonLabel: "Run the engine on this preview" }));
     expect(out).toContain("Run the engine on this preview");
-    expect(out).toContain("This runs the engine (2 units) — limited to 10 per hour");
+    expect(out).toContain("Counts as 1 of your 3 engine runs this hour (and 10 today)");
+  });
+});
+
+describe("the engine diff is off unless the deployment switches it on", () => {
+  const api = async () => ({ status: 200, body: {} });
+  it("when it is not switched on the panel says so INSTEAD of the Run button, and the cost line is gone", () => {
+    const out = html(React.createElement(EngineDiffRun, { api, hallId: "h1", from: { asOf: "2026-01-10" }, to: { now: true }, enabled: false } as never));
+    expect(out).toContain("The engine diff is not switched on for this deployment.");
+    expect(out).toContain("Nothing is run and nothing is charged.");
+    expect(out).not.toContain("engine-diff-run");
+    expect(out).not.toContain("Counts as 1 of your");
+  });
+  it("until the server has said, the button is not offered (it is disabled), and a probe that fails leaves the route to answer for itself", () => {
+    const pending = html(React.createElement(EngineDiffRun, { api, hallId: "h1", from: { asOf: "2026-01-10" }, to: { now: true } } as never));
+    expect(pending).toMatch(/<button[^>]*id="engine-diff-run"[^>]*disabled=""/);
+    const src = fs.readFileSync("components/SiteRegistryEngineDiff.tsx", "utf8");
+    expect(src).toContain("r.body.enabled === false ? false : true");
+    expect(src).toContain('r.body?.reason === "feature_off"');
   });
 });
 

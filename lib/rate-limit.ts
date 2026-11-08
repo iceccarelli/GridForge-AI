@@ -35,7 +35,7 @@
 import crypto from "node:crypto";
 import net from "node:net";
 import { NextResponse } from "next/server";
-import { creds, rpc } from "@/lib/pgrest";
+import { creds, rest, rpc } from "@/lib/pgrest";
 import { currentSpendScope, runInSpendScope, type SpendClass, type SpendDenial, type SpendScope } from "@/lib/spend-scope";
 
 export interface RatePolicy {
@@ -88,12 +88,20 @@ export const RATE_POLICIES = {
   registry_read: { bucket: "registry_read", limit: 600, windowSeconds: HOUR },
   /** POST/DELETE on the same routes: each writes an append-only row. 120 an hour per verified account is a team entering a hall's figures, not a loop. */
   registry_write: { bucket: "registry_write", limit: 120, windowSeconds: HOUR },
-  /** POST /api/halls/[id]/diff: each admitted run asks the engine's /v1/diff under the OPERATOR's key, which meters 2 units (EUR 4 at the published EUR 2 a unit). Counted per VERIFIED
-   *  ACCOUNT (`accountOnly`) and only for a run that reaches the engine: a refused body, a stranger's 404 and an answer of "these figures are missing" cost nothing and count nothing.
-   *  10 an hour is an engineer comparing a few points before a review, not a loop (at most EUR 40 an hour per account). */
-  registry_diff: { bucket: "registry_diff", limit: 10, windowSeconds: HOUR },
-  /** ...and per HALL per day, however many members ask: 60 runs is at most 120 units (EUR 240) a day for one hall. Charged after membership is established, so a stranger cannot spend a hall's allowance. */
-  registry_diff_hall: { bucket: "registry_diff_hall", limit: 60, windowSeconds: 86400 },
+  /** POST /api/halls/[id]/diff: each run asks the engine's /v1/diff under the OPERATOR's key (2 metered units, EUR 4 at the published EUR 2 a unit), for a free verified account.
+   *  Five limits stand between any of them and the operator's money, each its own bucket; a run is charged to ALL of them and a run that fails before the engine answers is
+   *  given back to all of them (`refundHit`), so a failure never burns an allowance. Per VERIFIED ACCOUNT per hour (`accountOnly`, an office behind one NAT is not locked out): 3, at most EUR 12 an hour. */
+  registry_diff: { bucket: "registry_diff", limit: 3, windowSeconds: HOUR },
+  /** ...per verified account per day: 10, at most EUR 40 a day. */
+  registry_diff_day: { bucket: "registry_diff_day", limit: 10, windowSeconds: 86400 },
+  /** ...per ORGANISATION per day (keyed on the hall's organisation id, charged only after membership is known, so a stranger cannot spend it): 20, at most EUR 80 a day. Free accounts can open
+   *  organisations, so this is the bound on how much one team can spend however many accounts it has. */
+  registry_diff_org: { bucket: "registry_diff_org", limit: 20, windowSeconds: 86400 },
+  /** ...per HALL per day: 10, at most EUR 40 a day. */
+  registry_diff_hall: { bucket: "registry_diff_hall", limit: 10, windowSeconds: 86400 },
+  /** ...and ONE ceiling for the whole site per day: 150 runs, at most EUR 600 a day, whoever asks. Over it the route fails CLOSED (503, "temporarily unavailable"); the operator is told by a
+   *  console.error line at 50% and at 100% of it (lib/site-registry-engine-server.ts). */
+  registry_diff_global: { bucket: "registry_diff_global", limit: 150, windowSeconds: 86400 },
   /** POST /api/audit: records an enquiry, mails the desk, pings Slack and may mail the address typed in the form. */
   audit: { bucket: "audit", limit: 10, windowSeconds: HOUR },
   /** POST /api/qualify/[token]/follow-up: each first request mails the desk and an address the caller typed. */
@@ -164,6 +172,15 @@ export const PROVIDER_BUDGETS = {
   "engine:customer:free": {
     caller: { bucket: "engine_customer_free_caller", limit: 360, windowSeconds: HOUR },
     aggregate: { bucket: "engine_customer_free", limit: 3000, windowSeconds: HOUR },
+  },
+  // The registry's engine diff has its OWN budget and its own spend class: it never draws on the customer or public buckets that paying customers' fulfilment and the free tools depend on.
+  "engine:registry:metered": {
+    caller: { bucket: "engine_registry_caller", limit: 6, windowSeconds: HOUR },
+    aggregate: { bucket: "engine_registry", limit: 40, windowSeconds: HOUR },
+  },
+  "engine:registry:free": {
+    caller: { bucket: "engine_registry_free_caller", limit: 30, windowSeconds: HOUR },
+    aggregate: { bucket: "engine_registry_free", limit: 150, windowSeconds: HOUR },
   },
   "anthropic:public": {
     caller: { bucket: "anthropic_public_caller", limit: 240, windowSeconds: HOUR },
@@ -340,7 +357,7 @@ export function callerIdentity(req: Request): CallerIdentity {
 // The counter
 // ---------------------------------------------------------------------------------------------------------------------
 
-type Hit = { allowed: boolean; retryAfter: number };
+type Hit = { allowed: boolean; retryAfter: number; /** hits in the window including this one */ count: number };
 
 // Development and tests only (see `hit`): a per-process counter used when no store is configured outside production.
 // It is NOT distributed protection and is never consulted in production.
@@ -358,7 +375,7 @@ function memoryHit(policy: RatePolicy, subject: string, now = Date.now()): Hit {
     memory.set(key, cur);
   }
   cur.count += 1;
-  return { allowed: cur.count <= policy.limit, retryAfter: Math.max(1, Math.ceil((cur.windowEnd - now) / 1000)) };
+  return { allowed: cur.count <= policy.limit, retryAfter: Math.max(1, Math.ceil((cur.windowEnd - now) / 1000)), count: cur.count };
 }
 
 /** One counted hit. `null` means the counter could not be read: the caller must refuse, not run. */
@@ -381,13 +398,13 @@ async function hit(policy: RatePolicy, subject: string): Promise<Hit | null> {
     console.error(`[GridForge] rate limit: the counter is unavailable (${r.status}); refusing`);
     return null;
   }
-  const d = r.data as { allowed?: unknown; retry_after_seconds?: unknown } | null;
+  const d = r.data as { allowed?: unknown; hits?: unknown; retry_after_seconds?: unknown } | null;
   if (!d || typeof d.allowed !== "boolean") {
     console.error("[GridForge] rate limit: the counter answered in an unexpected form; refusing");
     return null;
   }
   const retry = typeof d.retry_after_seconds === "number" && d.retry_after_seconds >= 1 ? Math.ceil(d.retry_after_seconds) : policy.windowSeconds;
-  return { allowed: d.allowed, retryAfter: retry };
+  return { allowed: d.allowed, retryAfter: retry, count: typeof d.hits === "number" ? d.hits : d.allowed ? 0 : policy.limit + 1 };
 }
 
 /**
@@ -395,10 +412,39 @@ async function hit(policy: RatePolicy, subject: string): Promise<Hit | null> {
  * own response to give (the admin login). `null` means the counter could not be read: refuse, do not proceed. `now` only
  * moves the development/test in-memory window; the Postgres counter uses the database clock.
  */
-export async function countHit(name: RatePolicyName, subject: string, now?: number): Promise<{ allowed: boolean; retryAfter: number } | null> {
+export async function countHit(name: RatePolicyName, subject: string, now?: number): Promise<{ allowed: boolean; retryAfter: number; count: number } | null> {
   const policy = RATE_POLICIES[name];
   if (!creds() && !isProduction()) return memoryHit(policy, subject, now);
   return hit(policy, subject);
+}
+
+/**
+ * Give back one hit to a counter this request charged, because the work it was charged for did not happen (the engine was not reached, or refused). Best effort and one-directional:
+ * a refund that cannot be made leaves the hit counted (the safe side), and it is never applied above zero. Against the store it is a compare-and-swap on the newest window's row
+ * (`hits` must still be what was read), so a concurrent hit is never overwritten; there is no migration for it, and it needs only the same table the counter writes.
+ */
+export async function refundHit(name: RatePolicyName, subject: string): Promise<boolean> {
+  const policy = RATE_POLICIES[name];
+  if (!creds()) {
+    if (isProduction()) return false;
+    const key = `${policy.bucket}:${subject}`;
+    const cur = memory.get(key);
+    if (!cur || cur.count < 1) return false;
+    cur.count -= 1;
+    return true;
+  }
+  const where = `bucket=eq.${encodeURIComponent(policy.bucket)}&subject=eq.${encodeURIComponent(subject)}`;
+  for (let attempt = 0; attempt < 12; attempt++) {
+    if (attempt > 0) await new Promise((r) => setTimeout(r, Math.random() * 25));       // another request changed the row first: back off a little and read again
+    const g = await rest<{ window_start: string | number; hits: number }[]>("GET", `rate_limit_windows?${where}&select=window_start,hits&order=window_start.desc&limit=1`);
+    const row = g.ok ? g.data[0] : undefined;
+    if (!row || !(row.hits >= 1)) return false;
+    // The table requires hits >= 1, so giving back the only hit deletes the row (still conditional on `hits` being what was read).
+    const match = `rate_limit_windows?${where}&window_start=eq.${encodeURIComponent(String(row.window_start))}&hits=eq.${row.hits}`;
+    const p = row.hits === 1 ? await rest<unknown[]>("DELETE", match) : await rest<unknown[]>("PATCH", match, { hits: row.hits - 1 });
+    if (p.ok && Array.isArray(p.data) && p.data.length > 0) return true;
+  }
+  return false;
 }
 
 /** Count one hit against `policy` for `subject`, translating the outcome into the denial the caller must return. */
@@ -497,8 +543,8 @@ export async function guardRequest(req: Request, name: RatePolicyName, opts: Gua
 // Provider level
 // ---------------------------------------------------------------------------------------------------------------------
 
-function budgetFor(provider: Provider, cls: Exclude<SpendClass, "trusted">, url: string): BudgetKey {
-  if (provider === "anthropic") return `anthropic:${cls}`;
+function budgetFor(provider: Provider, cls: Exclude<SpendClass, "trusted">, url: string): BudgetKey | null {
+  if (provider === "anthropic") return cls === "registry" ? null : `anthropic:${cls}`;       // the registry's diff has no business with Anthropic: refused below
   let path = "";
   try {
     path = new URL(url).pathname.replace(/\/+$/, "");
@@ -527,7 +573,12 @@ async function admitProviderCall(provider: Provider, url: string): Promise<Spend
     scope.denial = { status: 503, retryAfter: null };
     return scope.denial;
   }
-  const budget = PROVIDER_BUDGETS[budgetFor(provider, scope.cls, url)];
+  const key = budgetFor(provider, scope.cls, url);
+  if (!key) {
+    scope.denial = { status: 503, retryAfter: null };
+    return scope.denial;
+  }
+  const budget = PROVIDER_BUDGETS[key];
   const shared = subjectOf("aggregate"); // the one shared subject for a bucket's ceiling, pseudonymised like any other
   const denial = shared
     ? ((await charge(budget.caller, scope.caller)) ?? (await charge(budget.aggregate, shared)))

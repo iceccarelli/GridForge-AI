@@ -123,7 +123,7 @@ function firstSpend(fn: Fn): [number, string] | null {
 }
 
 // 2. routes -----------------------------------------------------------------------------------------------------------
-type Kind = "guarded" | "customer" | "trusted";
+type Kind = "guarded" | "customer" | "registry" | "trusted";
 const HANDLER = /^(GET|POST|PUT|PATCH|DELETE)$/;
 const ROUTES = FILES.filter((f) => f.startsWith("app/api/") && f.endsWith("/route.ts"));
 
@@ -138,7 +138,7 @@ function classify(fn: Fn): { kind: Kind | null; problem?: string } {
     if (!/\.denied\)\s*return\s+\w+\.denied;/.test(fn.body)) return { kind: null, problem: "guardRequest's refusal is not returned" };
     if (run < 0 || run < guard) return { kind: null, problem: "provider work is not inside the guard's .run(...)" };
     if (at < run) return { kind: null, problem: `${callee}() is called before the request is admitted and run in scope` };
-    return { kind: /cls:\s*"customer"/.test(fn.body) ? "customer" : "guarded" };
+    return { kind: /cls:\s*"customer"/.test(fn.body) ? "customer" : /cls:\s*"registry"/.test(fn.body) ? "registry" : "guarded" };
   }
   if (trusted >= 0) {
     if (at < trusted) return { kind: null, problem: `${callee}() is called before runTrusted(...)` };
@@ -177,7 +177,7 @@ describe("every route handler that reaches a paid provider is metered or trusted
       "app/api/deliverable/[token]/bids/route.ts POST": "customer",
       "app/api/deliverable/[token]/evidence-run/route.ts POST": "customer",
       "app/api/deliverable/[token]/quotes/route.ts POST": "customer",
-      "app/api/halls/[id]/diff/route.ts POST": "customer",
+      "app/api/halls/[id]/diff/route.ts POST": "registry",
       "app/api/intake/[token]/route.ts POST": "customer",
       "app/api/power/compare/route.ts POST": "guarded",
       "app/api/power/compare/save/route.ts POST": "guarded",

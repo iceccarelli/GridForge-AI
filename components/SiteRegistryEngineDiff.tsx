@@ -4,13 +4,13 @@ import { useEffect, useRef, useState } from "react";
 import { Loader2 } from "lucide-react";
 import { button, quietButton } from "@/components/SiteRegistryParts";
 import {
-  ENGINE_DIFF_LABEL, ENGINE_DIFF_PER_HALL_PER_DAY, ENGINE_DIFF_PER_HOUR, ENGINE_DIFF_UNITS, racksSentence,
+  ENGINE_DIFF_LABEL, ENGINE_DIFF_PER_DAY, ENGINE_DIFF_PER_HALL_PER_DAY, ENGINE_DIFF_PER_HOUR, racksSentence,
   type ClassNote, type EngineDiffView, type MissingField, type NotUsed, type Placeholder, type Side,
 } from "@/lib/site-registry-engine";
 import { formatWeeksDelta } from "@/lib/date-basis";
 import type { RegistryApi } from "@/lib/site-registry-model";
 
-// The engine's own answer to "what did the change do to this hall's capacity envelope?", asked on a click. It costs the operator engine units, so nothing here runs
+// The engine's own answer to "what did the change do to this hall's capacity envelope?", asked on a click. It spends the operator's engine units, so it is switched on only where the operator has said so, and nothing here runs
 // on page load: the cost and the allowance are printed before the button, and the engine is asked only when the button is pressed. The numbers shown are the
 // server's whitelisted answer (lib/site-registry-engine.ts), printed with the declared origin and class they rest on. Never a measurement.
 
@@ -19,7 +19,7 @@ export type PointBody = { now: true } | { asOf: string } | { proposed: { n: numb
 type PointMeta = { kind: "now" | "asOf" | "proposed"; asOf: string | null; label: string; rows?: { used: number; unchanged: number; excluded: { n: number; fieldPath: string; reason: string }[] } };
 
 export type EngineAnswer = {
-  ok: true; ran: boolean; reason?: "missing" | "identical"; message?: string; hall: { id: string; label: string }; from: PointMeta; to: PointMeta; label: string; units: number; historyTruncated: boolean;
+  ok: true; ran: boolean; reason?: "missing" | "identical"; message?: string; hall: { id: string; label: string }; from: PointMeta; to: PointMeta; label: string; historyTruncated: boolean;
   missing: MissingField[]; classNotes: (ClassNote & { side: Side })[]; placeholders: (Placeholder & { sides: Side[] })[]; notUsed: (NotUsed & { sides: Side[] })[];
   ceiling: { cls: string; paths: string[] } | null; classChanges: { path: string; from: string; to: string }[];
   engine?: { version: string; digest: string } | null; diff?: EngineDiffView; carriedBy?: string | null;
@@ -31,6 +31,7 @@ const sideText = (s: Side[]) => (s.length === 2 ? "both points" : s[0] === "from
 const NEED_TEXT: Record<MissingField["need"], string> = {
   engine_required: "The engine's intake requires it.",
   no_gap_default: "The engine would fill it from a library default without listing it as a gap, so it is asked for here.",
+  unusable: "It is recorded, but not in a form the engine can take. A recorded figure is never replaced by the engine's default: correct it, or record it as missing.",
 };
 
 /** Put a path in the record form and move to it. The form belongs to the page; this only fills its two inputs the way typing would. */
@@ -86,6 +87,12 @@ export function MissingList({ missing, canRecord, canImport, onJump, onImport }:
 
 const cell = "px-3 py-2 align-top text-[13px]";
 /** The movement in weeks through the one shared formatter (lib/date-basis.ts): a number only beside what it rests on, and none when the engine said nothing about it. */
+/** A figure recorded at one point and not at the other: the comparison is of a recorded figure against the engine's default, and says so. */
+function changeText(p: { change?: "withdrawn" | "added" | null }): string {
+  return p.change === "withdrawn"
+    ? "Recorded at the earlier point, not recorded now: this compares a recorded figure with the engine's default."
+    : "Not recorded at the earlier point, recorded now: this compares the engine's default with a recorded figure.";
+}
 function weeksSentence(w: EngineDiffView["weeks"]): string {
   const keys = { date_basis: w.basis === "unverified" ? undefined : w.basis, date_evidence_class: w.evidenceClass, date_binding_item: w.bindingItem, date_label: w.label };
   return `Time to full capacity: ${formatWeeksDelta(w.delta, keys, keys)}.`;
@@ -103,7 +110,7 @@ export function EngineResult({ a }: { a: EngineAnswer }) {
       </p>
       {a.historyTruncated && <p className="text-queue text-[12px] mt-1">Only the newest 500 recorded claims were read, so an earlier point may lack figures that were recorded before them.</p>}
 
-      <p className="text-white text-[14px] mt-3"><span className="text-faint">The engine&apos;s headline: </span>{d.headline}</p>
+      <p className="text-white text-[14px] mt-3" data-testid="engine-summary"><span className="text-faint">In short: </span>{d.summary}</p>
       <p className="text-white text-[14px] mt-2" data-testid="engine-racks">{sentence}</p>
       <p className="text-mute text-[13px] mt-1">
         Moving the inputs one at a time explains {d.explainedRacks >= 0 ? "+" : ""}{d.explainedRacks} racks; {d.unexplainedRacks >= 0 ? "+" : ""}{d.unexplainedRacks} racks are not explained by any one input
@@ -164,7 +171,7 @@ export function EngineResult({ a }: { a: EngineAnswer }) {
       {a.placeholders.length > 0 && (
         <details className="mt-3 text-[13px]">
           <summary className="cursor-pointer text-mute">Not recorded: the engine used its own placeholder for {a.placeholders.length} input{a.placeholders.length === 1 ? "" : "s"}</summary>
-          <ul className="list-disc pl-5 mt-1">{a.placeholders.map((p) => <li key={p.path}>{p.path} · {p.label}: {p.fallback}</li>)}</ul>
+          <ul className="list-disc pl-5 mt-1">{a.placeholders.map((p) => <li key={p.path}>{p.path} · {p.label}: {p.fallback}{p.change ? <strong className="text-queue font-semibold"> {changeText(p)}</strong> : null}</li>)}</ul>
         </details>
       )}
       {a.notUsed.length > 0 && (
@@ -184,7 +191,7 @@ export function EngineResult({ a }: { a: EngineAnswer }) {
         Not in this run: behind-the-meter options and the scenario set are not recorded figures, so the engine ran its standard scenarios with none declared. A recorded figure is a declaration; nothing here checks it against the real hall.
       </p>
       <p className="data text-[10px] text-faint mt-1">
-        {a.engine ? <>Engine {a.engine.version} · build <span title={a.engine.digest}>{a.engine.digest.slice(0, 12)}</span></> : "The engine did not state which build answered."} · {a.units} units used
+        {a.engine ? <>Engine {a.engine.version} · build <span title={a.engine.digest}>{a.engine.digest.slice(0, 12)}</span></> : "The engine did not state which build answered."}
       </p>
     </div>
   );
@@ -194,9 +201,22 @@ export function EngineResult({ a }: { a: EngineAnswer }) {
  * The panel: what it costs, a button, and the answer. `from` and `to` are the two points; null for either (or a reason in `blocked`) disables the button and says why.
  * Nothing is asked of the engine until the button is pressed.
  */
-export default function EngineDiffRun({ api, hallId, from, to, blocked, idPrefix = "engine-diff", title, buttonLabel = "Run the engine", intro }: {
+export const OFF_TEXT = "The engine diff is not switched on for this deployment.";
+
+export default function EngineDiffRun({ api, hallId, from, to, blocked, idPrefix = "engine-diff", title, buttonLabel = "Run the engine", intro, enabled: enabledProp }: {
   api: RegistryApi; hallId: string; from: PointBody | null; to: PointBody | null; blocked?: string | null; idPrefix?: string; title?: string; buttonLabel?: string; intro?: React.ReactNode;
+  /** Whether the deployment has the engine diff switched on. Omitted: asked of the server (GET), and until it answers the button is not offered. */
+  enabled?: boolean;
 }) {
+  const [probed, setProbed] = useState<boolean | null>(null);
+  const enabled = enabledProp ?? probed;
+  useEffect(() => {
+    if (enabledProp !== undefined) return;
+    let on = true;
+    // Only an explicit "not switched on" hides the button: a probe that failed leaves it to the route, which says feature_off itself.
+    api(`/api/halls/${hallId}/diff`).then((r) => { if (on) setProbed(r.body?.ok === true && r.body.enabled === false ? false : true); }).catch(() => { if (on) setProbed(true); });
+    return () => { on = false; };
+  }, [api, hallId, enabledProp]);
   const [phase, setPhase] = useState<"idle" | "running">("idle");
   const [outcome, setOutcome] = useState<Outcome | null>(null);
   const [canRecord, setCanRecord] = useState(false);
@@ -226,6 +246,7 @@ export default function EngineDiffRun({ api, hallId, from, to, blocked, idPrefix
       const r = await api(`/api/halls/${hallId}/diff`, { method: "POST", body: { from, to } });
       if (!mounted.current) return;
       if (r.body?.ok === true && typeof r.body.ran === "boolean" && Array.isArray(r.body.missing)) setOutcome({ kind: "answer", answer: r.body as EngineAnswer });
+      else if (r.status === 503 && r.body?.reason === "feature_off") setProbed(false);
       else if (r.status === 404) setOutcome({ kind: "problem", text: "This hall could not be found. Nothing was run." });
       else if (r.status === 429) setOutcome({ kind: "problem", text: `${r.body?.error ?? "The allowance for engine runs is used up."}${r.retryAfter ? ` Try again in about ${r.retryAfter < 120 ? `${r.retryAfter} seconds` : `${Math.ceil(r.retryAfter / 60)} minutes`}.` : ""} Nothing was run.` });
       else if (r.status === 503) setOutcome({ kind: "problem", text: `The engine is not available: ${r.body?.error ?? "nothing was run and nothing was charged."}` });
@@ -243,13 +264,17 @@ export default function EngineDiffRun({ api, hallId, from, to, blocked, idPrefix
       <h4 id={`${idPrefix}-title`} className="text-sm font-semibold">{title ?? "Engine capacity-envelope diff"}</h4>
       <p className="text-mute text-[13px] mt-1">{intro ?? <>Asks the engine what the change between these two points does to the hall&apos;s capacity envelope: the rack count, what binds first, and the time to power. It solves both sets of recorded figures and says which recorded input moved the answer.</>}</p>
       <p className="text-queue text-[12px] mt-1">{ENGINE_DIFF_LABEL}</p>
+      {enabled === false ? (
+        <p className="text-mute text-[13px] mt-3" id={`${idPrefix}-off`} role="status">{OFF_TEXT} Nothing is run and nothing is charged.</p>
+      ) : (
       <div className="mt-3 flex flex-wrap items-center gap-3">
-        <button type="button" id={`${idPrefix}-run`} className={button} onClick={() => void run()} disabled={phase === "running" || Boolean(reason)} aria-describedby={costId}>
+        <button type="button" id={`${idPrefix}-run`} className={button} onClick={() => void run()} disabled={phase === "running" || Boolean(reason) || enabled === null} aria-describedby={costId}>
           {phase === "running" ? <Loader2 size={14} className="animate-spin" aria-hidden="true" /> : null}{buttonLabel}
         </button>
-        <p id={costId} className="data text-[11px] text-mute">This runs the engine ({ENGINE_DIFF_UNITS} units) — limited to {ENGINE_DIFF_PER_HOUR} per hour, and {ENGINE_DIFF_PER_HALL_PER_DAY} a day for this hall.</p>
+        <p id={costId} className="data text-[11px] text-mute">Counts as 1 of your {ENGINE_DIFF_PER_HOUR} engine runs this hour (and {ENGINE_DIFF_PER_DAY} today); the run is not billed to you. This hall allows {ENGINE_DIFF_PER_HALL_PER_DAY} a day.</p>
       </div>
-      {reason && <p className="text-[12px] text-queue mt-2" id={`${idPrefix}-blocked`}>{reason}</p>}
+      )}
+      {enabled !== false && reason && <p className="text-[12px] text-queue mt-2" id={`${idPrefix}-blocked`}>{reason}</p>}
       <p role="status" className="sr-only">{phase === "running" ? "Asking the engine." : ""}</p>
 
       <div aria-live="polite" className="mt-3">
@@ -263,6 +288,7 @@ export default function EngineDiffRun({ api, hallId, from, to, blocked, idPrefix
           <div>
             <h5 ref={head} tabIndex={-1} className="text-sm font-semibold outline-none">The engine was not run: figures it needs are not recorded</h5>
             <p className="text-mute text-[13px] mt-1">{a.message}</p>
+            {a.historyTruncated && <p className="text-queue text-[12px] mt-1">Only the newest 500 recorded claims were read: a figure listed here may be outside the history window.</p>}
             <MissingList missing={a.missing} canRecord={canRecord} canImport={canImport}
               onJump={(m) => { if (!jumpToRecordForm(m.path, m.unit === "-" ? "" : m.unit)) setCanRecord(false); }} onImport={() => { if (!jumpToImport()) setCanImport(false); }} />
             {a.to.rows && a.to.rows.excluded.length > 0 && <p className="text-queue text-[12px] mt-2">{a.to.rows.excluded.length} row{a.to.rows.excluded.length === 1 ? "" : "s"} of the import would be refused and are left out.</p>}

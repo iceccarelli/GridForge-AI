@@ -91,7 +91,7 @@ const server = spawn("npx", ["next", "start", "-p", String(SITE_PORT)], {
   cwd: ROOT, stdio: "ignore", detached: true,
   env: {
     ...process.env, NODE_ENV: "production", SUPABASE_URL: AUTH, SUPABASE_SERVICE_ROLE_KEY: JWT, NEXT_PUBLIC_SUPABASE_URL: AUTH, NEXT_PUBLIC_SUPABASE_ANON_KEY: "anon-test",
-    GRIDFORGE_TRUSTED_IP_HEADER: "x-forwarded-for", GRIDFORGE_API_URL: ENGINE_URL, GRIDFORGE_API_KEY: ENGINE_KEY, RATE_LIMIT_HMAC_KEY: "sites-journey-rate-limit-key-0123456789abcdef",
+    GRIDFORGE_TRUSTED_IP_HEADER: "x-forwarded-for", GRIDFORGE_API_URL: ENGINE_URL, GRIDFORGE_API_KEY: ENGINE_KEY, GRIDFORGE_HALL_ENGINE_DIFF: "1", RATE_LIMIT_HMAC_KEY: "sites-journey-rate-limit-key-0123456789abcdef",
   },
 });
 const stop = async () => { try { process.kill(-server.pid, "SIGTERM"); } catch { /* gone */ } gateway.close(); };
@@ -463,12 +463,13 @@ try {
       const panel = page.locator("[data-testid=engine-diff]");
       const panelText = norm(await panel.innerText());
       check(at("engine diff: titled, labelled 'Not a measurement', and the cost and the allowance are printed before the button"),
-        /Engine capacity-envelope diff/.test(panelText) && /Modelled by the engine from the figures as recorded; origin and class are the recorder's declaration\. Not a measurement\./.test(panelText) && /This runs the engine \(2 units\) — limited to 10 per hour/.test(panelText), panelText.slice(0, 400));
+        /Engine capacity-envelope diff/.test(panelText) && /Modelled by the engine from the figures as recorded; origin and class are the recorder's declaration\. Not a measurement\./.test(panelText) && /Counts as 1 of your 3 engine runs this hour \(and 10 today\); the run is not billed to you\./.test(panelText) && !/\bunits?\b/i.test(panelText), panelText.slice(0, 400));
       const yEngine = (await page.locator("#engine-diff-title").boundingBox()).y, yField = (await page.locator("#diff-summary").boundingBox()).y;
       check(at("engine diff: the panel is ABOVE the field-by-field provenance diff"), yEngine < yField, `${yEngine} vs ${yField}`);
       await page.locator("#diff-from").selectOption("start");
       check(at("engine diff: before the first recorded figure there is no hall to ask about: the button is disabled and says why"), (await page.locator("#engine-diff-run").isDisabled()) && /Choose a day on which something was recorded/.test(await page.locator("#engine-diff-blocked").innerText()));
       await page.locator("#diff-from").selectOption("2026-09-01");
+      await page.waitForFunction(() => { const b = document.getElementById("engine-diff-run"); return b && !b.disabled; }, null, { timeout: 15000 });
       check(at("engine diff: nothing was asked of the engine on page load or on choosing points"), diffCalls.length === 0 && (await page.locator("#engine-diff-run").isEnabled()));
       await page.locator("#engine-diff-run").focus();
       await page.keyboard.press("Enter");
@@ -476,7 +477,7 @@ try {
       await notRun.waitFor({ timeout: 20000 });
       check(at("engine diff: a click (by keyboard) asks once; the answer names what is not recorded and takes focus"), diffCalls.length === 1 && (await notRun.evaluate((el) => el === document.activeElement)));
       const miss = norm(await panel.innerText());
-      check(at("engine diff: it names the unrecorded figures with a reason and says no units were used"), /compute\.platform/.test(miss) && /transformers\[0\]\.unit_rating_mva/.test(miss) && /hall\.positions_available/.test(miss) && /no units were used/.test(miss) && !/Engine capacity-envelope diff.*The engine's headline/.test(miss), miss.slice(0, 500));
+      check(at("engine diff: it names the unrecorded figures with a reason and says none of your runs was used"), /compute\.platform/.test(miss) && /transformers\[0\]\.unit_rating_mva/.test(miss) && /hall\.positions_available/.test(miss) && /none of your runs was used/.test(miss) && !/Engine capacity-envelope diff.*The engine's headline/.test(miss), miss.slice(0, 500));
       await page.getByRole("button", { name: "Record compute.platform" }).click();
       check(at("engine diff: 'Record this figure' fills the record form's field and moves focus to it"), (await page.locator("#rec-path").inputValue()) === "compute.platform" && (await page.evaluate(() => document.activeElement?.id)) === "rec-path");
       const axeMiss = await runAxe();
@@ -511,7 +512,10 @@ try {
       const sha = (uid() + uid() + uid() + uid() + uid() + uid() + uid() + uid()).slice(0, 64);
       const ev = (await pgrest("POST", "/project_evidence", { project_id: project.id, filename: "nameplate.pdf", media_type: "application/pdf", sha256: sha, byte_size: 100, storage_ref: "project-evidence/JOURNEY-SECRET", review_status: "unverified" }))[0];
       await pgrest("POST", "/rpc/gf_review_evidence", { p: { evidence_id: ev.id, decision: "verified", reviewer: "F. Keane", reason: "checked", sha256_confirmed: sha }, p_event: { event_type: "evidence_reviewed", actor: "reviewer@desk.example", payload: {} } });
-      check(at("engine diff setup: a project is attached to the new hall"), (await api(`/api/halls/${hallE}/projects`, "POST", { projectToken: ptoken })).status === 201);
+      let att = await api(`/api/halls/${hallE}/projects`, "POST", { projectToken: ptoken });
+      // a tree that asks for confirmNonProductionSite to attach to a test or synthetic site says so with this reason; one that does not know the flag would refuse it, so it is only sent when asked for
+      if (att.status === 422 && att.body?.reason === "non_production_site_unconfirmed") att = await api(`/api/halls/${hallE}/projects`, "POST", { projectToken: ptoken, confirmNonProductionSite: true });
+      check(at("engine diff setup: a project is attached to the new hall"), att.status === 201, JSON.stringify(att.body));
       let recorded = 0;
       for (const [fieldPath, value, unit, origin, evidenceClass, file] of REF) {
         const r = await api(`/api/halls/${hallE}/inputs`, "POST", { fieldPath, value, unit, evidenceClass, origin, asOf: "2026-08-30", ...(file ? { projectEvidenceId: ev.id } : {}) });
@@ -530,6 +534,7 @@ try {
       await page.reload();
       await openDiff("Hall E1");
       await page.locator("#diff-from").selectOption("2026-09-01");
+      await page.waitForFunction(() => { const b = document.getElementById("engine-diff-run"); return b && !b.disabled; }, null, { timeout: 15000 });
       const callsBefore = diffCalls.length;
       await page.locator("#engine-diff-run").focus();
       await page.keyboard.press("Enter");
@@ -538,10 +543,10 @@ try {
       check(at("engine diff: one click made one request, and the answer takes focus"), diffCalls.length === callsBefore + 1 && (await answerHead.count()) === 1 && (await answerHead.evaluate((el) => el === document.activeElement)));
       const ans = norm(await page.locator("[data-testid=engine-result]").innerText());
       check(at("engine diff: the label, the headline, the rack delta with its class, the driver, the binding constraint and the weeks with what they rest on"),
-        /Modelled by the engine from the figures as recorded; origin and class are the recorder's declaration\. Not a measurement\./.test(ans) && /The engine's headline:/.test(ans)
+        /Modelled by the engine from the figures as recorded; origin and class are the recorder's declaration\. Not a measurement\./.test(ans) && /In short: (Raises|Lowers|Does not change) the rack count/.test(ans)
         && /(Raises|Lowers) the rack count by \d+ \(from \d+ to \d+\), carried by class E\d\./.test(ans) && /grid\.contracted_mw/.test(ans) && /Contracted capacity/.test(ans) && /12 → (to )?9/.test(ans)
         && /What binds first: .+ (→|to) .+ \((it holds|it moved)\)/.test(ans) && /Time to full capacity: ([+-]?\d+ wk \(.*(lead time|date).*\)|.*(no date|unverified).*)/.test(ans), ans.slice(0, 900));
-      check(at("engine diff: it says which engine build answered, and how many units it used"), /Engine \d+\.\d+\.\d+ · build [0-9a-f]{12}/.test(ans) && /2 units used/.test(ans), ans.slice(-300));
+      check(at("engine diff: it says which engine build answered, and never prints units or the operator's cost"), /Engine \d+\.\d+\.\d+ · build [0-9a-f]{12}/.test(ans) && !/units used/.test(ans) && !/capex|saving/i.test(norm(await page.locator("[data-testid=engine-summary]").innerText())), ans.slice(-300));
       check(at("engine diff: it says what is held to a class by figures that carry none, and that the placeholders were the engine's"), /held to E\d because/.test(ans) && /the engine used its own placeholder for \d+ input/.test(ans));
       check(at("engine diff: the word 'improvement' is never used"), !/improv/i.test(ans) && !/improv/i.test(await page.locator("section[aria-labelledby=diff-title]").innerText()));
       check(at("engine diff: running it wrote nothing"), (await historyOf()) === historyBefore);
@@ -565,8 +570,9 @@ try {
       await page.locator("#import-file").setInputFiles({ name: "pending.csv", mimeType: "text/csv", buffer: Buffer.from("field_path,value,unit,origin,class,as_of,source_kind,source_id\nhall.net_white_space_m2,1800,m2,assumed,E1,2026-11-02,,\nnot.a_field,1,,assumed,E1,2026-11-02,,\n") });
       await page.locator("#import-preview-title").waitFor({ timeout: 15000 });
       const runPreview = page.getByRole("button", { name: "Run the engine on this preview" });
+      await page.waitForFunction(() => { const b = document.getElementById("engine-import-run"); return b && !b.disabled; }, null, { timeout: 15000 });
       const costNear = norm(await page.locator("#engine-import-cost").innerText());
-      check(at("import preview: 'Run the engine on this preview' states the cost and does nothing until clicked"), /This runs the engine \(2 units\) — limited to 10 per hour/.test(costNear) && (await runPreview.isEnabled()) && diffCalls.length === callsBefore + 1);
+      check(at("import preview: 'Run the engine on this preview' states the cost and does nothing until clicked"), /Counts as 1 of your 3 engine runs this hour \(and 10 today\)/.test(costNear) && (await runPreview.isEnabled()) && diffCalls.length === callsBefore + 1);
       const callsMid = diffCalls.length;
       await runPreview.focus(); await page.keyboard.press("Enter");
       await page.locator("[data-testid=engine-import] [data-testid=engine-result]").waitFor({ timeout: 60000 }).catch(async () => console.log("  no preview answer:", norm(await page.locator("[data-testid=engine-import]").innerText()).slice(0, 600)));

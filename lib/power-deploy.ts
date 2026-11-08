@@ -139,7 +139,8 @@ export const ROUTE_NOT_DEPLOYED_MESSAGE =
  */
 export async function callEngine(
   path: string,
-  request: Record<string, unknown>
+  request: Record<string, unknown>,
+  extraHeaders: Record<string, string> = {}
 ): Promise<
   | { ok: true; body: Record<string, unknown> }
   | { ok: false; error: string; status: number; body: Record<string, unknown>; routeMissing?: true }
@@ -153,7 +154,7 @@ export async function callEngine(
   try {
     const res = await engineFetch(`${base.replace(/\/$/, "")}${path}`, {
       method: "POST",
-      headers: { "Content-Type": "application/json", "X-API-Key": key },
+      headers: { "Content-Type": "application/json", "X-API-Key": key, ...extraHeaders },
       body: JSON.stringify(request),
       signal: AbortSignal.timeout(60_000),
       cache: "no-store",

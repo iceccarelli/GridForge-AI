@@ -12,12 +12,14 @@ import { renderToStaticMarkup } from "react-dom/server";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { RATE_POLICIES } from "@/lib/rate-limit";
 import {
-  ENGINE_DIFF_PER_HALL_PER_DAY, ENGINE_DIFF_PER_HOUR, ENGINE_DIFF_UNITS, ENGINE_ITEM_RATING, ENGINE_REQUIRED_PATHS, ITEM_FIELDS, RECORDED_MINIMUM, SCALAR_FIELDS,
+  ENGINE_DIFF_GLOBAL_PER_DAY, ENGINE_DIFF_PER_DAY, ENGINE_DIFF_PER_HALL_PER_DAY, ENGINE_DIFF_PER_HOUR, ENGINE_DIFF_PER_ORG_PER_DAY, ENGINE_DIFF_UNITS, ENGINE_ITEM_RATING, NOT_SENT_PLACEHOLDERS, ENGINE_REQUIRED_PATHS, ITEM_FIELDS, RECORDED_MINIMUM, SCALAR_FIELDS,
   buildEngineDocument, carryingClass, compareBuilt, matchField, racksSentence, recordedAsOf, recordedNow, recordedWithProposed, sendableClass, shapeEngineDiff,
   type Built, type Recorded,
 } from "@/lib/site-registry-engine";
 import { EXPECTED_HALL_FIELDS, EVIDENCE_CLASS_CODES, ORIGINS } from "@/lib/site-registry-fields";
 import type { RegistryInput } from "@/lib/site-registry-model";
+import { EngineResult } from "@/components/SiteRegistryEngineDiff";
+import { idempotencyKeyFor, notRun, type Prepared } from "@/lib/site-registry-engine-server";
 import { engineAvailable } from "./_engine-guard";
 import { REFERENCE_HALL, referenceInputs } from "./site-registry-reference-hall";
 
@@ -73,13 +75,37 @@ describe.runIf(hasPython)("the table is the engine's own intake (drift test agai
     expect(asEngine.length + 2).toBe(meta.required.length);        // + the two lists
   });
 
+  it("every gap the engine lists for a document this page built is a placeholder here or is on the documented not-sent list; and what it defaults without a gap is mapped", () => {
+    const b = build(referenceInputs());
+    const gaps: string[] = py([
+      "import json,sys", "from gridforge.intake.loader import load_document", "r=load_document(json.load(sys.stdin)).report", "print(json.dumps([g.path for g in r.gaps]))",
+    ].join("\n"), JSON.stringify(b.doc));
+    const ours = new Set(b.placeholders.map((p) => p.path.replace(/\[\d+\]/, "[]")));
+    const engineSpelling = new Map<string, string>([...SCALAR_FIELDS, ...ITEM_FIELDS.transformers, ...ITEM_FIELDS.ups].map((f) => [f.engine.replace(/\[\d+\]/, "[]"), f.registry]));
+    expect(gaps.length).toBeGreaterThan(5);
+    for (const g of gaps) {
+      const generic = g.replace(/\[\d+\]/, "[]");
+      const ok = ours.has(engineSpelling.get(generic) ?? "") || NOT_SENT_PLACEHOLDERS.some((n) => n.path === g);
+      expect(ok, `the engine lists ${g} as a gap and this page does not name it`).toBe(true);
+    }
+    // the figures the engine defaults WITHOUT a gap that move a result are mapped as optional inputs, so they are placeholders when unrecorded
+    for (const p of ["lv.phases", "hall.clear_height_m", "site.design_wetbulb_c", "thermal.plant.available_head_kpa", "thermal.plant.free_cooling_hours_per_year", "thermal.cdu_approach_k"]) {
+      expect(matchField(p)?.field.need, p).toBe("optional");
+      expect(ours.has(p), p).toBe(true);
+    }
+  });
+
   it("a diff costs what the lib says", () => {
     expect(meta.diff_units).toBe(ENGINE_DIFF_UNITS);
   });
 
   it("the allowance the page states is the policy the route enforces", () => {
     expect(RATE_POLICIES.registry_diff).toEqual({ bucket: "registry_diff", limit: ENGINE_DIFF_PER_HOUR, windowSeconds: 3600 });
+    expect(RATE_POLICIES.registry_diff_day).toEqual({ bucket: "registry_diff_day", limit: ENGINE_DIFF_PER_DAY, windowSeconds: 86400 });
+    expect(RATE_POLICIES.registry_diff_org).toEqual({ bucket: "registry_diff_org", limit: ENGINE_DIFF_PER_ORG_PER_DAY, windowSeconds: 86400 });
     expect(RATE_POLICIES.registry_diff_hall).toEqual({ bucket: "registry_diff_hall", limit: ENGINE_DIFF_PER_HALL_PER_DAY, windowSeconds: 86400 });
+    expect(RATE_POLICIES.registry_diff_global).toEqual({ bucket: "registry_diff_global", limit: ENGINE_DIFF_GLOBAL_PER_DAY, windowSeconds: 86400 });
+    expect([ENGINE_DIFF_PER_HOUR, ENGINE_DIFF_PER_DAY, ENGINE_DIFF_PER_HALL_PER_DAY, ENGINE_DIFF_PER_ORG_PER_DAY, ENGINE_DIFF_GLOBAL_PER_DAY]).toEqual([3, 10, 10, 20, 150]);
   });
 
   it("the engine refuses a list item that has no rating, in the words the lib names", () => {
@@ -342,6 +368,105 @@ describe("what is missing is named exactly, and nothing is invented to make a ru
   });
 });
 
+describe("a figure the engine would refuse is refused here, by name, before anything is asked or counted", () => {
+  // the engine reads a discount rate as E5 whatever is sent, so it can only be sent on a verified file at E5
+  const opt = (path: string, value: number, unit: string | null = null, extra: Partial<RegistryInput> = {}): RegistryInput => ({
+    ...referenceInputs()[0]!, id: `x-${path}`, fieldPath: path, value, unit, origin: "assumed", evidenceClass: "E1", source: null, ...extra,
+    ...(path === "economics.discount_rate" ? { origin: "measured" as const, evidenceClass: "E5", source: { kind: "project_evidence", id: "f", filename: "a.pdf", reviewStatus: "verified" } } : {}),
+  });
+
+  /** The value the document carries for a recorded path (unwrapping the annotated form, reading a list item by its position), or undefined. */
+  const sentValue = (b: Built, path: string): unknown => {
+    const m = matchField(path)!;
+    const enginePath = m.field.engine.replace("[]", "[0]");
+    const [head, ...rest] = enginePath.split(".");
+    const m2 = /^(\w+)\[(\d+)\]$/.exec(head!);
+    let cur: any = m2 ? (b.doc[m2[1]!] as any[] | undefined)?.[Number(m2[2])] : b.doc[head!];
+    for (const k of m2 ? rest : rest) cur = cur?.[k];
+    return cur && typeof cur === "object" && "value" in cur ? cur.value : cur;
+  };
+
+  it.each([
+    ["grid.power_factor", 97, "a fraction above 0 and at most 1 (0.97, not 97)"],
+    ["lv.busway_utilisation_limit", 80, "a fraction above 0 and at most 1"],
+    ["compute.utilisation", 0, "a fraction above 0 and at most 1"],
+    ["compute.utilisation", 1.01, "a fraction above 0 and at most 1"],
+    ["economics.discount_rate", 8, "a fraction from 0 up to, not including, 0.5 (0.08, not 8)"],
+    ["economics.discount_rate", 0.5, "a fraction from 0 up to, not including, 0.5"],
+    ["transformers[0].derating_factor", 90, "a fraction above 0"],
+    ["transformers[0].replacement_lead_time_weeks", 0, "more than 0 and at most 520 weeks"],
+  ])("%s = %s is outside what the engine takes", (path, value, what) => {
+    const unit = path.endsWith("weeks") ? "weeks" : null;
+    const b = build([...referenceInputs({ drop: [path] }), opt(path, value as number, unit, path.startsWith("transformers[0].derating") ? { evidenceClass: "E3" } : {})]);
+    const reason = b.notUsed.find((n) => n.path === path)?.reason ?? "";
+    expect(reason).toContain(what);
+    expect(reason).toMatch(/does not rescale it/);
+    expect(sentValue(b, path)).toBeUndefined();
+    expect(b.absent.find((a) => a.path === path)).toMatchObject({ unusable: true });   // recorded but unusable: it BLOCKS the run, it is not quietly replaced by the engine's default
+    expect(b.placeholders.some((p) => p.path === path)).toBe(false);
+    expect(compareBuilt(b, b).missing.find((m) => m.path === path)).toMatchObject({ need: "unusable", reason: expect.stringContaining("does not rescale") });
+  });
+
+  it.each([["grid.power_factor", 0.97], ["lv.busway_utilisation_limit", 1], ["compute.utilisation", 0.75], ["economics.discount_rate", 0], ["economics.discount_rate", 0.08]])("%s = %s is sent", (path, value) => {
+    const b = build([...referenceInputs({ drop: [path] }), opt(path, value as number)]);
+    expect(b.notUsed.find((n) => n.path === path)).toBeUndefined();
+    expect(sentValue(b, path)).toBe(value);
+  });
+
+  it("a required figure out of range is MISSING with the range as its reason, not defaulted", () => {
+    const b = build(referenceInputs({ set: { "hall.positions_available": { value: -3 } } }));
+    expect(b.absent.map((a) => a.path)).toEqual(["hall.positions_available"]);
+  });
+});
+
+describe("a missing answer says when the history was cut", () => {
+  it("names the 500-claim window in the message and carries historyTruncated, so a missing figure is not read as never recorded", async () => {
+    const built = { from: build([]), to: build([]) };
+    const prepared: Prepared = {
+      hall: { id: "h", label: "H", orgId: "o" }, today: "2026-11-08", idempotencyKey: "k", specs: { from: { kind: "asOf", day: "2026-01-01" }, to: { kind: "now" } },
+      built, comparison: compareBuilt(built.from, built.to), historyTruncated: true,
+    };
+    const body = await notRun(prepared)!.json();
+    expect(body).toMatchObject({ ran: false, reason: "missing", historyTruncated: true });
+    expect(body.message).toMatch(/may be outside the history window/);
+    expect(body.message).toMatch(/none of your runs was used/);
+    expect(JSON.stringify(body)).not.toMatch(/"orgId"|"o"/);
+    const plain = await notRun({ ...prepared, historyTruncated: false })!.json();
+    expect(plain.message).not.toMatch(/history window/);
+  });
+});
+
+describe("a figure recorded at one point and withdrawn at the other is compared with the engine's default, and says so", () => {
+  it("is flagged on the side that lost it, not listed as an ordinary placeholder", () => {
+    const withIt = build(referenceInputs({ set: {} }));
+    const without = build(referenceInputs({ drop: ["grid.power_factor"] }));
+    const c = compareBuilt(withIt, without);
+    const pf = c.placeholders.find((p) => p.path === "grid.power_factor")!;
+    expect(pf).toMatchObject({ sides: ["to"], change: "withdrawn" });
+    const back = compareBuilt(without, withIt).placeholders.find((p) => p.path === "grid.power_factor")!;
+    expect(back).toMatchObject({ sides: ["from"], change: "added" });
+    const both = compareBuilt(without, without).placeholders.find((p) => p.path === "grid.power_factor")!;
+    expect(both).toMatchObject({ sides: ["from", "to"], change: null });
+  });
+});
+
+describe("the idempotency key is a hash of the two documents and nothing else", () => {
+  const a = build(referenceInputs()), b = build(referenceInputs({ set: { "grid.contracted_mw": { value: 9 } } }));
+  it("is the same for the same question however the keys are ordered, and different for a different one or a swapped pair", () => {
+    const k = idempotencyKeyFor(a.doc, b.doc);
+    expect(k).toMatch(/^[0-9a-f]{64}$/);
+    expect(idempotencyKeyFor(JSON.parse(JSON.stringify(a.doc)), JSON.parse(JSON.stringify(b.doc)))).toBe(k);
+    const shuffled = Object.fromEntries(Object.entries(a.doc).reverse());
+    expect(idempotencyKeyFor(shuffled, b.doc)).toBe(k);
+    expect(idempotencyKeyFor(b.doc, a.doc)).not.toBe(k);
+    expect(idempotencyKeyFor(a.doc, a.doc)).not.toBe(k);
+    expect(k.length).toBeLessThanOrEqual(150);                                   // the engine's Idempotency-Key limit
+  });
+  it("carries no address, hall id or account: only the documents", () => {
+    expect(idempotencyKeyFor(a.doc, b.doc)).toBe(idempotencyKeyFor(a.doc, b.doc));
+  });
+});
+
 // ------------------------------------------------------------------------------------------------ points in time
 
 describe("the state at a point", () => {
@@ -407,7 +532,7 @@ describe("the engine's answer is reduced to a whitelist", () => {
     weeks_to_full: 160, scenario_name: "Full DLC, grid only", racks_class: "E0_ASSUMPTION", capex_eur: 6216000, intake_digest: "SECRET-DIGEST", storage_ref: "SECRET-STORAGE", ...over,
   });
   const raw = {
-    headline: "-28 racks (28 to 0)", material: true, racks_delta: -28, explained_racks: -28, unexplained_racks: 0, binding_moved: true, weeks_delta: -128, inputs: "changed",
+    headline: "-28 racks (28 to 0); indicative capex moved -4.8 M EUR (6.2 to 1.4) -- not like for like: this is not a saving.", material: true, racks_delta: -28, explained_racks: -28, unexplained_racks: 0, binding_moved: true, weeks_delta: -128, inputs: "changed",
     date_basis: "assumed", date_evidence_class: "E0", date_binding_item: "Transformer capacity", date_label: "assumed lead time, not a date (E0; set by transformer capacity)",
     before: state(), after: state({ racks_after_ladder: 0, binding_name: "Firm supply" }), capex_delta_eur: 1, token: "SECRET-TOKEN", email: "x@y.example",
     drivers: [{ path: "grid.firm_capacity_MVA", before: 14, after: 6, racks_delta: -28, flips_binding_to: "Firm supply", racks_class: "E0_ASSUMPTION", digest: "SECRET-D" }],
@@ -422,7 +547,8 @@ describe("the engine's answer is reduced to a whitelist", () => {
     expect(v.racksClass).toBe("E0");
     expect(v.notAttributed).toEqual(["transformers[3].units"]);
     const text = JSON.stringify(v);
-    expect(text).not.toMatch(/SECRET|@|capex|digest|token|storage/i);
+    expect(text).not.toMatch(/SECRET|@|capex|EUR|€|saving|digest|token|storage/i);
+    expect(v.summary).toBe("Lowers the rack count by 28 (from 28 to 0); what binds first moves from Rack feed / tap-off rating to Firm supply; time to full capacity: -128 wk (assumed lead time, not a date (E0; set by transformer capacity)).");
   });
 
   it("a weeks figure is only a number beside what it rests on; an engine that does not say what it rests on gives no number", () => {
@@ -433,7 +559,7 @@ describe("the engine's answer is reduced to a whitelist", () => {
   });
 
   it("an answer that is not in the expected form is refused whole, never half shown", () => {
-    for (const bad of [null, "x", {}, { ...raw, racks_delta: "28" }, { ...raw, drivers: "none" }, { ...raw, before: {} }, { ...raw, headline: "" }, { ...raw, binding_moved: "yes" }, { ...raw, drivers: [{ path: 3, racks_delta: 1 }] }]) {
+    for (const bad of [null, "x", {}, { ...raw, racks_delta: "28" }, { ...raw, drivers: "none" }, { ...raw, before: {} }, { ...raw, binding_moved: "yes" }, { ...raw, drivers: [{ path: 3, racks_delta: 1 }] }]) {
       expect(shapeEngineDiff(bad, maps)).toBeNull();
     }
   });
@@ -484,6 +610,19 @@ describe.runIf(hasPython)("the documents are accepted by the real engine, and it
     expect(v.drivers[0]!.after).toBe(9);
     expect(v.racksDelta).toBe(v.explainedRacks + v.unexplainedRacks);
     expect((body.provenance as { digest: string }).digest).toMatch(/^[0-9a-f]{64}$/);          // cost_evidence: [] makes the engine say which build answered
+  });
+
+  it("the engine's own headline carries capex and the word 'saving'; nothing of it reaches the shaped answer (a real-engine fixture)", async () => {
+    const before = build(referenceInputs());
+    const after = build(referenceInputs({ set: { "grid.contracted_mw": { value: 9 } } }));
+    const { body } = await ask(before, after);
+    expect(String(body.headline)).toMatch(/capex/i);                                           // the fixture really is the engine's: its headline says capex and EUR
+    expect(String(body.headline)).toMatch(/EUR/);
+    const v = shapeEngineDiff(body, { from: before.pathMap, to: after.pathMap })!;
+    expect(JSON.stringify(v)).not.toMatch(/capex|EUR|€|saving/i);
+    expect(v.summary).toMatch(/^(Raises|Lowers|Does not change) the rack count/);
+    const html = renderToStaticMarkup(React.createElement(EngineResult, { a: { ok: true, ran: true, hall: { id: "h", label: "H" }, from: { kind: "now", asOf: "2026-01-01", label: "a" }, to: { kind: "now", asOf: "2026-01-02", label: "b" }, label: "l", historyTruncated: false, missing: [], classNotes: [], placeholders: [], notUsed: [], ceiling: null, classChanges: [], diff: v, carriedBy: v.racksClass, engine: null } }));
+    expect(html).not.toMatch(/capex|EUR|€|saving/i);
   });
 
   it("a change of declared class alone, the value the same, is seen by the engine as a change of evidence, not of inputs", async () => {
