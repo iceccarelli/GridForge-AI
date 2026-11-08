@@ -1,0 +1,64 @@
+{
+ "comment": "Legacy (unsalted) site references. 'ascii': printable-ASCII labels, whose reference Python computes exactly as the database does (tests/test_salted_site_ref_migration.py checks every one against the database's own expression). 'needs_database': labels whose reference depends on the database's lower-casing and trimming (a final sigma, a dotted capital I, U+1E9E, the C0 separators, U+0085, the Unicode spaces): the CLI must REFUSE to guess them and ask for --legacy-ref.",
+ "ascii": [
+  {
+   "label": "Cork DC2",
+   "legacy_ref": "site_4f244bf6344d"
+  },
+  {
+   "label": "  cork dc2  ",
+   "legacy_ref": "site_4f244bf6344d"
+  },
+  {
+   "label": "Hall A",
+   "legacy_ref": "site_9328eeaa0091"
+  },
+  {
+   "label": "DUBLIN DC1",
+   "legacy_ref": "site_b1a2833896cb"
+  },
+  {
+   "label": "a-b_c.d/e",
+   "legacy_ref": "site_42c8114ec55d"
+  },
+  {
+   "label": "X",
+   "legacy_ref": "site_2d711642b726"
+  },
+  {
+   "label": "Plant #7 (north)",
+   "legacy_ref": "site_2313d86ece76"
+  },
+  {
+   "label": "\tCork DC2\n",
+   "legacy_ref": "site_4f244bf6344d"
+  },
+  {
+   "label": "100% 'quoted' \"name\"",
+   "legacy_ref": "site_6e07f711bbbc"
+  },
+  {
+   "label": "~!@$%^&*()",
+   "legacy_ref": "site_b8da85f14df4"
+  },
+  {
+   "label": "a  b",
+   "legacy_ref": "site_6e12db73209a"
+  }
+ ],
+ "needs_database": [
+  "\u039f\u0394\u039f\u03a3",
+  "\u0130stanbul",
+  "\u1e9e",
+  "Stra\u00dfe",
+  "\u001cHall",
+  "Hall\u001f",
+  "\u0085Hall",
+  "Hall\u00a0",
+  "\u212a Kelvin",
+  "\u00c9cole",
+  "\ud83c\udfed Plant",
+  "\u3000Hall",
+  "\ud83d lone"
+ ]
+}

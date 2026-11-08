@@ -124,7 +124,8 @@ export function defineRegistryScenarios(backend: Backend): void {
     const p = await rest<any[]>("POST", "projects", { project_token: token, project_name: "North hall build" });
     expect(p.ok, JSON.stringify(p)).toBe(true);
     const id = (p as any).data[0].id as string;
-    if (attachTo) expect((await call("projects", "POST", attachTo.as, { id: attachTo.hall, body: { projectToken: token } })).status).toBe(201);
+    // mkSite defaults to a synthetic site, so the attachment is confirmed the way a caller must (confirmNonProductionSite, 422 without it).
+    if (attachTo) expect((await call("projects", "POST", attachTo.as, { id: attachTo.hall, body: { projectToken: token, confirmNonProductionSite: true } })).status).toBe(201);
     return { id, token };
   }
   /** A project file the way production gets one (0048): it arrives UNVERIFIED and becomes verified or rejected only through gf_review_evidence. */
@@ -595,18 +596,115 @@ export function defineRegistryScenarios(backend: Backend): void {
       const t = await team();
       const hall2 = await mkHall(t.editor, t.site);
       const proj = await seedProject();
-      const ok = await call("projects", "POST", t.editor, { id: t.hall, body: { projectToken: proj.token } });
+      const ok = await call("projects", "POST", t.editor, { id: t.hall, body: { projectToken: proj.token, confirmNonProductionSite: true } });
       expect(ok.status).toBe(201);
       expect(JSON.stringify(ok.body)).not.toContain(proj.token);
       expect(ok.body).toMatchObject({ ok: true, projectId: proj.id, alreadyAttached: false });
-      const again = await call("projects", "POST", t.owner, { id: t.hall, body: { projectToken: proj.token } });
+      const again = await call("projects", "POST", t.owner, { id: t.hall, body: { projectToken: proj.token, confirmNonProductionSite: true } });
       expect(again.status).toBe(200);
       expect(again.body.alreadyAttached).toBe(true);
-      const other = await call("projects", "POST", t.editor, { id: hall2, body: { projectToken: proj.token } });
+      const other = await call("projects", "POST", t.editor, { id: hall2, body: { projectToken: proj.token, confirmNonProductionSite: true } });
       expect(other.status).toBe(409);
       expect(other.body.reason).toBe("project_in_other_hall");
-      expect((await call("projects", "POST", t.editor, { id: t.hall, body: { projectToken: "this-token-does-not-exist" } })).status).toBe(404);
+      expect((await call("projects", "POST", t.editor, { id: t.hall, body: { projectToken: "this-token-does-not-exist", confirmNonProductionSite: true } })).status).toBe(404);
       expect((await call("projects", "POST", t.viewer, { id: hall2, body: { projectToken: "this-token-does-not-exist" } })).status).toBe(403);   // a member without the role
+    });
+
+    describe("a project attached to a site that is not production needs an explicit, permanent confirmation (0052)", () => {
+      /** Everything an attachment would have written: the project's hall columns, the append-only attachment rows, and the project's own log. */
+      async function written(projectId: string) {
+        const p = await rest<any[]>("GET", `projects?id=eq.${projectId}&select=hall_id,site_id`);
+        const a = await rest<any[]>("GET", `hall_project_attachments?project_id=eq.${projectId}&select=id`);
+        const e = await rest<any[]>("GET", `project_events?project_id=eq.${projectId}&event_type=eq.project_attached_to_hall&select=id`);
+        return { hall: (p as any).data[0].hall_id ?? null, site: (p as any).data[0].site_id ?? null, attachments: (a as any).data.length, events: (e as any).data.length };
+      }
+      const NOTHING = { hall: null, site: null, attachments: 0, events: 0 };
+
+      for (const origin of ["test", "synthetic"] as const) {
+        it(`${origin} site: without the confirmation the answer is 422 and NOTHING is written; with exactly true it is attached`, async () => {
+          const t = await team();
+          const site = await mkSite(t.editor, t.org, `Rehearsal ${uid()}`, origin);
+          const hall = await mkHall(t.editor, site);
+          const proj = await seedProject();
+          for (const body of [{ projectToken: proj.token }, { projectToken: proj.token, confirmNonProductionSite: false }]) {
+            const r = await call("projects", "POST", t.editor, { id: hall, body });
+            expect(r.status, JSON.stringify(r.body)).toBe(422);
+            expect(r.body).toMatchObject({ ok: false, reason: "non_production_site_unconfirmed", dataOrigin: origin });
+            expect(r.body.error).toMatch(/PERMANENTLY excludes/);
+            expect(r.body.error).toMatch(/calibration ledger/);
+            expect(r.body.error).not.toMatch(/migration|0052/);          // the person is not sent to an internal number
+            expect(r.body.error).toMatch(/calibration ledger gate/);
+            expect(r.body.error).toMatch(/does not undo it/);
+            expect(JSON.stringify(r.body)).not.toContain(proj.token);
+            expect(r.headers.get("cache-control")).toBe("no-store");
+          }
+          expect(await written(proj.id)).toEqual(NOTHING);
+          // an owner is held to the same rule
+          expect((await call("projects", "POST", t.owner, { id: hall, body: { projectToken: proj.token } })).status).toBe(422);
+          expect(await written(proj.id)).toEqual(NOTHING);
+
+          const ok = await call("projects", "POST", t.editor, { id: hall, body: { projectToken: proj.token, confirmNonProductionSite: true } });
+          expect(ok.status, JSON.stringify(ok.body)).toBe(201);
+          expect(JSON.stringify(ok.body)).not.toContain(proj.token);
+          expect(await written(proj.id)).toEqual({ hall, site, attachments: 1, events: 1 });
+        });
+      }
+
+      it("hostile values of the flag are refused as a malformed body (400) and nothing is written, on a non-production AND a production site", async () => {
+        const t = await team();
+        const prod = await mkHall(t.editor, await mkSite(t.editor, t.org, `Real ${uid()}`, "production"));
+        const proj = await seedProject();
+        for (const hall of [t.hall, prod]) {
+          for (const bad of ["true", "TRUE", "yes", 1, 0, null, {}, [], [true], { toString: "x" }, "", " true "]) {
+            const r = await call("projects", "POST", t.editor, { id: hall, body: { projectToken: proj.token, confirmNonProductionSite: bad } });
+            expect(r.status, JSON.stringify(bad)).toBe(400);
+            expect(r.body.ok).toBe(false);
+            expect(JSON.stringify(r.body)).not.toContain(proj.token);
+          }
+        }
+        // a misspelt or smuggled flag is an unknown field, not a confirmation
+        for (const key of ["confirm_non_production_site", "confirmnonproductionsite", "confirm", "ConfirmNonProductionSite"]) {
+          expect((await call("projects", "POST", t.editor, { id: t.hall, body: { projectToken: proj.token, [key]: true } })).status, key).toBe(400);
+        }
+        expect(await written(proj.id)).toEqual(NOTHING);
+      });
+
+      it("a production site is unaffected: it attaches with no flag, and a flag of true there changes nothing", async () => {
+        const t = await team();
+        const hall = await mkHall(t.editor, await mkSite(t.editor, t.org, `Real ${uid()}`, "production"));
+        const hall2 = await mkHall(t.editor, await mkSite(t.editor, t.org, `Real ${uid()}`, "production"));
+        const a = await seedProject();
+        const b = await seedProject();
+        const noFlag = await call("projects", "POST", t.editor, { id: hall, body: { projectToken: a.token } });
+        expect(noFlag.status, JSON.stringify(noFlag.body)).toBe(201);
+        const withFlag = await call("projects", "POST", t.editor, { id: hall2, body: { projectToken: b.token, confirmNonProductionSite: true } });
+        expect(withFlag.status, JSON.stringify(withFlag.body)).toBe(201);
+        const again = await call("projects", "POST", t.editor, { id: hall, body: { projectToken: a.token } });
+        expect(again.status).toBe(200);
+        expect(again.body.alreadyAttached).toBe(true);
+      });
+
+      it("the check never answers in place of the role: a viewer is 403, a stranger 404, an unknown token 404 - with or without the flag", async () => {
+        const t = await team();
+        const proj = await seedProject();
+        const stranger = person("stranger");
+        expect((await call("projects", "POST", t.viewer, { id: t.hall, body: { projectToken: proj.token } })).status).toBe(403);
+        expect((await call("projects", "POST", t.viewer, { id: t.hall, body: { projectToken: proj.token, confirmNonProductionSite: true } })).status).toBe(403);
+        const outsider = await call("projects", "POST", stranger, { id: t.hall, body: { projectToken: proj.token } });
+        expect(outsider.status).toBe(404);
+        expect(outsider.body).toEqual({ ok: false, error: "No such item.", reason: "not_found" });
+        expect((await call("projects", "POST", t.editor, { id: t.hall, body: { projectToken: "this-token-does-not-exist", confirmNonProductionSite: true } })).status).toBe(404);
+        expect((await call("projects", "POST", undefined, { id: t.hall, body: { projectToken: proj.token, confirmNonProductionSite: true } })).status).toBe(401);
+        expect(await written(proj.id)).toEqual(NOTHING);
+      });
+
+      it("a refusal spends no project: after the 422 the same project can still be attached to a production hall", async () => {
+        const t = await team();
+        const proj = await seedProject();
+        expect((await call("projects", "POST", t.editor, { id: t.hall, body: { projectToken: proj.token } })).status).toBe(422);
+        const realHall = await mkHall(t.editor, await mkSite(t.editor, t.org, `Real ${uid()}`, "production"));
+        expect((await call("projects", "POST", t.editor, { id: realHall, body: { projectToken: proj.token } })).status).toBe(201);
+      });
     });
 
     it("an owner detaches a project; an editor cannot; the timeline stops showing its log, keeps the fact of both, and the project can go to another hall", async () => {
@@ -623,7 +721,7 @@ export function defineRegistryScenarios(backend: Backend): void {
       expect(d.status, JSON.stringify(d.body)).toBe(200);
       expect(await kinds(t.hall)).toEqual(["project_attached", "project_detached"]);
       expect((await call("projects", "DELETE", t.owner, { id: t.hall, query: `?project=${proj.id}` })).status).toBe(404);
-      expect((await call("projects", "POST", t.editor, { id: hall2, body: { projectToken: proj.token } })).status).toBe(201);
+      expect((await call("projects", "POST", t.editor, { id: hall2, body: { projectToken: proj.token, confirmNonProductionSite: true } })).status).toBe(201);
       expect(await kinds(hall2)).toContain("project_event");
       const log = await rest<any[]>("GET", `project_events?project_id=eq.${proj.id}&select=event_type,actor,payload`);
       const types = ((log as any).data as any[]).map((e) => e.event_type);

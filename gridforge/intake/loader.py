@@ -447,7 +447,9 @@ class _Reader:
         """Show a number's source and note beside it in the report, as for every other annotated figure."""
         spec = FIELD_BY_PATH.get(path)
         if (src or note) and isinstance(inner, (int, float)) and not isinstance(inner, bool) and inner == inner:
-            ev = declared or (spec.supplied_evidence if spec else CUSTOMER)
+            # `is not None`, not truthiness: E0 is 0 and so falsy, and `declared or ...` replaced a figure declared ASSUMED (E0) with the field's
+            # supplied class (E5) in the report's source list, i.e. a class ABOVE the one declared, for every integer-typed figure.
+            ev = declared if declared is not None else (spec.supplied_evidence if spec else CUSTOMER)
             self.report.sourced.append(SuppliedSource(path, spec.label if spec else path, spec.unit if spec else "", float(inner), src, note, ev.short))
 
     def raw(self, path: str, default=None):
@@ -798,6 +800,10 @@ def _declared_positions(r) -> int:
     validation then reports in its own words)."""
     try:
         v = _dig(r.doc, "hall.positions_available")   # a read, not r.raw(): reading must not record a gap
+        if isinstance(v, dict) and "value" in v:
+            # The annotated form {value, evidence, note}: the number is inside. Without unwrapping, a figure above hall.rack_positions
+            # declared assumed (or with a note) was read as "not declared" and refused where the same plain number was accepted.
+            v = v["value"]
         return int(v) if isinstance(v, (int, float)) and not isinstance(v, bool) and v == v and 0 <= v < 1e9 else 0
     except Exception:
         return 0

@@ -6,6 +6,7 @@ import Link from "next/link";
 import { Loader2 } from "lucide-react";
 import { getSupabase } from "@/lib/supabase-client";
 import { PENDING_INVITE_KEY } from "@/lib/team-client";
+import { intelligencePlanName } from "@/lib/products";
 
 type View =
   | { kind: "loading" }
@@ -15,7 +16,6 @@ type View =
   | { kind: "accepted"; ownerEmail: string }
   | { kind: "declined" };
 
-const cap = (s: string) => s.charAt(0).toUpperCase() + s.slice(1);
 
 export default function InviteClient({ token }: { token: string }) {
   const router = useRouter();
@@ -97,7 +97,7 @@ export default function InviteClient({ token }: { token: string }) {
           <div className="rounded-[var(--radius)] border border-line bg-panel p-6">
             <p className="text-[15px]">
               <span className="font-medium text-white">{view.ownerEmail}</span> has offered you a seat on their{" "}
-              {cap(view.plan)} subscription.
+              {intelligencePlanName(view.plan) ?? "Intelligence"} subscription.
             </p>
             <p className="text-mute text-[13px] mt-2">
               You would sign in as <span className="text-white">{me}</span> and get the same siting dashboard. The owner can

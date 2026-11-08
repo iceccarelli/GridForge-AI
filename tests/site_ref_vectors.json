@@ -1,0 +1,291 @@
+{
+ "comment": "Shared vectors for the site reference HMAC: tests/site/site-ref.test.ts (TypeScript) and tests/test_site_ref_hmac.py (Python) must both reproduce every value. expected null = no label, no reference. Message = 'site' NUL + normalised label; normalised = trim an explicit whitespace set, NFC, ASCII lower-case only. key_vectors: a GRIDFORGE_SITE_REF_SECRET is the dedicated key only when it has 16 or more Unicode CODE POINTS (not UTF-16 units).",
+ "vectors": [
+  {
+   "key": "vector-key-one-0123456789abcdef",
+   "label": "Hall A",
+   "expected": "site_11be73cc562a"
+  },
+  {
+   "key": "vector-key-one-0123456789abcdef",
+   "label": "  hall a\t",
+   "expected": "site_11be73cc562a"
+  },
+  {
+   "key": "vector-key-one-0123456789abcdef",
+   "label": "HALL A",
+   "expected": "site_11be73cc562a"
+  },
+  {
+   "key": "vector-key-one-0123456789abcdef",
+   "label": "Dublin DC1",
+   "expected": "site_de7794306db0"
+  },
+  {
+   "key": "vector-key-one-0123456789abcdef",
+   "label": "Fr\u00e1ncfort-Ost 2",
+   "expected": "site_932963e2fd2d"
+  },
+  {
+   "key": "vector-key-one-0123456789abcdef",
+   "label": "Fra\u0301ncfort-Ost 2",
+   "expected": "site_932963e2fd2d"
+  },
+  {
+   "key": "vector-key-one-0123456789abcdef",
+   "label": "\u00dcn\u00efcode Stra\u00dfe",
+   "expected": "site_71fef49eafb2"
+  },
+  {
+   "key": "vector-key-one-0123456789abcdef",
+   "label": "\u00fcn\u00efcode stra\u00dfe",
+   "expected": "site_802701c685e4"
+  },
+  {
+   "key": "vector-key-one-0123456789abcdef",
+   "label": "\u0130stanbul",
+   "expected": "site_da2940987709"
+  },
+  {
+   "key": "vector-key-one-0123456789abcdef",
+   "label": "\u1e9e",
+   "expected": "site_10faad5e44ea"
+  },
+  {
+   "key": "vector-key-one-0123456789abcdef",
+   "label": "\u039f\u0394\u039f\u03a3",
+   "expected": "site_737c3267180f"
+  },
+  {
+   "key": "vector-key-one-0123456789abcdef",
+   "label": "\u03bf\u03b4\u03bf\u03c2",
+   "expected": "site_e6c0da91340d"
+  },
+  {
+   "key": "vector-key-one-0123456789abcdef",
+   "label": "\u00a0\u3000Hall A\u2003\ufeff",
+   "expected": "site_11be73cc562a"
+  },
+  {
+   "key": "vector-key-one-0123456789abcdef",
+   "label": "Hall\nA",
+   "expected": "site_221945259b98"
+  },
+  {
+   "key": "vector-key-one-0123456789abcdef",
+   "label": "Hall A\u0000",
+   "expected": "site_d4d434f5d48a"
+  },
+  {
+   "key": "vector-key-one-0123456789abcdef",
+   "label": "\u202eHall A",
+   "expected": "site_208e6a4c108e"
+  },
+  {
+   "key": "vector-key-one-0123456789abcdef",
+   "label": "\ud83c\udfed Plant 7",
+   "expected": "site_bae6a8a409ec"
+  },
+  {
+   "key": "vector-key-one-0123456789abcdef",
+   "label": "XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX",
+   "expected": "site_122a1ed0ecd0"
+  },
+  {
+   "key": "vector-key-one-0123456789abcdef",
+   "label": "   ",
+   "expected": null
+  },
+  {
+   "key": "vector-key-one-0123456789abcdef",
+   "label": "",
+   "expected": null
+  },
+  {
+   "key": "vector-key-one-0123456789abcdef",
+   "label": "\ud83d lone",
+   "expected": "site_fbc88350fb9b"
+  },
+  {
+   "key": "vector-key-one-0123456789abcdef",
+   "label": "\u001cHall\u001f",
+   "expected": "site_a38e429938e6"
+  },
+  {
+   "key": "vector-key-one-0123456789abcdef",
+   "label": "\u0085Hall\u0085",
+   "expected": "site_cc530e648bb1"
+  },
+  {
+   "key": "vector-key-one-0123456789abcdef",
+   "label": "\ud803\udd50 Garay",
+   "expected": "site_de5c43085c17"
+  },
+  {
+   "key": "vector-key-one-0123456789abcdef",
+   "label": "\u212a Kelvin",
+   "expected": "site_f5bfb58c1533"
+  },
+  {
+   "key": "vector-key-one-0123456789abcdef",
+   "label": "\ufb03 ligature",
+   "expected": "site_d95916203ccd"
+  },
+  {
+   "key": "vector-key-two-0123456789abcdef",
+   "label": "Hall A",
+   "expected": "site_dbda86ed3c8e"
+  },
+  {
+   "key": "vector-key-two-0123456789abcdef",
+   "label": "  hall a\t",
+   "expected": "site_dbda86ed3c8e"
+  },
+  {
+   "key": "vector-key-two-0123456789abcdef",
+   "label": "HALL A",
+   "expected": "site_dbda86ed3c8e"
+  },
+  {
+   "key": "vector-key-two-0123456789abcdef",
+   "label": "Dublin DC1",
+   "expected": "site_86bcda5827a7"
+  },
+  {
+   "key": "vector-key-two-0123456789abcdef",
+   "label": "Fr\u00e1ncfort-Ost 2",
+   "expected": "site_8d0fe19ac5ac"
+  },
+  {
+   "key": "vector-key-two-0123456789abcdef",
+   "label": "Fra\u0301ncfort-Ost 2",
+   "expected": "site_8d0fe19ac5ac"
+  },
+  {
+   "key": "vector-key-two-0123456789abcdef",
+   "label": "\u00dcn\u00efcode Stra\u00dfe",
+   "expected": "site_5f7ffec0df57"
+  },
+  {
+   "key": "vector-key-two-0123456789abcdef",
+   "label": "\u00fcn\u00efcode stra\u00dfe",
+   "expected": "site_6af2be0c7034"
+  },
+  {
+   "key": "vector-key-two-0123456789abcdef",
+   "label": "\u0130stanbul",
+   "expected": "site_bb73c54bdda1"
+  },
+  {
+   "key": "vector-key-two-0123456789abcdef",
+   "label": "\u1e9e",
+   "expected": "site_ea7b031a7250"
+  },
+  {
+   "key": "vector-key-two-0123456789abcdef",
+   "label": "\u039f\u0394\u039f\u03a3",
+   "expected": "site_2cdec67bf749"
+  },
+  {
+   "key": "vector-key-two-0123456789abcdef",
+   "label": "\u03bf\u03b4\u03bf\u03c2",
+   "expected": "site_69903e0bd20d"
+  },
+  {
+   "key": "vector-key-two-0123456789abcdef",
+   "label": "\u00a0\u3000Hall A\u2003\ufeff",
+   "expected": "site_dbda86ed3c8e"
+  },
+  {
+   "key": "vector-key-two-0123456789abcdef",
+   "label": "Hall\nA",
+   "expected": "site_2ef68f3d6194"
+  },
+  {
+   "key": "vector-key-two-0123456789abcdef",
+   "label": "Hall A\u0000",
+   "expected": "site_b3b3d9e4803a"
+  },
+  {
+   "key": "vector-key-two-0123456789abcdef",
+   "label": "\u202eHall A",
+   "expected": "site_b2ebbc239e5a"
+  },
+  {
+   "key": "vector-key-two-0123456789abcdef",
+   "label": "\ud83c\udfed Plant 7",
+   "expected": "site_08060426049b"
+  },
+  {
+   "key": "vector-key-two-0123456789abcdef",
+   "label": "XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX",
+   "expected": "site_496605aa9154"
+  },
+  {
+   "key": "vector-key-two-0123456789abcdef",
+   "label": "   ",
+   "expected": null
+  },
+  {
+   "key": "vector-key-two-0123456789abcdef",
+   "label": "",
+   "expected": null
+  },
+  {
+   "key": "vector-key-two-0123456789abcdef",
+   "label": "\ud83d lone",
+   "expected": "site_25b92e7231a6"
+  },
+  {
+   "key": "vector-key-two-0123456789abcdef",
+   "label": "\u001cHall\u001f",
+   "expected": "site_880bea650bf2"
+  },
+  {
+   "key": "vector-key-two-0123456789abcdef",
+   "label": "\u0085Hall\u0085",
+   "expected": "site_46ec06dce550"
+  },
+  {
+   "key": "vector-key-two-0123456789abcdef",
+   "label": "\ud803\udd50 Garay",
+   "expected": "site_3a171eb38094"
+  },
+  {
+   "key": "vector-key-two-0123456789abcdef",
+   "label": "\u212a Kelvin",
+   "expected": "site_fb16c8618ecb"
+  },
+  {
+   "key": "vector-key-two-0123456789abcdef",
+   "label": "\ufb03 ligature",
+   "expected": "site_34801ced1f4b"
+  }
+ ],
+ "key_vectors": [
+  {
+   "secret": "dddddddddddddddd",
+   "accepted": true
+  },
+  {
+   "secret": "ddddddddddddddd",
+   "accepted": false
+  },
+  {
+   "secret": "\ud83c\udfed\ud83c\udfed\ud83c\udfed\ud83c\udfed\ud83c\udfed\ud83c\udfed\ud83c\udfed\ud83c\udfed",
+   "accepted": false
+  },
+  {
+   "secret": "\ud83c\udfed\ud83c\udfed\ud83c\udfed\ud83c\udfed\ud83c\udfed\ud83c\udfed\ud83c\udfed\ud83c\udfed\ud83c\udfed\ud83c\udfed\ud83c\udfed\ud83c\udfed\ud83c\udfed\ud83c\udfed\ud83c\udfed\ud83c\udfed",
+   "accepted": true
+  },
+  {
+   "secret": "\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9",
+   "accepted": true
+  },
+  {
+   "secret": "\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9",
+   "accepted": false
+  }
+ ]
+}

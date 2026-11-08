@@ -134,7 +134,7 @@ export default async function DevelopersPage() {
           ),
           breadcrumbJsonLd([
             { name: "Time to Power", path: "/" },
-            { name: "Developers", path: "/developers" },
+            { name: "API and MCP", path: "/developers" },
           ]),
         ]}
       />

@@ -9,7 +9,7 @@ import { IntelligenceSignalTable } from "@/components/IntelligenceSignalTable";
 import { IntelligenceContext } from "@/components/IntelligenceContext";
 import { Loader2, LogOut, Send, Download, Save } from "lucide-react";
 import { generateSitingBrief } from "@/lib/brief";
-import { PRODUCTS } from "@/lib/products";
+import { PRODUCTS, intelligencePlanName } from "@/lib/products";
 import TeamPanel from "@/components/TeamPanel";
 import { PENDING_INVITE_KEY } from "@/lib/team-client";
 import { CONFIRM_EMAIL_TEXT, isUnverified } from "@/lib/portal-links";
@@ -92,7 +92,7 @@ export default function AccountPage() {
             <div>
               <div className="eyebrow text-power mb-2">GridForge Intelligence</div>
               <h1 className="text-3xl font-semibold tracking-tight">Siting dashboard</h1>
-              <p className="text-mute text-sm mt-1">{email}{plan ? " - " + plan.charAt(0).toUpperCase() + plan.slice(1) + " plan" : ""}</p>
+              <p className="text-mute text-sm mt-1">{email}{intelligencePlanName(plan) ? " - " + intelligencePlanName(plan) + " plan" : ""}</p>
             </div>
             <div className="flex items-center gap-4">
               <Link href="/dashboard" className="data text-xs uppercase tracking-[0.1em] text-mute hover:text-white">

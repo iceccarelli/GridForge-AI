@@ -108,7 +108,7 @@ export default function ApiPlans({ rates = [] }: { rates?: ToolRate[] }) {
               <p className="mt-1 text-xs text-faint">
                 {n.toLocaleString("en-IE")} units
                 {study > 0 && screen > 0
-                  ? `: ${Math.floor(n / study).toLocaleString("en-IE")} full studies, or ${Math.floor(n / screen).toLocaleString("en-IE")} screens, or any mix`
+                  ? `: ${Math.floor(n / study).toLocaleString("en-IE")} full studies, or ${Math.floor(n / screen).toLocaleString("en-IE")} screen calls, or any mix`
                   : ""}
               </p>
               <ul className="mt-3 flex-1 space-y-1.5 text-sm text-mute">

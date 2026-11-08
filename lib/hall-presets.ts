@@ -11,6 +11,11 @@
 // per-input classes (the Density Screen's basis text does, and shows "(E0)" for a marked figure), and the marking changes only the request
 // digest, never an arithmetic result. A value the visitor changes is theirs from that moment and is no longer marked. The identity fields
 // (site name, hall id) are labels, not values, and are not marked.
+//
+// Busway runs, LV voltage and site power factor are deliberately NOT template values. A template that carried "6 runs / 400 V / 0.97" would
+// have to send them as E0 (assumed) figures, and a template that did not mark them would send them as the visitor's own. Leaving them out
+// means a template run omits them, the engine uses its documented library defaults (lib/engagement-intake.ts ENGINE_LIBRARY_DEFAULTS) and names
+// each as an assumption. If a template ever defines one, it must be added to PRESET_VALUE_KEYS and to ASSUMABLE_HALL_FIELDS so it is sent as E0.
 
 import type { CompareObjective } from "@/lib/ttp-compare";
 
@@ -149,6 +154,56 @@ export const HALL_PRESETS: readonly HallPreset[] = [
     ],
   },
 ];
+
+/**
+ * The seven numbers the free qualifier (/qualify, POST /v1/qualify) takes, by form key: the subset of a template's values it can use. Each one
+ * is a PRESET_VALUE_KEY, so a template defines all seven. The qualifier does not take the other template values (firm capacity, floor loading,
+ * plant capacity, flows, dry-bulb, air removal) or the supply options, and they are not sent.
+ */
+export const QUALIFY_PRESET_KEYS = [
+  "contractedMW",
+  "currentPeakMW",
+  "currentItLoadMW",
+  "buswayAmpacityA",
+  "tapoffMaxA",
+  "plantSupplyC",
+  "positionsAvailable",
+] as const satisfies readonly PresetValueKey[];
+export type QualifyPresetKey = (typeof QUALIFY_PRESET_KEYS)[number];
+
+/** What a template puts into the qualifier's form: its seven values as text, and its platform. Site name and metro are the visitor's. */
+export function qualifyTemplateState(preset: HallPreset): { raw: Record<QualifyPresetKey, string>; platform: HallPreset["platform"] } {
+  const raw = Object.fromEntries(QUALIFY_PRESET_KEYS.map((k) => [k, preset.values[k]])) as Record<QualifyPresetKey, string>;
+  return { raw, platform: preset.platform };
+}
+
+/**
+ * What choosing a template (or none) does to the qualifier's fields. A field the visitor typed (non-empty and not the CURRENT template's value) is
+ * KEPT; every other field takes the new template's value, or is emptied when no template is chosen. Nothing the visitor typed is overwritten.
+ */
+export function switchQualifyTemplate(
+  raw: Record<QualifyPresetKey, string>,
+  from: HallPreset | null,
+  to: HallPreset | null
+): { raw: Record<QualifyPresetKey, string>; kept: QualifyPresetKey[] } {
+  const theirs = (k: QualifyPresetKey) => raw[k].trim() !== "" && !(from && raw[k].trim() === from.values[k]);
+  const kept = QUALIFY_PRESET_KEYS.filter(theirs);
+  const next = Object.fromEntries(QUALIFY_PRESET_KEYS.map((k) => [k, theirs(k) ? raw[k] : to ? to.values[k] : ""])) as Record<QualifyPresetKey, string>;
+  return { raw: next, kept: [...kept] };
+}
+
+/**
+ * The qualifier fields that still hold the template's own value: the ones sent as assumed (E0). A field the visitor changed or cleared is
+ * theirs. Compared as trimmed text, as stillTemplateValues does: retyping the same figure keeps it the template's number.
+ */
+export function stillTemplateQualifyValues(preset: HallPreset, raw: Record<string, string | undefined>): QualifyPresetKey[] {
+  return QUALIFY_PRESET_KEYS.filter((k) => (raw[k] ?? "").trim() === preset.values[k]);
+}
+
+/** True while all seven qualifier figures are still exactly the template's: the read is for the template, not for any hall. */
+export function isUntouchedQualifyTemplate(preset: HallPreset, raw: Record<string, string | undefined>): boolean {
+  return stillTemplateQualifyValues(preset, raw).length === QUALIFY_PRESET_KEYS.length;
+}
 
 export function presetById(id: string | null | undefined): HallPreset | null {
   return HALL_PRESETS.find((p) => p.id === id) ?? null;

@@ -18,11 +18,13 @@ import {
   type CompareScenario,
 } from "@/lib/ttp-compare";
 import { TtpSaveToProject } from "@/components/TtpSaveToProject";
+import { QuotationEffectPanel } from "@/components/QuotationEffectPanel";
 import { DateFigure } from "@/components/DateFigure";
 import { formatRankingValue, formatWeeksDelta, formatLeadTime } from "@/lib/date-basis";
 import { GridQueuePanel } from "@/components/GridQueuePanel";
 import { RetailPricePanel } from "@/components/RetailPricePanel";
 import { templateDerivedCount } from "@/lib/ttp-compare";
+import { ENGINE_LIBRARY_DEFAULTS } from "@/lib/engagement-intake";
 import {
   HALL_PRESETS,
   PRESET_DISCLOSURE,
@@ -49,7 +51,9 @@ const REQUIRED: [string, string, string][] = [
   ["positionsAvailable", "Free rack positions", "number"],
   ["plantSupplyC", "Chilled-water design supply (°C)", "number"],
 ];
-const OPTIONAL: [string, string][] = [
+// The third entry, where there is one, is placeholder text: the engine's own library default, shown so the visitor knows what is assumed if they leave the
+// field blank. It is never a value of the field and is never sent (buildCompareBody sends only what was typed).
+const OPTIONAL: [string, string, string?][] = [
   ["firmCapacityMVA", "Firm connection capacity (MVA)"],
   ["floorLoadingKPa", "Floor loading (kPa)"],
   ["plantCapacityKW", "Chilled-water plant capacity (kW)"],
@@ -57,6 +61,9 @@ const OPTIONAL: [string, string][] = [
   ["existingNonItHeatKW", "Other heat already on the plant (kW)"],
   ["designDrybulbC", "Summer design dry-bulb (°C)"],
   ["residualAirKWPerRack", "Air removal per rack position (kW)"],
+  ["buswayRuns", "Busway runs (count)", `engine assumes ${ENGINE_LIBRARY_DEFAULTS.buswayRuns}`],
+  ["voltageV", "LV voltage (V)", `engine assumes ${ENGINE_LIBRARY_DEFAULTS.voltageV}`],
+  ["powerFactor", "Site power factor", `engine assumes ${ENGINE_LIBRARY_DEFAULTS.powerFactor}`],
 ];
 
 // Clearly synthetic: loaded only on request, and named as such wherever it is shown.
@@ -314,12 +321,12 @@ export function TtpCompare({ initialTemplateId = null }: { initialTemplateId?: s
             Optional — leave blank and the engine names each as an assumption instead of guessing
           </p>
           <div className="grid gap-4 sm:grid-cols-3">
-            {OPTIONAL.map(([k, label]) => (
+            {OPTIONAL.map(([k, label, placeholder]) => (
               <div key={k}>
                 <label htmlFor={`${uid}-${k}`} className="mb-1 block font-mono text-[10px] uppercase tracking-[0.1em] text-faint">
                   {label}
                 </label>
-                <input id={`${uid}-${k}`} className="field min-h-11 w-full" type="number" step="any" value={f[k] ?? ""} aria-describedby={preset ? `${uid}-${k}-tag` : undefined} onChange={(e) => set(k, e.target.value)} />
+                <input id={`${uid}-${k}`} className="field min-h-11 w-full" type="number" step="any" placeholder={placeholder} value={f[k] ?? ""} aria-describedby={preset ? `${uid}-${k}-tag` : undefined} onChange={(e) => set(k, e.target.value)} />
                 {preset ? <TemplateTag id={`${uid}-${k}-tag`} preset={preset} fieldKey={k} value={f[k]} /> : null}
               </div>
             ))}
@@ -418,6 +425,8 @@ export function TtpCompare({ initialTemplateId = null }: { initialTemplateId?: s
       {out ? <ComparisonResults out={out} cli={cli} copied={copied} onCopy={async () => {
         try { await navigator.clipboard.writeText(JSON.stringify(out.request, null, 2)); setCopied(true); } catch { setCopied(false); }
       }} /> : null}
+
+      {out && !out.synthetic ? <QuotationEffectPanel key={out.result.request_digest} compare={out.compare} base={out.result} /> : null}
 
       {out && !out.synthetic ? <TtpSaveToProject key={out.result.request_digest} compare={out.compare} defaultName={String(f.siteName ?? "").trim()} /> : null}
       {out?.synthetic ? (

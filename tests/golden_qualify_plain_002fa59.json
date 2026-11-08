@@ -1,0 +1,1510 @@
+{
+ "cases": [
+  {
+   "name": "reference_example",
+   "request": {
+    "busway_ampacity_A": 400,
+    "contracted_MW": 12,
+    "current_it_load_MW": 4.9,
+    "current_site_peak_MW": 7.4,
+    "plant_supply_C": 6,
+    "positions_available": 180,
+    "tapoff_max_A": 63
+   },
+   "response": {
+    "after_relief": {
+     "architecture": "Full DLC, grid only",
+     "date_basis": "none",
+     "date_binding_item": null,
+     "date_evidence_class": null,
+     "date_label": "no date: nothing is deployable or a lead time on the path is missing",
+     "racks": 28,
+     "sets_the_date": "Chilled-water plant capacity",
+     "then_binds_on": "Firm supply (grid import + behind-the-meter)"
+    },
+    "as_found": {
+     "basis": "platform needs 205 [174\u2013236] A (E0) per rack; installed tap-offs rated 63 A (E5). The tap-off rating is compared at 100% of its rating, with no continuous-load derating (the busway is derated to 0.8)",
+     "binding_constraint": "Rack feed / tap-off rating",
+     "domain": "electrical",
+     "it_load_kW": {
+      "digest": "7878bb4e6931",
+      "evidence": "E0_ASSUMPTION",
+      "high": 0.0,
+      "label": "deployable IT load",
+      "low": 0.0,
+      "model": "envelope.it_load@0.1",
+      "unit": "kW",
+      "value": 0.0
+     },
+     "racks": 0
+    },
+    "calibration": {
+     "coverage": 0.0,
+     "halls": 0,
+     "keys": [],
+     "keys_asserted": 3,
+     "keys_calibrated": 0,
+     "keys_with_site_observations": 0,
+     "observations": 0,
+     "observations_total": 0,
+     "observations_without_source_ref": 0,
+     "sites": 0,
+     "state": "uncalibrated",
+     "statement": "Model accuracy against instrumented sites has not been established: 0 reconciled observations across 0 sites, covering 0 of 3 model outputs. Every figure in this report is modelled. The uncertainty ranges shown come from input uncertainty propagated through the model, not from the difference between this engine's predictions and site data \u2014 no such difference has been recorded yet.",
+     "uncalibrated_keys": [
+      "constraint.rack_feed_tapoff.racks",
+      "envelope.racks",
+      "envelope.it_load_kW"
+     ]
+    },
+    "first_three_constraints": [
+     {
+      "domain": "electrical",
+      "name": "Rack feed / tap-off rating",
+      "relief": "Higher-rated tap-off units (and busway if ampacity does not allow)"
+     },
+     {
+      "domain": "thermal",
+      "name": "Residual air load removal per rack",
+      "relief": "Add in-row cooling or rear-door heat exchangers for the residual air load"
+     },
+     {
+      "domain": "thermal",
+      "name": "Achievable facility water temperature",
+      "relief": "Adiabatic assist plus trim chiller on the high-temperature loop"
+     }
+    ],
+    "intake": {
+     "can_issue_a_study": false,
+     "completeness": 0.29,
+     "gaps": [
+      {
+       "assumed": "2,000 [1,400\u20132,600] m2 (E0)",
+       "how_to_get_it": "Floor plan.",
+       "input": "Net white space",
+       "path": "hall.net_white_space_m2",
+       "required": false,
+       "unit": "m2",
+       "why_it_binds": "Caps rack count where positions are not yet counted."
+      },
+      {
+       "assumed": "12 [8\u201315] kPa (E0)",
+       "how_to_get_it": "Structural record drawings; a survey if the building changed hands.",
+       "input": "Hall design floor loading",
+       "path": "hall.floor_loading_kPa",
+       "required": true,
+       "unit": "kPa",
+       "why_it_binds": "A 1.4 t rack against a 12 kPa design is a gate, not a margin."
+      },
+      {
+       "assumed": "2.4 [2.04\u20132.76] m (E0)",
+       "how_to_get_it": "Floor plan or a site walk.",
+       "input": "Installed aisle pitch",
+       "path": "hall.aisle_pitch_m",
+       "required": false,
+       "unit": "m",
+       "why_it_binds": "Sets floor area per rack, and so the floor-loading figure per square metre."
+      },
+      {
+       "assumed": "32 [30\u201336] degC (E0)",
+       "how_to_get_it": "Nearest TMY station.",
+       "input": "Summer design dry bulb",
+       "path": "site.design_drybulb_C",
+       "required": false,
+       "unit": "degC",
+       "why_it_binds": "Decides whether dry coolers alone can hold the loop."
+      },
+      {
+       "assumed": "[]",
+       "how_to_get_it": "Single-line diagram and transformer nameplates.",
+       "input": "Transformer schedule",
+       "path": "transformers",
+       "required": true,
+       "unit": "-",
+       "why_it_binds": "Often the schedule driver: transformer lead times are long and vary by type. Enter the quoted figure if you have one."
+      },
+      {
+       "assumed": "[]",
+       "how_to_get_it": "UPS nameplate, topology and remaining design life.",
+       "input": "UPS schedule",
+       "path": "ups",
+       "required": true,
+       "unit": "-",
+       "why_it_binds": "GPU racks present step loads, not just steady load."
+      },
+      {
+       "assumed": "0.97 [0.95\u20130.99] (E0)",
+       "how_to_get_it": "Utility bills (billed power factor) or the incomer meter.",
+       "input": "Site power factor",
+       "path": "grid.power_factor",
+       "required": false,
+       "unit": "-",
+       "why_it_binds": "Converts MVA of connection into MW of usable power."
+      },
+      {
+       "assumed": "400 V (E0)",
+       "how_to_get_it": "Busway nameplate or the single-line diagram.",
+       "input": "LV distribution voltage",
+       "path": "lv.voltage_V",
+       "required": false,
+       "unit": "V",
+       "why_it_binds": "Busway kW is voltage times ampacity; 400 V and 415 V differ by 4%."
+      },
+      {
+       "assumed": "6",
+       "how_to_get_it": "Electrical record drawings.",
+       "input": "Number of busway runs",
+       "path": "lv.busway_runs",
+       "required": false,
+       "unit": "-",
+       "why_it_binds": "Total feed capacity scales with the runs that actually reach the white space."
+      },
+      {
+       "assumed": "0.8 (E0)",
+       "how_to_get_it": "Operating policy and thermal derating from the busway manufacturer.",
+       "input": "Busway utilisation limit",
+       "path": "lv.busway_utilisation_limit",
+       "required": false,
+       "unit": "-",
+       "why_it_binds": "The fraction of nameplate the operator will actually load."
+      },
+      {
+       "assumed": "[]",
+       "how_to_get_it": "CDU nameplates and the mechanical single-line diagram.",
+       "input": "Installed CDU schedule",
+       "path": "thermal.cdus",
+       "required": false,
+       "unit": "-",
+       "why_it_binds": "When absent, the hybrid and full-DLC scenarios ASSUME three 1,350 kW N+1 CDUs already installed at no cost, which supplies roughly 22 racks of liquid capacity that the hall may not have."
+      },
+      {
+       "assumed": "0 l/min, nothing subtracted (the pumped flow is read as flow available to the new load)",
+       "how_to_get_it": "Commissioning flow readings or the BMS flow trend for the existing hall's loops; pump curves at the operating point.",
+       "input": "Flow the existing hall already draws on the plant",
+       "path": "thermal.plant.existing_flow_l_per_min",
+       "required": false,
+       "unit": "l/min",
+       "why_it_binds": "If the available pumped flow above is the plant's TOTAL, the existing hall already uses part of it and the hydraulic limit is overstated. When this is given the engine subtracts it before dividing by the flow per rack; when absent nothing is subtracted and the figure above is read as flow available to the new load."
+      },
+      {
+       "assumed": "0 kW, nothing subtracted (plant headroom is the plant capacity less the IT load only)",
+       "how_to_get_it": "BMS plant load trend less the metered IT load, or the electrical single-line losses and the mechanical schedule's fan and pump power.",
+       "input": "Other heat the existing hall already puts on the plant",
+       "path": "thermal.plant.existing_non_it_heat_kW",
+       "required": false,
+       "unit": "kW",
+       "why_it_binds": "Plant headroom is the capacity less the IT load; UPS and distribution losses, fan-wall and pump power rejected to the plant and lighting also land on it, so headroom is overstated by their share. When this is given the engine subtracts it as well; when absent only the IT load is subtracted."
+      },
+      {
+       "assumed": "5,000 [3,250\u20136,750] kW (E0)",
+       "how_to_get_it": "Chiller schedule; derate to the actual condensing conditions.",
+       "input": "Chilled-water plant capacity",
+       "path": "thermal.plant.chilled_water_capacity_kW",
+       "required": true,
+       "unit": "kW",
+       "why_it_binds": "Carries the residual air load, and the liquid load in a hybrid scheme."
+      },
+      {
+       "assumed": "13 [12\u201318] degC (E0)",
+       "how_to_get_it": "Chiller schedule and BMS trend.",
+       "input": "Plant design return temperature",
+       "path": "thermal.plant.design_return_C",
+       "required": false,
+       "unit": "degC",
+       "why_it_binds": "Delta-T across the plant sets the flow it must move."
+      },
+      {
+       "assumed": "7,000 [4,900\u20139,100] l/min (E0)",
+       "how_to_get_it": "Pump curves and pipe schedule; a hydraulic model before design.",
+       "input": "Available pumped flow",
+       "path": "thermal.plant.pump_flow_capacity_l_per_min",
+       "required": false,
+       "unit": "l/min",
+       "why_it_binds": "Flow, not delta-T, governs a retrofit."
+      },
+      {
+       "assumed": "30 [27\u201332] degC (E0)",
+       "how_to_get_it": "The platform vendor's reference design for the target rack.",
+       "input": "TCS target supply temperature",
+       "path": "thermal.tcs_target_supply_C",
+       "required": false,
+       "unit": "degC",
+       "why_it_binds": "Whether the plant can hold the water temperature the chips need."
+      },
+      {
+       "assumed": "8 [6\u201312] kW (E0)",
+       "how_to_get_it": "Measured per-tile airflow, or CFD.",
+       "input": "Air removal per rack position",
+       "path": "thermal.residual_air_capacity_kW_per_rack",
+       "required": false,
+       "unit": "kW",
+       "why_it_binds": "10-15% of a 135 kW rack is still 13-20 kW of air per position."
+      },
+      {
+       "assumed": "0.75 [0.6\u20130.9] (E0)",
+       "how_to_get_it": "The tenant's committed load profile.",
+       "input": "Annual average rack utilisation",
+       "path": "compute.utilisation",
+       "required": false,
+       "unit": "-",
+       "why_it_binds": "Scales energy cost and PUE-weighted operating figures."
+      },
+      {
+       "assumed": "60 [20\u201380] kW (E0)",
+       "how_to_get_it": "The selected rear-door unit's datasheet at the site's water temperature and airflow.",
+       "input": "Rear-door heat exchanger capacity per rack",
+       "path": "thermal.rdhx.capacity_kW_per_rack",
+       "required": false,
+       "unit": "kW",
+       "why_it_binds": "Decides whether the rear-door scenario can host the target rack at all. When absent the engine uses a library default of 60 kW per rack (band 20-80), which is neither a manufacturer's rating nor a site measurement."
+      },
+      {
+       "assumed": "0 kW, nothing subtracted (busway_ampacity_A is read as the whole installed total)",
+       "how_to_get_it": "Branch-circuit or busway monitoring (peak kW over a representative month), or the sum of the metered rack loads on the busway.",
+       "input": "Load already on the busway",
+       "path": "lv.existing_busway_load_kW",
+       "required": false,
+       "unit": "kW",
+       "why_it_binds": "The busway result is the installed capacity as declared; the load already drawing from it is not subtracted, so the racks it can still feed are overstated by that share. When this is given the engine subtracts it (never below zero); when absent nothing is subtracted."
+      }
+     ],
+     "recommended_engagement": "Intake too thin for a full study. Sell the Density Screen instead: it produces the binding constraint and the data-request list, and its fee credits against the study when the data arrives.",
+     "required_inputs_missing": 4,
+     "warnings": [
+      "Busway: the 220 occupied positions at their 8 kW design density would draw 1,760 kW, more than the 1,290 kW the declared busway can carry. busway_ampacity_A is read as the installed total and existing load is not subtracted, so check whether the figure you gave is the whole hall's busway.",
+      "No transformer schedule supplied: transformer capacity is not evaluated and may be the true binding constraint.",
+      "No UPS schedule supplied: the load is treated as unprotected.",
+      "No behind-the-meter options declared: where the grid binds, the study can only report that it binds."
+     ]
+    },
+    "notice": "Directional screening read. Modelled from the inputs supplied, against library defaults for everything not supplied. It is not a bankable number, not a design, and not a measurement of this asset. Capital cost, programme duration, the full constraint ladder and the scenario comparison are part of the paid engagement.",
+    "platform": {
+     "gpus_per_rack": 72,
+     "id": "gb300_nvl72",
+     "name": "NVIDIA GB300 NVL72",
+     "rack_kW": {
+      "digest": "e6476e7cd728",
+      "evidence": "E0_ASSUMPTION",
+      "high": 142,
+      "label": "GB300 NVL72 rack TDP",
+      "low": 132,
+      "model": "input@0.1",
+      "unit": "kW",
+      "value": 135
+     }
+    }
+   }
+  },
+  {
+   "name": "tapoff_binds",
+   "request": {
+    "busway_ampacity_A": 400,
+    "contracted_MW": 12,
+    "current_it_load_MW": 4.9,
+    "current_site_peak_MW": 7.4,
+    "plant_supply_C": 6,
+    "positions_available": 180,
+    "tapoff_max_A": 63
+   },
+   "response": {
+    "after_relief": {
+     "architecture": "Full DLC, grid only",
+     "date_basis": "none",
+     "date_binding_item": null,
+     "date_evidence_class": null,
+     "date_label": "no date: nothing is deployable or a lead time on the path is missing",
+     "racks": 28,
+     "sets_the_date": "Chilled-water plant capacity",
+     "then_binds_on": "Firm supply (grid import + behind-the-meter)"
+    },
+    "as_found": {
+     "basis": "platform needs 205 [174\u2013236] A (E0) per rack; installed tap-offs rated 63 A (E5). The tap-off rating is compared at 100% of its rating, with no continuous-load derating (the busway is derated to 0.8)",
+     "binding_constraint": "Rack feed / tap-off rating",
+     "domain": "electrical",
+     "it_load_kW": {
+      "digest": "7878bb4e6931",
+      "evidence": "E0_ASSUMPTION",
+      "high": 0.0,
+      "label": "deployable IT load",
+      "low": 0.0,
+      "model": "envelope.it_load@0.1",
+      "unit": "kW",
+      "value": 0.0
+     },
+     "racks": 0
+    },
+    "calibration": {
+     "coverage": 0.0,
+     "halls": 0,
+     "keys": [],
+     "keys_asserted": 3,
+     "keys_calibrated": 0,
+     "keys_with_site_observations": 0,
+     "observations": 0,
+     "observations_total": 0,
+     "observations_without_source_ref": 0,
+     "sites": 0,
+     "state": "uncalibrated",
+     "statement": "Model accuracy against instrumented sites has not been established: 0 reconciled observations across 0 sites, covering 0 of 3 model outputs. Every figure in this report is modelled. The uncertainty ranges shown come from input uncertainty propagated through the model, not from the difference between this engine's predictions and site data \u2014 no such difference has been recorded yet.",
+     "uncalibrated_keys": [
+      "constraint.rack_feed_tapoff.racks",
+      "envelope.racks",
+      "envelope.it_load_kW"
+     ]
+    },
+    "first_three_constraints": [
+     {
+      "domain": "electrical",
+      "name": "Rack feed / tap-off rating",
+      "relief": "Higher-rated tap-off units (and busway if ampacity does not allow)"
+     },
+     {
+      "domain": "thermal",
+      "name": "Residual air load removal per rack",
+      "relief": "Add in-row cooling or rear-door heat exchangers for the residual air load"
+     },
+     {
+      "domain": "thermal",
+      "name": "Achievable facility water temperature",
+      "relief": "Adiabatic assist plus trim chiller on the high-temperature loop"
+     }
+    ],
+    "intake": {
+     "can_issue_a_study": false,
+     "completeness": 0.29,
+     "gaps": [
+      {
+       "assumed": "2,000 [1,400\u20132,600] m2 (E0)",
+       "how_to_get_it": "Floor plan.",
+       "input": "Net white space",
+       "path": "hall.net_white_space_m2",
+       "required": false,
+       "unit": "m2",
+       "why_it_binds": "Caps rack count where positions are not yet counted."
+      },
+      {
+       "assumed": "12 [8\u201315] kPa (E0)",
+       "how_to_get_it": "Structural record drawings; a survey if the building changed hands.",
+       "input": "Hall design floor loading",
+       "path": "hall.floor_loading_kPa",
+       "required": true,
+       "unit": "kPa",
+       "why_it_binds": "A 1.4 t rack against a 12 kPa design is a gate, not a margin."
+      },
+      {
+       "assumed": "2.4 [2.04\u20132.76] m (E0)",
+       "how_to_get_it": "Floor plan or a site walk.",
+       "input": "Installed aisle pitch",
+       "path": "hall.aisle_pitch_m",
+       "required": false,
+       "unit": "m",
+       "why_it_binds": "Sets floor area per rack, and so the floor-loading figure per square metre."
+      },
+      {
+       "assumed": "32 [30\u201336] degC (E0)",
+       "how_to_get_it": "Nearest TMY station.",
+       "input": "Summer design dry bulb",
+       "path": "site.design_drybulb_C",
+       "required": false,
+       "unit": "degC",
+       "why_it_binds": "Decides whether dry coolers alone can hold the loop."
+      },
+      {
+       "assumed": "[]",
+       "how_to_get_it": "Single-line diagram and transformer nameplates.",
+       "input": "Transformer schedule",
+       "path": "transformers",
+       "required": true,
+       "unit": "-",
+       "why_it_binds": "Often the schedule driver: transformer lead times are long and vary by type. Enter the quoted figure if you have one."
+      },
+      {
+       "assumed": "[]",
+       "how_to_get_it": "UPS nameplate, topology and remaining design life.",
+       "input": "UPS schedule",
+       "path": "ups",
+       "required": true,
+       "unit": "-",
+       "why_it_binds": "GPU racks present step loads, not just steady load."
+      },
+      {
+       "assumed": "0.97 [0.95\u20130.99] (E0)",
+       "how_to_get_it": "Utility bills (billed power factor) or the incomer meter.",
+       "input": "Site power factor",
+       "path": "grid.power_factor",
+       "required": false,
+       "unit": "-",
+       "why_it_binds": "Converts MVA of connection into MW of usable power."
+      },
+      {
+       "assumed": "400 V (E0)",
+       "how_to_get_it": "Busway nameplate or the single-line diagram.",
+       "input": "LV distribution voltage",
+       "path": "lv.voltage_V",
+       "required": false,
+       "unit": "V",
+       "why_it_binds": "Busway kW is voltage times ampacity; 400 V and 415 V differ by 4%."
+      },
+      {
+       "assumed": "6",
+       "how_to_get_it": "Electrical record drawings.",
+       "input": "Number of busway runs",
+       "path": "lv.busway_runs",
+       "required": false,
+       "unit": "-",
+       "why_it_binds": "Total feed capacity scales with the runs that actually reach the white space."
+      },
+      {
+       "assumed": "0.8 (E0)",
+       "how_to_get_it": "Operating policy and thermal derating from the busway manufacturer.",
+       "input": "Busway utilisation limit",
+       "path": "lv.busway_utilisation_limit",
+       "required": false,
+       "unit": "-",
+       "why_it_binds": "The fraction of nameplate the operator will actually load."
+      },
+      {
+       "assumed": "[]",
+       "how_to_get_it": "CDU nameplates and the mechanical single-line diagram.",
+       "input": "Installed CDU schedule",
+       "path": "thermal.cdus",
+       "required": false,
+       "unit": "-",
+       "why_it_binds": "When absent, the hybrid and full-DLC scenarios ASSUME three 1,350 kW N+1 CDUs already installed at no cost, which supplies roughly 22 racks of liquid capacity that the hall may not have."
+      },
+      {
+       "assumed": "0 l/min, nothing subtracted (the pumped flow is read as flow available to the new load)",
+       "how_to_get_it": "Commissioning flow readings or the BMS flow trend for the existing hall's loops; pump curves at the operating point.",
+       "input": "Flow the existing hall already draws on the plant",
+       "path": "thermal.plant.existing_flow_l_per_min",
+       "required": false,
+       "unit": "l/min",
+       "why_it_binds": "If the available pumped flow above is the plant's TOTAL, the existing hall already uses part of it and the hydraulic limit is overstated. When this is given the engine subtracts it before dividing by the flow per rack; when absent nothing is subtracted and the figure above is read as flow available to the new load."
+      },
+      {
+       "assumed": "0 kW, nothing subtracted (plant headroom is the plant capacity less the IT load only)",
+       "how_to_get_it": "BMS plant load trend less the metered IT load, or the electrical single-line losses and the mechanical schedule's fan and pump power.",
+       "input": "Other heat the existing hall already puts on the plant",
+       "path": "thermal.plant.existing_non_it_heat_kW",
+       "required": false,
+       "unit": "kW",
+       "why_it_binds": "Plant headroom is the capacity less the IT load; UPS and distribution losses, fan-wall and pump power rejected to the plant and lighting also land on it, so headroom is overstated by their share. When this is given the engine subtracts it as well; when absent only the IT load is subtracted."
+      },
+      {
+       "assumed": "5,000 [3,250\u20136,750] kW (E0)",
+       "how_to_get_it": "Chiller schedule; derate to the actual condensing conditions.",
+       "input": "Chilled-water plant capacity",
+       "path": "thermal.plant.chilled_water_capacity_kW",
+       "required": true,
+       "unit": "kW",
+       "why_it_binds": "Carries the residual air load, and the liquid load in a hybrid scheme."
+      },
+      {
+       "assumed": "13 [12\u201318] degC (E0)",
+       "how_to_get_it": "Chiller schedule and BMS trend.",
+       "input": "Plant design return temperature",
+       "path": "thermal.plant.design_return_C",
+       "required": false,
+       "unit": "degC",
+       "why_it_binds": "Delta-T across the plant sets the flow it must move."
+      },
+      {
+       "assumed": "7,000 [4,900\u20139,100] l/min (E0)",
+       "how_to_get_it": "Pump curves and pipe schedule; a hydraulic model before design.",
+       "input": "Available pumped flow",
+       "path": "thermal.plant.pump_flow_capacity_l_per_min",
+       "required": false,
+       "unit": "l/min",
+       "why_it_binds": "Flow, not delta-T, governs a retrofit."
+      },
+      {
+       "assumed": "30 [27\u201332] degC (E0)",
+       "how_to_get_it": "The platform vendor's reference design for the target rack.",
+       "input": "TCS target supply temperature",
+       "path": "thermal.tcs_target_supply_C",
+       "required": false,
+       "unit": "degC",
+       "why_it_binds": "Whether the plant can hold the water temperature the chips need."
+      },
+      {
+       "assumed": "8 [6\u201312] kW (E0)",
+       "how_to_get_it": "Measured per-tile airflow, or CFD.",
+       "input": "Air removal per rack position",
+       "path": "thermal.residual_air_capacity_kW_per_rack",
+       "required": false,
+       "unit": "kW",
+       "why_it_binds": "10-15% of a 135 kW rack is still 13-20 kW of air per position."
+      },
+      {
+       "assumed": "0.75 [0.6\u20130.9] (E0)",
+       "how_to_get_it": "The tenant's committed load profile.",
+       "input": "Annual average rack utilisation",
+       "path": "compute.utilisation",
+       "required": false,
+       "unit": "-",
+       "why_it_binds": "Scales energy cost and PUE-weighted operating figures."
+      },
+      {
+       "assumed": "60 [20\u201380] kW (E0)",
+       "how_to_get_it": "The selected rear-door unit's datasheet at the site's water temperature and airflow.",
+       "input": "Rear-door heat exchanger capacity per rack",
+       "path": "thermal.rdhx.capacity_kW_per_rack",
+       "required": false,
+       "unit": "kW",
+       "why_it_binds": "Decides whether the rear-door scenario can host the target rack at all. When absent the engine uses a library default of 60 kW per rack (band 20-80), which is neither a manufacturer's rating nor a site measurement."
+      },
+      {
+       "assumed": "0 kW, nothing subtracted (busway_ampacity_A is read as the whole installed total)",
+       "how_to_get_it": "Branch-circuit or busway monitoring (peak kW over a representative month), or the sum of the metered rack loads on the busway.",
+       "input": "Load already on the busway",
+       "path": "lv.existing_busway_load_kW",
+       "required": false,
+       "unit": "kW",
+       "why_it_binds": "The busway result is the installed capacity as declared; the load already drawing from it is not subtracted, so the racks it can still feed are overstated by that share. When this is given the engine subtracts it (never below zero); when absent nothing is subtracted."
+      }
+     ],
+     "recommended_engagement": "Intake too thin for a full study. Sell the Density Screen instead: it produces the binding constraint and the data-request list, and its fee credits against the study when the data arrives.",
+     "required_inputs_missing": 4,
+     "warnings": [
+      "Busway: the 220 occupied positions at their 8 kW design density would draw 1,760 kW, more than the 1,290 kW the declared busway can carry. busway_ampacity_A is read as the installed total and existing load is not subtracted, so check whether the figure you gave is the whole hall's busway.",
+      "No transformer schedule supplied: transformer capacity is not evaluated and may be the true binding constraint.",
+      "No UPS schedule supplied: the load is treated as unprotected.",
+      "No behind-the-meter options declared: where the grid binds, the study can only report that it binds."
+     ]
+    },
+    "notice": "Directional screening read. Modelled from the inputs supplied, against library defaults for everything not supplied. It is not a bankable number, not a design, and not a measurement of this asset. Capital cost, programme duration, the full constraint ladder and the scenario comparison are part of the paid engagement.",
+    "platform": {
+     "gpus_per_rack": 72,
+     "id": "gb300_nvl72",
+     "name": "NVIDIA GB300 NVL72",
+     "rack_kW": {
+      "digest": "e6476e7cd728",
+      "evidence": "E0_ASSUMPTION",
+      "high": 142,
+      "label": "GB300 NVL72 rack TDP",
+      "low": 132,
+      "model": "input@0.1",
+      "unit": "kW",
+      "value": 135
+     }
+    }
+   }
+  },
+  {
+   "name": "grid_capped_with_labels",
+   "request": {
+    "busway_ampacity_A": 1000,
+    "contracted_MW": 8,
+    "country": "IE",
+    "current_it_load_MW": 5.2,
+    "current_site_peak_MW": 7.6,
+    "hall_id": "G1",
+    "metro": "Dublin",
+    "objective": "fastest",
+    "plant_supply_C": 12,
+    "platform": "gb200_nvl72",
+    "positions_available": 300,
+    "site_name": "Golden campus",
+    "tapoff_max_A": 250
+   },
+   "response": {
+    "after_relief": {
+     "architecture": "Hybrid DLC on retained plant, grid only",
+     "date_basis": "none",
+     "date_binding_item": null,
+     "date_evidence_class": null,
+     "date_label": "no date: nothing is deployable or a lead time on the path is missing",
+     "racks": 2,
+     "sets_the_date": "Chilled-water plant capacity",
+     "then_binds_on": "Firm supply (grid import + behind-the-meter)"
+    },
+    "as_found": {
+     "basis": "-200 [-1,950\u20131,550] kW (E0) of plant headroom against 132 [120\u2013132] kW (E0) per rack \u2014 full rack load (rack heat rejected into the existing plant). Modelling limit: the headroom is plant capacity less the IT load only; UPS, fan and pump heat, plant redundancy and condenser derating are not modelled, so headroom is overstated by their share",
+     "binding_constraint": "Chilled-water plant capacity",
+     "domain": "thermal",
+     "it_load_kW": {
+      "digest": "c8c8eda7251b",
+      "evidence": "E0_ASSUMPTION",
+      "high": 0.0,
+      "label": "deployable IT load",
+      "low": 0.0,
+      "model": "envelope.it_load@0.1",
+      "unit": "kW",
+      "value": 0.0
+     },
+     "racks": 0
+    },
+    "calibration": {
+     "coverage": 0.0,
+     "halls": 0,
+     "keys": [],
+     "keys_asserted": 3,
+     "keys_calibrated": 0,
+     "keys_with_site_observations": 0,
+     "observations": 0,
+     "observations_total": 0,
+     "observations_without_source_ref": 0,
+     "sites": 0,
+     "state": "uncalibrated",
+     "statement": "Model accuracy against instrumented sites has not been established: 0 reconciled observations across 0 sites, covering 0 of 3 model outputs. Every figure in this report is modelled. The uncertainty ranges shown come from input uncertainty propagated through the model, not from the difference between this engine's predictions and site data \u2014 no such difference has been recorded yet.",
+     "uncalibrated_keys": [
+      "constraint.plant_capacity.racks",
+      "envelope.racks",
+      "envelope.it_load_kW"
+     ]
+    },
+    "first_three_constraints": [
+     {
+      "domain": "thermal",
+      "name": "Chilled-water plant capacity",
+      "relief": "Uprate chilled-water plant (+50%) or add a dedicated high-temperature loop"
+     },
+     {
+      "domain": "thermal",
+      "name": "Residual air load removal per rack",
+      "relief": "Add in-row cooling or rear-door heat exchangers for the residual air load"
+     },
+     {
+      "domain": "electrical",
+      "name": "Firm supply (grid import + behind-the-meter)",
+      "relief": "Grid reinforcement / new connection capacity from the DSO"
+     }
+    ],
+    "intake": {
+     "can_issue_a_study": false,
+     "completeness": 0.29,
+     "gaps": [
+      {
+       "assumed": "2,000 [1,400\u20132,600] m2 (E0)",
+       "how_to_get_it": "Floor plan.",
+       "input": "Net white space",
+       "path": "hall.net_white_space_m2",
+       "required": false,
+       "unit": "m2",
+       "why_it_binds": "Caps rack count where positions are not yet counted."
+      },
+      {
+       "assumed": "12 [8\u201315] kPa (E0)",
+       "how_to_get_it": "Structural record drawings; a survey if the building changed hands.",
+       "input": "Hall design floor loading",
+       "path": "hall.floor_loading_kPa",
+       "required": true,
+       "unit": "kPa",
+       "why_it_binds": "A 1.4 t rack against a 12 kPa design is a gate, not a margin."
+      },
+      {
+       "assumed": "2.4 [2.04\u20132.76] m (E0)",
+       "how_to_get_it": "Floor plan or a site walk.",
+       "input": "Installed aisle pitch",
+       "path": "hall.aisle_pitch_m",
+       "required": false,
+       "unit": "m",
+       "why_it_binds": "Sets floor area per rack, and so the floor-loading figure per square metre."
+      },
+      {
+       "assumed": "32 [30\u201336] degC (E0)",
+       "how_to_get_it": "Nearest TMY station.",
+       "input": "Summer design dry bulb",
+       "path": "site.design_drybulb_C",
+       "required": false,
+       "unit": "degC",
+       "why_it_binds": "Decides whether dry coolers alone can hold the loop."
+      },
+      {
+       "assumed": "[]",
+       "how_to_get_it": "Single-line diagram and transformer nameplates.",
+       "input": "Transformer schedule",
+       "path": "transformers",
+       "required": true,
+       "unit": "-",
+       "why_it_binds": "Often the schedule driver: transformer lead times are long and vary by type. Enter the quoted figure if you have one."
+      },
+      {
+       "assumed": "[]",
+       "how_to_get_it": "UPS nameplate, topology and remaining design life.",
+       "input": "UPS schedule",
+       "path": "ups",
+       "required": true,
+       "unit": "-",
+       "why_it_binds": "GPU racks present step loads, not just steady load."
+      },
+      {
+       "assumed": "0.97 [0.95\u20130.99] (E0)",
+       "how_to_get_it": "Utility bills (billed power factor) or the incomer meter.",
+       "input": "Site power factor",
+       "path": "grid.power_factor",
+       "required": false,
+       "unit": "-",
+       "why_it_binds": "Converts MVA of connection into MW of usable power."
+      },
+      {
+       "assumed": "400 V (E0)",
+       "how_to_get_it": "Busway nameplate or the single-line diagram.",
+       "input": "LV distribution voltage",
+       "path": "lv.voltage_V",
+       "required": false,
+       "unit": "V",
+       "why_it_binds": "Busway kW is voltage times ampacity; 400 V and 415 V differ by 4%."
+      },
+      {
+       "assumed": "6",
+       "how_to_get_it": "Electrical record drawings.",
+       "input": "Number of busway runs",
+       "path": "lv.busway_runs",
+       "required": false,
+       "unit": "-",
+       "why_it_binds": "Total feed capacity scales with the runs that actually reach the white space."
+      },
+      {
+       "assumed": "0.8 (E0)",
+       "how_to_get_it": "Operating policy and thermal derating from the busway manufacturer.",
+       "input": "Busway utilisation limit",
+       "path": "lv.busway_utilisation_limit",
+       "required": false,
+       "unit": "-",
+       "why_it_binds": "The fraction of nameplate the operator will actually load."
+      },
+      {
+       "assumed": "[]",
+       "how_to_get_it": "CDU nameplates and the mechanical single-line diagram.",
+       "input": "Installed CDU schedule",
+       "path": "thermal.cdus",
+       "required": false,
+       "unit": "-",
+       "why_it_binds": "When absent, the hybrid and full-DLC scenarios ASSUME three 1,350 kW N+1 CDUs already installed at no cost, which supplies roughly 22 racks of liquid capacity that the hall may not have."
+      },
+      {
+       "assumed": "0 l/min, nothing subtracted (the pumped flow is read as flow available to the new load)",
+       "how_to_get_it": "Commissioning flow readings or the BMS flow trend for the existing hall's loops; pump curves at the operating point.",
+       "input": "Flow the existing hall already draws on the plant",
+       "path": "thermal.plant.existing_flow_l_per_min",
+       "required": false,
+       "unit": "l/min",
+       "why_it_binds": "If the available pumped flow above is the plant's TOTAL, the existing hall already uses part of it and the hydraulic limit is overstated. When this is given the engine subtracts it before dividing by the flow per rack; when absent nothing is subtracted and the figure above is read as flow available to the new load."
+      },
+      {
+       "assumed": "0 kW, nothing subtracted (plant headroom is the plant capacity less the IT load only)",
+       "how_to_get_it": "BMS plant load trend less the metered IT load, or the electrical single-line losses and the mechanical schedule's fan and pump power.",
+       "input": "Other heat the existing hall already puts on the plant",
+       "path": "thermal.plant.existing_non_it_heat_kW",
+       "required": false,
+       "unit": "kW",
+       "why_it_binds": "Plant headroom is the capacity less the IT load; UPS and distribution losses, fan-wall and pump power rejected to the plant and lighting also land on it, so headroom is overstated by their share. When this is given the engine subtracts it as well; when absent only the IT load is subtracted."
+      },
+      {
+       "assumed": "5,000 [3,250\u20136,750] kW (E0)",
+       "how_to_get_it": "Chiller schedule; derate to the actual condensing conditions.",
+       "input": "Chilled-water plant capacity",
+       "path": "thermal.plant.chilled_water_capacity_kW",
+       "required": true,
+       "unit": "kW",
+       "why_it_binds": "Carries the residual air load, and the liquid load in a hybrid scheme."
+      },
+      {
+       "assumed": "13 [12\u201318] degC (E0)",
+       "how_to_get_it": "Chiller schedule and BMS trend.",
+       "input": "Plant design return temperature",
+       "path": "thermal.plant.design_return_C",
+       "required": false,
+       "unit": "degC",
+       "why_it_binds": "Delta-T across the plant sets the flow it must move."
+      },
+      {
+       "assumed": "7,000 [4,900\u20139,100] l/min (E0)",
+       "how_to_get_it": "Pump curves and pipe schedule; a hydraulic model before design.",
+       "input": "Available pumped flow",
+       "path": "thermal.plant.pump_flow_capacity_l_per_min",
+       "required": false,
+       "unit": "l/min",
+       "why_it_binds": "Flow, not delta-T, governs a retrofit."
+      },
+      {
+       "assumed": "30 [27\u201332] degC (E0)",
+       "how_to_get_it": "The platform vendor's reference design for the target rack.",
+       "input": "TCS target supply temperature",
+       "path": "thermal.tcs_target_supply_C",
+       "required": false,
+       "unit": "degC",
+       "why_it_binds": "Whether the plant can hold the water temperature the chips need."
+      },
+      {
+       "assumed": "8 [6\u201312] kW (E0)",
+       "how_to_get_it": "Measured per-tile airflow, or CFD.",
+       "input": "Air removal per rack position",
+       "path": "thermal.residual_air_capacity_kW_per_rack",
+       "required": false,
+       "unit": "kW",
+       "why_it_binds": "10-15% of a 135 kW rack is still 13-20 kW of air per position."
+      },
+      {
+       "assumed": "0.75 [0.6\u20130.9] (E0)",
+       "how_to_get_it": "The tenant's committed load profile.",
+       "input": "Annual average rack utilisation",
+       "path": "compute.utilisation",
+       "required": false,
+       "unit": "-",
+       "why_it_binds": "Scales energy cost and PUE-weighted operating figures."
+      },
+      {
+       "assumed": "60 [20\u201380] kW (E0)",
+       "how_to_get_it": "The selected rear-door unit's datasheet at the site's water temperature and airflow.",
+       "input": "Rear-door heat exchanger capacity per rack",
+       "path": "thermal.rdhx.capacity_kW_per_rack",
+       "required": false,
+       "unit": "kW",
+       "why_it_binds": "Decides whether the rear-door scenario can host the target rack at all. When absent the engine uses a library default of 60 kW per rack (band 20-80), which is neither a manufacturer's rating nor a site measurement."
+      },
+      {
+       "assumed": "0 kW, nothing subtracted (busway_ampacity_A is read as the whole installed total)",
+       "how_to_get_it": "Branch-circuit or busway monitoring (peak kW over a representative month), or the sum of the metered rack loads on the busway.",
+       "input": "Load already on the busway",
+       "path": "lv.existing_busway_load_kW",
+       "required": false,
+       "unit": "kW",
+       "why_it_binds": "The busway result is the installed capacity as declared; the load already drawing from it is not subtracted, so the racks it can still feed are overstated by that share. When this is given the engine subtracts it (never below zero); when absent nothing is subtracted."
+      }
+     ],
+     "recommended_engagement": "Intake too thin for a full study. Sell the Density Screen instead: it produces the binding constraint and the data-request list, and its fee credits against the study when the data arrives.",
+     "required_inputs_missing": 4,
+     "warnings": [
+      "No transformer schedule supplied: transformer capacity is not evaluated and may be the true binding constraint.",
+      "No UPS schedule supplied: the load is treated as unprotected.",
+      "No behind-the-meter options declared: where the grid binds, the study can only report that it binds."
+     ]
+    },
+    "notice": "Directional screening read. Modelled from the inputs supplied, against library defaults for everything not supplied. It is not a bankable number, not a design, and not a measurement of this asset. Capital cost, programme duration, the full constraint ladder and the scenario comparison are part of the paid engagement.",
+    "platform": {
+     "gpus_per_rack": 72,
+     "id": "gb200_nvl72",
+     "name": "NVIDIA GB200 NVL72",
+     "rack_kW": {
+      "digest": "89714406a241",
+      "evidence": "E0_ASSUMPTION",
+      "high": 132,
+      "label": "GB200 NVL72 rack total TDP",
+      "low": 120,
+      "model": "input@0.1",
+      "unit": "kW",
+      "value": 132
+     }
+    }
+   }
+  },
+  {
+   "name": "busway_colocation",
+   "request": {
+    "busway_ampacity_A": 400,
+    "contracted_MW": 24,
+    "current_it_load_MW": 6.5,
+    "current_site_peak_MW": 9.5,
+    "objective": "min_cost",
+    "plant_supply_C": 12,
+    "positions_available": 240,
+    "tapoff_max_A": 250
+   },
+   "response": {
+    "after_relief": {
+     "architecture": "Full DLC, grid only",
+     "date_basis": "none",
+     "date_binding_item": null,
+     "date_evidence_class": null,
+     "date_label": "no date: nothing is deployable or a lead time on the path is missing",
+     "racks": 89,
+     "sets_the_date": "Chilled-water plant capacity",
+     "then_binds_on": "Firm supply (grid import + behind-the-meter)"
+    },
+    "as_found": {
+     "basis": "-1,500 [-3,250\u2013250] kW (E0) of plant headroom against 13.5 [10.6\u201321.3] kW (E0) per rack \u2014 residual air load only (liquid rejected to a dedicated high-temperature loop). Modelling limit: the headroom is plant capacity less the IT load only; UPS, fan and pump heat, plant redundancy and condenser derating are not modelled, so headroom is overstated by their share",
+     "binding_constraint": "Chilled-water plant capacity",
+     "domain": "thermal",
+     "it_load_kW": {
+      "digest": "7878bb4e6931",
+      "evidence": "E0_ASSUMPTION",
+      "high": 0.0,
+      "label": "deployable IT load",
+      "low": 0.0,
+      "model": "envelope.it_load@0.1",
+      "unit": "kW",
+      "value": 0.0
+     },
+     "racks": 0
+    },
+    "calibration": {
+     "coverage": 0.0,
+     "halls": 0,
+     "keys": [],
+     "keys_asserted": 3,
+     "keys_calibrated": 0,
+     "keys_with_site_observations": 0,
+     "observations": 0,
+     "observations_total": 0,
+     "observations_without_source_ref": 0,
+     "sites": 0,
+     "state": "uncalibrated",
+     "statement": "Model accuracy against instrumented sites has not been established: 0 reconciled observations across 0 sites, covering 0 of 3 model outputs. Every figure in this report is modelled. The uncertainty ranges shown come from input uncertainty propagated through the model, not from the difference between this engine's predictions and site data \u2014 no such difference has been recorded yet.",
+     "uncalibrated_keys": [
+      "constraint.plant_capacity.racks",
+      "envelope.racks",
+      "envelope.it_load_kW"
+     ]
+    },
+    "first_three_constraints": [
+     {
+      "domain": "thermal",
+      "name": "Chilled-water plant capacity",
+      "relief": "Uprate chilled-water plant (+50%) or add a dedicated high-temperature loop"
+     },
+     {
+      "domain": "thermal",
+      "name": "Residual air load removal per rack",
+      "relief": "Add in-row cooling or rear-door heat exchangers for the residual air load"
+     },
+     {
+      "domain": "thermal",
+      "name": "Achievable facility water temperature",
+      "relief": "Adiabatic assist plus trim chiller on the high-temperature loop"
+     }
+    ],
+    "intake": {
+     "can_issue_a_study": false,
+     "completeness": 0.29,
+     "gaps": [
+      {
+       "assumed": "2,000 [1,400\u20132,600] m2 (E0)",
+       "how_to_get_it": "Floor plan.",
+       "input": "Net white space",
+       "path": "hall.net_white_space_m2",
+       "required": false,
+       "unit": "m2",
+       "why_it_binds": "Caps rack count where positions are not yet counted."
+      },
+      {
+       "assumed": "12 [8\u201315] kPa (E0)",
+       "how_to_get_it": "Structural record drawings; a survey if the building changed hands.",
+       "input": "Hall design floor loading",
+       "path": "hall.floor_loading_kPa",
+       "required": true,
+       "unit": "kPa",
+       "why_it_binds": "A 1.4 t rack against a 12 kPa design is a gate, not a margin."
+      },
+      {
+       "assumed": "2.4 [2.04\u20132.76] m (E0)",
+       "how_to_get_it": "Floor plan or a site walk.",
+       "input": "Installed aisle pitch",
+       "path": "hall.aisle_pitch_m",
+       "required": false,
+       "unit": "m",
+       "why_it_binds": "Sets floor area per rack, and so the floor-loading figure per square metre."
+      },
+      {
+       "assumed": "32 [30\u201336] degC (E0)",
+       "how_to_get_it": "Nearest TMY station.",
+       "input": "Summer design dry bulb",
+       "path": "site.design_drybulb_C",
+       "required": false,
+       "unit": "degC",
+       "why_it_binds": "Decides whether dry coolers alone can hold the loop."
+      },
+      {
+       "assumed": "[]",
+       "how_to_get_it": "Single-line diagram and transformer nameplates.",
+       "input": "Transformer schedule",
+       "path": "transformers",
+       "required": true,
+       "unit": "-",
+       "why_it_binds": "Often the schedule driver: transformer lead times are long and vary by type. Enter the quoted figure if you have one."
+      },
+      {
+       "assumed": "[]",
+       "how_to_get_it": "UPS nameplate, topology and remaining design life.",
+       "input": "UPS schedule",
+       "path": "ups",
+       "required": true,
+       "unit": "-",
+       "why_it_binds": "GPU racks present step loads, not just steady load."
+      },
+      {
+       "assumed": "0.97 [0.95\u20130.99] (E0)",
+       "how_to_get_it": "Utility bills (billed power factor) or the incomer meter.",
+       "input": "Site power factor",
+       "path": "grid.power_factor",
+       "required": false,
+       "unit": "-",
+       "why_it_binds": "Converts MVA of connection into MW of usable power."
+      },
+      {
+       "assumed": "400 V (E0)",
+       "how_to_get_it": "Busway nameplate or the single-line diagram.",
+       "input": "LV distribution voltage",
+       "path": "lv.voltage_V",
+       "required": false,
+       "unit": "V",
+       "why_it_binds": "Busway kW is voltage times ampacity; 400 V and 415 V differ by 4%."
+      },
+      {
+       "assumed": "6",
+       "how_to_get_it": "Electrical record drawings.",
+       "input": "Number of busway runs",
+       "path": "lv.busway_runs",
+       "required": false,
+       "unit": "-",
+       "why_it_binds": "Total feed capacity scales with the runs that actually reach the white space."
+      },
+      {
+       "assumed": "0.8 (E0)",
+       "how_to_get_it": "Operating policy and thermal derating from the busway manufacturer.",
+       "input": "Busway utilisation limit",
+       "path": "lv.busway_utilisation_limit",
+       "required": false,
+       "unit": "-",
+       "why_it_binds": "The fraction of nameplate the operator will actually load."
+      },
+      {
+       "assumed": "[]",
+       "how_to_get_it": "CDU nameplates and the mechanical single-line diagram.",
+       "input": "Installed CDU schedule",
+       "path": "thermal.cdus",
+       "required": false,
+       "unit": "-",
+       "why_it_binds": "When absent, the hybrid and full-DLC scenarios ASSUME three 1,350 kW N+1 CDUs already installed at no cost, which supplies roughly 22 racks of liquid capacity that the hall may not have."
+      },
+      {
+       "assumed": "0 l/min, nothing subtracted (the pumped flow is read as flow available to the new load)",
+       "how_to_get_it": "Commissioning flow readings or the BMS flow trend for the existing hall's loops; pump curves at the operating point.",
+       "input": "Flow the existing hall already draws on the plant",
+       "path": "thermal.plant.existing_flow_l_per_min",
+       "required": false,
+       "unit": "l/min",
+       "why_it_binds": "If the available pumped flow above is the plant's TOTAL, the existing hall already uses part of it and the hydraulic limit is overstated. When this is given the engine subtracts it before dividing by the flow per rack; when absent nothing is subtracted and the figure above is read as flow available to the new load."
+      },
+      {
+       "assumed": "0 kW, nothing subtracted (plant headroom is the plant capacity less the IT load only)",
+       "how_to_get_it": "BMS plant load trend less the metered IT load, or the electrical single-line losses and the mechanical schedule's fan and pump power.",
+       "input": "Other heat the existing hall already puts on the plant",
+       "path": "thermal.plant.existing_non_it_heat_kW",
+       "required": false,
+       "unit": "kW",
+       "why_it_binds": "Plant headroom is the capacity less the IT load; UPS and distribution losses, fan-wall and pump power rejected to the plant and lighting also land on it, so headroom is overstated by their share. When this is given the engine subtracts it as well; when absent only the IT load is subtracted."
+      },
+      {
+       "assumed": "5,000 [3,250\u20136,750] kW (E0)",
+       "how_to_get_it": "Chiller schedule; derate to the actual condensing conditions.",
+       "input": "Chilled-water plant capacity",
+       "path": "thermal.plant.chilled_water_capacity_kW",
+       "required": true,
+       "unit": "kW",
+       "why_it_binds": "Carries the residual air load, and the liquid load in a hybrid scheme."
+      },
+      {
+       "assumed": "13 [12\u201318] degC (E0)",
+       "how_to_get_it": "Chiller schedule and BMS trend.",
+       "input": "Plant design return temperature",
+       "path": "thermal.plant.design_return_C",
+       "required": false,
+       "unit": "degC",
+       "why_it_binds": "Delta-T across the plant sets the flow it must move."
+      },
+      {
+       "assumed": "7,000 [4,900\u20139,100] l/min (E0)",
+       "how_to_get_it": "Pump curves and pipe schedule; a hydraulic model before design.",
+       "input": "Available pumped flow",
+       "path": "thermal.plant.pump_flow_capacity_l_per_min",
+       "required": false,
+       "unit": "l/min",
+       "why_it_binds": "Flow, not delta-T, governs a retrofit."
+      },
+      {
+       "assumed": "30 [27\u201332] degC (E0)",
+       "how_to_get_it": "The platform vendor's reference design for the target rack.",
+       "input": "TCS target supply temperature",
+       "path": "thermal.tcs_target_supply_C",
+       "required": false,
+       "unit": "degC",
+       "why_it_binds": "Whether the plant can hold the water temperature the chips need."
+      },
+      {
+       "assumed": "8 [6\u201312] kW (E0)",
+       "how_to_get_it": "Measured per-tile airflow, or CFD.",
+       "input": "Air removal per rack position",
+       "path": "thermal.residual_air_capacity_kW_per_rack",
+       "required": false,
+       "unit": "kW",
+       "why_it_binds": "10-15% of a 135 kW rack is still 13-20 kW of air per position."
+      },
+      {
+       "assumed": "0.75 [0.6\u20130.9] (E0)",
+       "how_to_get_it": "The tenant's committed load profile.",
+       "input": "Annual average rack utilisation",
+       "path": "compute.utilisation",
+       "required": false,
+       "unit": "-",
+       "why_it_binds": "Scales energy cost and PUE-weighted operating figures."
+      },
+      {
+       "assumed": "60 [20\u201380] kW (E0)",
+       "how_to_get_it": "The selected rear-door unit's datasheet at the site's water temperature and airflow.",
+       "input": "Rear-door heat exchanger capacity per rack",
+       "path": "thermal.rdhx.capacity_kW_per_rack",
+       "required": false,
+       "unit": "kW",
+       "why_it_binds": "Decides whether the rear-door scenario can host the target rack at all. When absent the engine uses a library default of 60 kW per rack (band 20-80), which is neither a manufacturer's rating nor a site measurement."
+      },
+      {
+       "assumed": "0 kW, nothing subtracted (busway_ampacity_A is read as the whole installed total)",
+       "how_to_get_it": "Branch-circuit or busway monitoring (peak kW over a representative month), or the sum of the metered rack loads on the busway.",
+       "input": "Load already on the busway",
+       "path": "lv.existing_busway_load_kW",
+       "required": false,
+       "unit": "kW",
+       "why_it_binds": "The busway result is the installed capacity as declared; the load already drawing from it is not subtracted, so the racks it can still feed are overstated by that share. When this is given the engine subtracts it (never below zero); when absent nothing is subtracted."
+      }
+     ],
+     "recommended_engagement": "Intake too thin for a full study. Sell the Density Screen instead: it produces the binding constraint and the data-request list, and its fee credits against the study when the data arrives.",
+     "required_inputs_missing": 4,
+     "warnings": [
+      "No transformer schedule supplied: transformer capacity is not evaluated and may be the true binding constraint.",
+      "No UPS schedule supplied: the load is treated as unprotected.",
+      "No behind-the-meter options declared: where the grid binds, the study can only report that it binds."
+     ]
+    },
+    "notice": "Directional screening read. Modelled from the inputs supplied, against library defaults for everything not supplied. It is not a bankable number, not a design, and not a measurement of this asset. Capital cost, programme duration, the full constraint ladder and the scenario comparison are part of the paid engagement.",
+    "platform": {
+     "gpus_per_rack": 72,
+     "id": "gb300_nvl72",
+     "name": "NVIDIA GB300 NVL72",
+     "rack_kW": {
+      "digest": "e6476e7cd728",
+      "evidence": "E0_ASSUMPTION",
+      "high": 142,
+      "label": "GB300 NVL72 rack TDP",
+      "low": 132,
+      "model": "input@0.1",
+      "unit": "kW",
+      "value": 135
+     }
+    }
+   }
+  },
+  {
+   "name": "explicit_null_assumed",
+   "request": {
+    "assumed_fields": null,
+    "busway_ampacity_A": 400,
+    "contracted_MW": 12,
+    "current_site_peak_MW": 7.4,
+    "tapoff_max_A": 63
+   },
+   "response": {
+    "after_relief": {
+     "architecture": "Full DLC, grid only",
+     "date_basis": "none",
+     "date_binding_item": null,
+     "date_evidence_class": null,
+     "date_label": "no date: nothing is deployable or a lead time on the path is missing",
+     "racks": 28,
+     "sets_the_date": "Busway ampacity",
+     "then_binds_on": "Firm supply (grid import + behind-the-meter)"
+    },
+    "as_found": {
+     "basis": "platform needs 205 [174\u2013236] A (E0) per rack; installed tap-offs rated 63 A (E5). The tap-off rating is compared at 100% of its rating, with no continuous-load derating (the busway is derated to 0.8)",
+     "binding_constraint": "Rack feed / tap-off rating",
+     "domain": "electrical",
+     "it_load_kW": {
+      "digest": "7878bb4e6931",
+      "evidence": "E0_ASSUMPTION",
+      "high": 0.0,
+      "label": "deployable IT load",
+      "low": 0.0,
+      "model": "envelope.it_load@0.1",
+      "unit": "kW",
+      "value": 0.0
+     },
+     "racks": 0
+    },
+    "calibration": {
+     "coverage": 0.0,
+     "halls": 0,
+     "keys": [],
+     "keys_asserted": 3,
+     "keys_calibrated": 0,
+     "keys_with_site_observations": 0,
+     "observations": 0,
+     "observations_total": 0,
+     "observations_without_source_ref": 0,
+     "sites": 0,
+     "state": "uncalibrated",
+     "statement": "Model accuracy against instrumented sites has not been established: 0 reconciled observations across 0 sites, covering 0 of 3 model outputs. Every figure in this report is modelled. The uncertainty ranges shown come from input uncertainty propagated through the model, not from the difference between this engine's predictions and site data \u2014 no such difference has been recorded yet.",
+     "uncalibrated_keys": [
+      "constraint.rack_feed_tapoff.racks",
+      "envelope.racks",
+      "envelope.it_load_kW"
+     ]
+    },
+    "first_three_constraints": [
+     {
+      "domain": "electrical",
+      "name": "Rack feed / tap-off rating",
+      "relief": "Higher-rated tap-off units (and busway if ampacity does not allow)"
+     },
+     {
+      "domain": "thermal",
+      "name": "Residual air load removal per rack",
+      "relief": "Add in-row cooling or rear-door heat exchangers for the residual air load"
+     },
+     {
+      "domain": "thermal",
+      "name": "Achievable facility water temperature",
+      "relief": "Adiabatic assist plus trim chiller on the high-temperature loop"
+     }
+    ],
+    "intake": {
+     "can_issue_a_study": false,
+     "completeness": 0.194,
+     "gaps": [
+      {
+       "assumed": "2,000 [1,400\u20132,600] m2 (E0)",
+       "how_to_get_it": "Floor plan.",
+       "input": "Net white space",
+       "path": "hall.net_white_space_m2",
+       "required": false,
+       "unit": "m2",
+       "why_it_binds": "Caps rack count where positions are not yet counted."
+      },
+      {
+       "assumed": "12 [8\u201315] kPa (E0)",
+       "how_to_get_it": "Structural record drawings; a survey if the building changed hands.",
+       "input": "Hall design floor loading",
+       "path": "hall.floor_loading_kPa",
+       "required": true,
+       "unit": "kPa",
+       "why_it_binds": "A 1.4 t rack against a 12 kPa design is a gate, not a margin."
+      },
+      {
+       "assumed": "2.4 [2.04\u20132.76] m (E0)",
+       "how_to_get_it": "Floor plan or a site walk.",
+       "input": "Installed aisle pitch",
+       "path": "hall.aisle_pitch_m",
+       "required": false,
+       "unit": "m",
+       "why_it_binds": "Sets floor area per rack, and so the floor-loading figure per square metre."
+      },
+      {
+       "assumed": "100",
+       "how_to_get_it": "Floor plan plus the tenancy schedule.",
+       "input": "Rack positions available",
+       "path": "hall.positions_available",
+       "required": true,
+       "unit": "positions",
+       "why_it_binds": "Caps deployment regardless of power and cooling."
+      },
+      {
+       "assumed": "32 [30\u201336] degC (E0)",
+       "how_to_get_it": "Nearest TMY station.",
+       "input": "Summer design dry bulb",
+       "path": "site.design_drybulb_C",
+       "required": false,
+       "unit": "degC",
+       "why_it_binds": "Decides whether dry coolers alone can hold the loop."
+      },
+      {
+       "assumed": "[]",
+       "how_to_get_it": "Single-line diagram and transformer nameplates.",
+       "input": "Transformer schedule",
+       "path": "transformers",
+       "required": true,
+       "unit": "-",
+       "why_it_binds": "Often the schedule driver: transformer lead times are long and vary by type. Enter the quoted figure if you have one."
+      },
+      {
+       "assumed": "[]",
+       "how_to_get_it": "UPS nameplate, topology and remaining design life.",
+       "input": "UPS schedule",
+       "path": "ups",
+       "required": true,
+       "unit": "-",
+       "why_it_binds": "GPU racks present step loads, not just steady load."
+      },
+      {
+       "assumed": "0.97 [0.95\u20130.99] (E0)",
+       "how_to_get_it": "Utility bills (billed power factor) or the incomer meter.",
+       "input": "Site power factor",
+       "path": "grid.power_factor",
+       "required": false,
+       "unit": "-",
+       "why_it_binds": "Converts MVA of connection into MW of usable power."
+      },
+      {
+       "assumed": "3.5 [2.1\u20134.9] MW (E0)",
+       "how_to_get_it": "Branch-circuit monitoring or UPS output trend.",
+       "input": "Current protected IT load",
+       "path": "grid.current_it_load_MW",
+       "required": true,
+       "unit": "MW",
+       "why_it_binds": "Determines UPS and plant headroom."
+      },
+      {
+       "assumed": "400 V (E0)",
+       "how_to_get_it": "Busway nameplate or the single-line diagram.",
+       "input": "LV distribution voltage",
+       "path": "lv.voltage_V",
+       "required": false,
+       "unit": "V",
+       "why_it_binds": "Busway kW is voltage times ampacity; 400 V and 415 V differ by 4%."
+      },
+      {
+       "assumed": "6",
+       "how_to_get_it": "Electrical record drawings.",
+       "input": "Number of busway runs",
+       "path": "lv.busway_runs",
+       "required": false,
+       "unit": "-",
+       "why_it_binds": "Total feed capacity scales with the runs that actually reach the white space."
+      },
+      {
+       "assumed": "0.8 (E0)",
+       "how_to_get_it": "Operating policy and thermal derating from the busway manufacturer.",
+       "input": "Busway utilisation limit",
+       "path": "lv.busway_utilisation_limit",
+       "required": false,
+       "unit": "-",
+       "why_it_binds": "The fraction of nameplate the operator will actually load."
+      },
+      {
+       "assumed": "[]",
+       "how_to_get_it": "CDU nameplates and the mechanical single-line diagram.",
+       "input": "Installed CDU schedule",
+       "path": "thermal.cdus",
+       "required": false,
+       "unit": "-",
+       "why_it_binds": "When absent, the hybrid and full-DLC scenarios ASSUME three 1,350 kW N+1 CDUs already installed at no cost, which supplies roughly 22 racks of liquid capacity that the hall may not have."
+      },
+      {
+       "assumed": "0 l/min, nothing subtracted (the pumped flow is read as flow available to the new load)",
+       "how_to_get_it": "Commissioning flow readings or the BMS flow trend for the existing hall's loops; pump curves at the operating point.",
+       "input": "Flow the existing hall already draws on the plant",
+       "path": "thermal.plant.existing_flow_l_per_min",
+       "required": false,
+       "unit": "l/min",
+       "why_it_binds": "If the available pumped flow above is the plant's TOTAL, the existing hall already uses part of it and the hydraulic limit is overstated. When this is given the engine subtracts it before dividing by the flow per rack; when absent nothing is subtracted and the figure above is read as flow available to the new load."
+      },
+      {
+       "assumed": "0 kW, nothing subtracted (plant headroom is the plant capacity less the IT load only)",
+       "how_to_get_it": "BMS plant load trend less the metered IT load, or the electrical single-line losses and the mechanical schedule's fan and pump power.",
+       "input": "Other heat the existing hall already puts on the plant",
+       "path": "thermal.plant.existing_non_it_heat_kW",
+       "required": false,
+       "unit": "kW",
+       "why_it_binds": "Plant headroom is the capacity less the IT load; UPS and distribution losses, fan-wall and pump power rejected to the plant and lighting also land on it, so headroom is overstated by their share. When this is given the engine subtracts it as well; when absent only the IT load is subtracted."
+      },
+      {
+       "assumed": "5,000 [3,250\u20136,750] kW (E0)",
+       "how_to_get_it": "Chiller schedule; derate to the actual condensing conditions.",
+       "input": "Chilled-water plant capacity",
+       "path": "thermal.plant.chilled_water_capacity_kW",
+       "required": true,
+       "unit": "kW",
+       "why_it_binds": "Carries the residual air load, and the liquid load in a hybrid scheme."
+      },
+      {
+       "assumed": "7 [6\u201312] degC (E0)",
+       "how_to_get_it": "BMS setpoint and 12 months of trend.",
+       "input": "Plant supply temperature",
+       "path": "thermal.plant.design_supply_C",
+       "required": true,
+       "unit": "degC",
+       "why_it_binds": "Legacy 6-7 degC plant against a 27-32 degC TCS need governs the scheme."
+      },
+      {
+       "assumed": "13 [12\u201318] degC (E0)",
+       "how_to_get_it": "Chiller schedule and BMS trend.",
+       "input": "Plant design return temperature",
+       "path": "thermal.plant.design_return_C",
+       "required": false,
+       "unit": "degC",
+       "why_it_binds": "Delta-T across the plant sets the flow it must move."
+      },
+      {
+       "assumed": "7,000 [4,900\u20139,100] l/min (E0)",
+       "how_to_get_it": "Pump curves and pipe schedule; a hydraulic model before design.",
+       "input": "Available pumped flow",
+       "path": "thermal.plant.pump_flow_capacity_l_per_min",
+       "required": false,
+       "unit": "l/min",
+       "why_it_binds": "Flow, not delta-T, governs a retrofit."
+      },
+      {
+       "assumed": "30 [27\u201332] degC (E0)",
+       "how_to_get_it": "The platform vendor's reference design for the target rack.",
+       "input": "TCS target supply temperature",
+       "path": "thermal.tcs_target_supply_C",
+       "required": false,
+       "unit": "degC",
+       "why_it_binds": "Whether the plant can hold the water temperature the chips need."
+      },
+      {
+       "assumed": "8 [6\u201312] kW (E0)",
+       "how_to_get_it": "Measured per-tile airflow, or CFD.",
+       "input": "Air removal per rack position",
+       "path": "thermal.residual_air_capacity_kW_per_rack",
+       "required": false,
+       "unit": "kW",
+       "why_it_binds": "10-15% of a 135 kW rack is still 13-20 kW of air per position."
+      },
+      {
+       "assumed": "0.75 [0.6\u20130.9] (E0)",
+       "how_to_get_it": "The tenant's committed load profile.",
+       "input": "Annual average rack utilisation",
+       "path": "compute.utilisation",
+       "required": false,
+       "unit": "-",
+       "why_it_binds": "Scales energy cost and PUE-weighted operating figures."
+      },
+      {
+       "assumed": "60 [20\u201380] kW (E0)",
+       "how_to_get_it": "The selected rear-door unit's datasheet at the site's water temperature and airflow.",
+       "input": "Rear-door heat exchanger capacity per rack",
+       "path": "thermal.rdhx.capacity_kW_per_rack",
+       "required": false,
+       "unit": "kW",
+       "why_it_binds": "Decides whether the rear-door scenario can host the target rack at all. When absent the engine uses a library default of 60 kW per rack (band 20-80), which is neither a manufacturer's rating nor a site measurement."
+      },
+      {
+       "assumed": "0 kW, nothing subtracted (busway_ampacity_A is read as the whole installed total)",
+       "how_to_get_it": "Branch-circuit or busway monitoring (peak kW over a representative month), or the sum of the metered rack loads on the busway.",
+       "input": "Load already on the busway",
+       "path": "lv.existing_busway_load_kW",
+       "required": false,
+       "unit": "kW",
+       "why_it_binds": "The busway result is the installed capacity as declared; the load already drawing from it is not subtracted, so the racks it can still feed are overstated by that share. When this is given the engine subtracts it (never below zero); when absent nothing is subtracted."
+      }
+     ],
+     "recommended_engagement": "Intake too thin for a full study. Sell the Density Screen instead: it produces the binding constraint and the data-request list, and its fee credits against the study when the data arrives.",
+     "required_inputs_missing": 7,
+     "warnings": [
+      "Busway: the 300 occupied positions at their 8 kW design density would draw 2,400 kW, more than the 1,290 kW the declared busway can carry. busway_ampacity_A is read as the installed total and existing load is not subtracted, so check whether the figure you gave is the whole hall's busway.",
+      "No transformer schedule supplied: transformer capacity is not evaluated and may be the true binding constraint.",
+      "No UPS schedule supplied: the load is treated as unprotected.",
+      "No behind-the-meter options declared: where the grid binds, the study can only report that it binds."
+     ]
+    },
+    "notice": "Directional screening read. Modelled from the inputs supplied, against library defaults for everything not supplied. It is not a bankable number, not a design, and not a measurement of this asset. Capital cost, programme duration, the full constraint ladder and the scenario comparison are part of the paid engagement.",
+    "platform": {
+     "gpus_per_rack": 72,
+     "id": "gb300_nvl72",
+     "name": "NVIDIA GB300 NVL72",
+     "rack_kW": {
+      "digest": "e6476e7cd728",
+      "evidence": "E0_ASSUMPTION",
+      "high": 142,
+      "label": "GB300 NVL72 rack TDP",
+      "low": 132,
+      "model": "input@0.1",
+      "unit": "kW",
+      "value": 135
+     }
+    }
+   }
+  }
+ ],
+ "note": "POST /v1/qualify answers for requests that carry no assumed_fields, produced by the engine at commit 002fa59 BEFORE assumed_fields existed (explicit_null_assumed: HEAD ignored the unknown key, so a null is the same request). tests/test_qualify_assumed.py requires today's engine to answer them identically: a plain request must not change."
+}

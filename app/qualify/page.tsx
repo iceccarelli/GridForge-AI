@@ -7,6 +7,11 @@ import { BindingConstraintInsights } from "@/components/BindingConstraintInsight
 import { CapacityQualifier } from "@/components/CapacityQualifier";
 import { TtpPhoto } from "@/components/TtpPhoto";
 import { loadWorkedResult, referenceLimitSentence } from "@/lib/worked-result";
+import { QUALIFY_ASSUMED_FIELDS_FLAG, engineHas } from "@/lib/engine-capabilities";
+import { engineConfigured } from "@/lib/qualify";
+
+// Whether the reference-template selector is shown follows the DEPLOYED engine (its /v1/version `capabilities`), not the last build of this site.
+export const revalidate = 300;
 
 export const metadata: Metadata = {
   title: "Free capacity check — what binds your hall",
@@ -24,7 +29,10 @@ export const metadata: Metadata = {
   },
 };
 
-export default function QualifyPage() {
+export default async function QualifyPage() {
+  // The selector appears only when the live engine says it can label a template's figures as assumed; otherwise the form is exactly as it was.
+  // It also needs the engine this deployment can actually call (the test /api/qualify applies): never offered where that route answers 503.
+  const presetsAvailable = engineConfigured() && (await engineHas(QUALIFY_ASSUMED_FIELDS_FLAG));
   // About our synthetic reference hall only, read from the engine's committed output (lib/worked-result.ts); never a claim about halls in general.
   const limit = referenceLimitSentence(loadWorkedResult());
   return (
@@ -52,7 +60,7 @@ export default function QualifyPage() {
 
       <div className="grid lg:grid-cols-[1.5fr_1fr] gap-8 items-start">
         <div>
-          <CapacityQualifier />
+          <CapacityQualifier presetsAvailable={presetsAvailable} />
 
           <p className="mt-6 text-sm text-mute">
             Want to see what the paid study looks like before you ask?{" "}

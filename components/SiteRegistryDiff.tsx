@@ -5,6 +5,7 @@ import { Loader2 } from "lucide-react";
 import { buildChains, diffPoints, evidenceLine, evidenceShift, pointsOf, successions, type Diff, type DiffRow, type Point, type Step } from "@/lib/site-registry-diff";
 import type { RegistryApi, RegistryInput } from "@/lib/site-registry-model";
 import { fieldBox } from "@/components/SiteRegistryParts";
+import EngineDiffRun, { type PointBody } from "@/components/SiteRegistryEngineDiff";
 
 // "What changed" at a hall: two points in its history compared, or one field's successive values. Computed here from the claims the read API returns;
 // a change in a figure is always printed with the declared origin, class and file it rests on. It compares what was RECORDED; it is not a recomputed capacity result.
@@ -190,6 +191,7 @@ export default function SiteRegistryDiff({ hall, api, current, refreshKey }: { h
                         </select>
                       </div>
                     </div>
+                    <EngineDiffRun api={api} hallId={hall.id} from={enginePoint(from)} to={enginePoint(to)} blocked={engineBlocked(from, to, result)} />
                     <div className="mt-4" aria-live="polite">
                       {result && !result.ok && <p role="alert" className="text-red-400 text-[13px]">{result.error}</p>}
                       {result && result.ok && <DiffView diff={result.diff} />}
@@ -219,6 +221,18 @@ export default function SiteRegistryDiff({ hall, api, current, refreshKey }: { h
       </div>
     </section>
   );
+}
+
+/** The point as the engine route takes it: now, or the end of a recorded day. The start of the record is not a hall to ask the engine about. */
+function enginePoint(p: Point): PointBody | null {
+  return p.id === "now" ? { now: true } : p.id === "start" ? null : { asOf: p.id };
+}
+
+function engineBlocked(from: Point, to: Point, result: ReturnType<typeof diffPoints> | null): string | null {
+  if (from.id === "start") return "Choose a day on which something was recorded as the earlier point: before the first recorded figure there is no hall for the engine to read.";
+  if (from.id === to.id) return "Choose two different points.";
+  if (result && !result.ok) return result.error;
+  return null;
 }
 
 /** From: the end of the second-newest day something was recorded (what changed since the previous day), else the start. */

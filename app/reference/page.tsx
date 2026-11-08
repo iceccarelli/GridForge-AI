@@ -11,6 +11,9 @@ import { formatWeeks } from "@/lib/date-basis";
 import { PRODUCTS, eurFromCents } from "@/lib/products";
 import { PageJsonLd } from "@/components/PageJsonLd";
 import { breadcrumbJsonLd, collectionPageJsonLd } from "@/lib/jsonld";
+import { EngineeringAssumptions } from "@/components/EngineeringAssumptions";
+import { constraintReference, platformLibrary } from "@/lib/constraints";
+import { engineeringAssumptions } from "@/lib/engineering-constants";
 
 export const metadata: Metadata = {
   title: "Sample deliverables — worked examples",
@@ -111,6 +114,12 @@ export default async function ReferencePage() {
   );
   const gridOnly = pack?.scenarios?.find((s) => s.id === "full_dlc");
   const screen = PRODUCTS.density_screen;
+  // The engine's published reference files supply the platform figures and the catalogue's indicative lead-time range; nothing here is retyped.
+  const [constraintRef, platformLib] = await Promise.all([constraintReference(), platformLibrary()]);
+  const assumptions = engineeringAssumptions({
+    platforms: platformLib?.platforms ?? null,
+    transformerIndicativeRange: constraintRef?.constraints.find((c) => c.id === "transformer_capacity")?.lead_time_weeks ?? null,
+  });
 
   return (
     <div className="mx-auto w-full max-w-6xl px-5 pb-24 pt-28 sm:px-8">
@@ -329,6 +338,8 @@ export default async function ReferencePage() {
           </div>
         </div>
       </section>
+
+      <EngineeringAssumptions items={assumptions} heading="Engineering assumptions the engine uses" />
 
       <section className="mt-10 rounded border border-line bg-panel-2 p-6" aria-labelledby="calibration-h">
         <h2 id="calibration-h" className="text-lg font-semibold text-ghost">Calibration: what these figures have and have not been checked against</h2>

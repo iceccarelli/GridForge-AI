@@ -138,7 +138,13 @@ export function templateDerivedCount(request: unknown): number {
   return n;
 }
 
-/** The exact body POSTed to /v1/compare for a request: what a CLI or API user would send to reproduce the page. */
+/**
+ * The exact body POSTed to /v1/compare for a request: what a CLI or API user would send to reproduce the page.
+ *
+ * Busway runs, LV voltage and site power factor are in the body only when the request carries a value for them (lib/engagement-intake.ts leaves
+ * them optional, with no default): a hall that did not give them reaches the engine without them, and the engine uses its library default and
+ * names it as an assumption instead of recording a figure the visitor never supplied.
+ */
 export function toEngineBody(r: CompareRequest, costEvidence?: Record<string, unknown>[]): Record<string, unknown> {
   const intake = toIntakeDocument(r.hall) as Record<string, unknown>;
   let templateDerived = 0;

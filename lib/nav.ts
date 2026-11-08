@@ -36,7 +36,7 @@ export const NAV_LINKS: NavLink[] = [
   { href: "/products", label: "Product" },
   { href: "#technology", label: "How it works", hash: true },
   { href: "/reference", label: "Reference" },
-  { href: "/developers", label: "Developers" },
+  { href: "/developers", label: "API and MCP" },
   { href: "/pricing", label: "Pricing" },
 ];
 
@@ -115,13 +115,13 @@ export const FOOTER_GROUPS: FooterGroup[] = [
       { href: "/power/compare", label: "Time-to-Power comparison" },
       { href: "/power/deploy", label: "Behind-the-meter power assessment" },
       { href: "/constraints", label: "Constraints" },
-      { href: "/platforms", label: "Platforms" },
+      { href: "/platforms", label: "Rack library" },
       { href: "/reference", label: "Reference" },
       { href: "/evidence", label: "Evidence classes" },
       { href: "/lead-times", label: "Lead times" },
       { href: "/observatory", label: "Observatory" },
       { href: "/intelligence", label: "Intelligence" },
-      { href: "/developers", label: "Developers / machine interface" },
+      { href: "/developers", label: "API and MCP (machine interface)" },
     ],
   },
   {

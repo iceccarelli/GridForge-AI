@@ -84,7 +84,7 @@ export function parseToolRates(json: unknown): ToolRate[] {
   return out;
 }
 
-/** "A constraint screen is 1 unit, a full study is 5, a portfolio run is 1 per hall." Built from the rows; omits what it cannot find. */
+/** "A screen call is 1 unit, a full study is 5, a portfolio run is 1 per hall." Built from the rows; omits what it cannot find. */
 export function unitSummary(all: readonly ToolRate[]): string {
   const rates = callableRates(all);
   const by = (ep: string) => rates.find((r) => r.endpoint === ep);
@@ -93,7 +93,7 @@ export function unitSummary(all: readonly ToolRate[]): string {
   const screen = by("/v1/screen");
   const study = by("/v1/study");
   const portfolio = by("/v1/portfolio");
-  if (screen) parts.push(`a constraint screen is ${u(screen.units)}`);
+  if (screen) parts.push(`a screen call is ${u(screen.units)}`);
   if (study) parts.push(`a full study is ${u(study.units)}`);
   if (portfolio) parts.push(`a portfolio run is ${u(portfolio.units)} per hall`);
   if (parts.length === 0) return "";

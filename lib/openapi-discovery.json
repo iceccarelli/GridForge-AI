@@ -104,6 +104,13 @@
             "type": "string"
           }
         },
+        "capabilities": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "boolean"
+          },
+          "description": "Behaviour a route has that its path does not show, as named flags. A flag is present and true only when the engine does it; an engine that does not list a flag does not do it. qualify_assumed_fields: POST /v1/qualify accepts an optional assumed_fields, a list of the seven field names it takes (contracted_MW, current_site_peak_MW, current_it_load_MW, busway_ampacity_A, tapoff_max_A, plant_supply_C, positions_available), each at most once and each one the request gives; a named figure is classed E0 (assumed), never E5, in the result's basis; the class cannot be chosen by the caller and a request without the field is answered exactly as before. The response then adds inputs_declared_assumed (what the engine recorded for each figure) and intake.assumed_count; completeness and required_inputs_missing still count a declared figure as supplied."
+        },
         "unit_rates": {
           "type": "object",
           "additionalProperties": {

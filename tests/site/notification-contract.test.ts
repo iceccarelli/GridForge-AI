@@ -286,10 +286,10 @@ describe("a queued message is rebuilt from current state, and a stale one is can
 });
 
 describe("the Intelligence welcome", () => {
-  const buyIntelligence = async (evt: string) => {
+  const buyIntelligence = async (evt: string, plan = "pro") => {
     const payload = JSON.stringify({ id: evt, type: "checkout.session.completed", data: { object: paidSession({
       id: "cs_int_1", customer_email: "reader@example.test", customer: "cus_i", subscription: "sub_i", amount_total: 90_000,
-      metadata: { kind: "intelligence_subscription", plan: "pro" } }) } });
+      metadata: { kind: "intelligence_subscription", plan } }) } });
     const { POST } = await import("@/app/api/stripe/webhook/route");
     return POST(new Request(siteUrl("/api/stripe/webhook"), { method: "POST",
       headers: { "stripe-signature": new Stripe("sk_test_placeholder").webhooks.generateTestHeaderString({ payload, secret: WH }) }, body: payload }));
@@ -303,6 +303,25 @@ describe("the Intelligence welcome", () => {
     expect(db.rows("subscriptions")).toHaveLength(1);
     expect(to("reader@example.test")).toHaveLength(1);
     expect(to("ops@example.test").filter((m) => /Intelligence subscriber/.test(m.subject))).toHaveLength(1);
+  });
+
+  it("the welcome names the plan by its display name, never by the key the database stores", async () => {
+    for (const [evt, key, name] of [["evt_k1", "developer", "Solo"], ["evt_k2", "enterprise", "Unlimited"]] as const) {
+      sent.length = 0;
+      db.rows("subscriptions").length = 0;
+      db.rows("customer_notifications").length = 0;
+      expect((await buyIntelligence(evt, key)).status).toBe(200);
+      const welcome = to("reader@example.test").find((m) => /Welcome to GridForge Intelligence/.test(m.subject))!;
+      expect(welcome.text, key).toContain(`Your ${name} subscription is active.`);
+      expect(welcome.text, key).not.toMatch(new RegExp(`Your ${key} subscription`, "i"));
+    }
+  });
+
+  it("a plan key the catalogue does not know is never printed: the welcome says Intelligence", async () => {
+    expect((await buyIntelligence("evt_k3", "pro")).status).toBe(200);
+    const welcome = to("reader@example.test").find((m) => /Welcome to GridForge Intelligence/.test(m.subject))!;
+    expect(welcome.text).toContain("Your Intelligence subscription is active.");
+    expect(welcome.text).not.toMatch(/Your pro subscription/);
   });
 
   it("a failed welcome never touches the paid subscription, and a redelivery completes it", async () => {

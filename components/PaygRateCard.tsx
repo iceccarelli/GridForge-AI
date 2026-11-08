@@ -32,7 +32,7 @@ export default function PaygRateCard({ rates, heading = "What one operation cost
       <h3 className="text-lg font-semibold text-ghost">{heading}</h3>
       <p className="mt-2 max-w-3xl text-sm text-mute">
         One unit price for every billable operation: <span className="font-mono text-ghost">{eurExact(PAYG.unitPriceCents)}</span>{" "}
-        a unit. Each endpoint weighs a published number of units, so a constraint screen and a full study are
+        a unit. Each endpoint weighs a published number of units, so a screen call and a full study are
         not billed alike. {FREE_ALLOWANCE_TEXT}
       </p>
 

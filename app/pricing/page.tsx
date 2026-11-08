@@ -141,7 +141,7 @@ export default async function PricingPage() {
             <p className="mt-4 text-sm text-mute">
               Plans, the MCP install and the tool schemas are on the{" "}
               <Link href="/developers#plans" className="text-power underline">
-                developers page
+                API and MCP page
               </Link>
               .
             </p>
@@ -153,7 +153,7 @@ export default async function PricingPage() {
               A separate product from the engine, the API and the engagements: a siting dashboard that ranks regions by
               modelled time to energize, with US interconnection-queue history and day-ahead price context. Billed monthly.
               The plan names below belong to this dashboard; API plans are on the{" "}
-              <Link href="/developers#plans" className="text-power underline">developers page</Link>.
+              <Link href="/developers#plans" className="text-power underline">API and MCP page</Link>.
             </p>
             {/* Shown while the capability registry records Intelligence's production state as unverified (tests/site/pricing-lanes.test.ts
                 keeps the two in step). /intelligence says the ranking is modelled; it does not say this. */}

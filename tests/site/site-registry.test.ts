@@ -11,6 +11,7 @@ import { installWithAuth, bearerFor } from "./auth-fake";
 import { installRegistryRpcs } from "./site-registry-rpc-fake";
 import { installProjectRpcs } from "./project-rpc-fake";
 import { defineRegistryScenarios } from "./site-registry-scenarios";
+import { defineEngineDiffScenarios } from "./site-registry-engine-diff-scenarios";
 
 function fakeDb(): PostgrestFake {
   process.env.SUPABASE_URL = "https://stub.supabase.co";
@@ -27,6 +28,20 @@ describe("site registry - in-memory PostgREST", () => {
   defineRegistryScenarios({
     async install() {
       return fakeDb().install();
+    },
+  });
+});
+
+describe("site registry engine-backed capacity diff - in-memory PostgREST", () => {
+  let store: PostgrestFake | null = null;
+  defineEngineDiffScenarios({
+    async install() {
+      store = fakeDb();
+      return store.install();
+    },
+    // Moves every claim recorded so far to that time, so a later recording is on a later day.
+    backdate(recordedAt) {
+      for (const r of store!.rows("hall_inputs")) r.created_at = recordedAt;
     },
   });
 });

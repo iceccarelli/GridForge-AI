@@ -145,7 +145,9 @@ export function formatSetsTheDate(
 
 /**
  * One item's lead time ("transformer capacity: 160 wk"). It is a lead time, not a date, but it still wears its evidence
- * class, and an E0 one says it is an assumption.
+ * class, and an E0 one says it is an assumption. The engine labels every lead time it uses E0 today, whether it is its own library
+ * placeholder or a figure the customer typed; neither is a quotation and neither is a market figure (lib/market-evidence.ts keeps
+ * reported numbers apart, and lib/engineering-constants.ts states what the engine assumes).
  */
 export function formatLeadTime(weeks: number, evidenceClass: string | null | undefined): string {
   const cls = text(evidenceClass);

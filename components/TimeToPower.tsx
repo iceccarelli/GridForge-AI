@@ -37,11 +37,12 @@ export function TimeToPower() {
   // headline figure animates for free. It follows lib/ttp-autoplay.ts: no autoplay for a visitor who prefers reduced motion, a visible
   // Pause/Play control, and the first change the visitor makes to an input STOPS it for good (it never resumes over their numbers).
   // Illustrative scenarios — none is a named customer or a delivered result.
-  // Each names the kind of constraint that binds a hall, not a place or a deal.
+  // Each names the kind of constraint that binds a hall, not a place or a deal. The transformer story sits at the top of the months knob (the longest
+  // value it offers) because a long lead time is the point; no weeks figure is quoted, and the marker reads "(assumed)".
   const SCENARIOS = useMemo(
     () => [
       { title: "Illustrative — busway-bound retrofit", sub: "200 MW contracted, tap-off ampacity binds first", mw: 200, queueYrs: 6.0, onsiteMo: 16, revPerMW: 2.4 },
-      { title: "Illustrative — transformer-bound hall", sub: "100 MW contracted, 160-week lead time on the fix", mw: 100, queueYrs: 4.0, onsiteMo: 10, revPerMW: 2.0 },
+      { title: "Illustrative — transformer-bound hall", sub: "100 MW contracted; a long transformer lead time (assumed, E0) sets the date", mw: 100, queueYrs: 4.0, onsiteMo: 30, revPerMW: 2.0 },
       { title: "Illustrative — grid-queue-blocked site", sub: "New connection years out, existing hall under-used", mw: 50, queueYrs: 4.5, onsiteMo: 12, revPerMW: 2.2 },
       { title: "Illustrative — floor-loading-bound hall", sub: "300 MW contracted, structural limit sets the ceiling", mw: 300, queueYrs: 3.5, onsiteMo: 11, revPerMW: 2.6 },
       { title: "Your site — placeholder inputs", sub: "Not an engine result: a Density Screen replaces these with your hall's numbers", mw: 150, queueYrs: 5.0, onsiteMo: 14, revPerMW: 2.0 },

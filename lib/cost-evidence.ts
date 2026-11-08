@@ -261,7 +261,9 @@ export async function evidenceFor(deliverable_id: string): Promise<Result<{ item
 /** Every line awaiting a decision, across engagements — the administrator's queue. */
 export async function evidenceQueue(state: "pending" | "all"): Promise<Result<{ items: EvidenceRow[] }>> {
   if (!creds()) return STORE_UNCONFIGURED;
-  const filter = state === "pending" ? "&state=eq.validated" : "";
+  // Engagement lines only. A quotation a project holder attached to an uploaded file is reviewed on /admin/reviews, beside its file and the holder's
+  // claims (0054); this older queue has neither, so it must not offer to accept one.
+  const filter = (state === "pending" ? "&state=eq.validated" : "") + "&deliverable_id=not.is.null";
   const r = await rest<EvidenceRow[]>("GET", `cost_evidence_state?select=${COLUMNS}${filter}&order=submitted_at.desc`);
   if (!r.ok) return { ok: false, status: 502, error: "The cost evidence queue could not be read." };
   return { ok: true, items: r.data ?? [] };
@@ -308,6 +310,17 @@ export async function reviewEvidence(input: Record<string, unknown>): Promise<Re
     if (done.ok === false && done.code === "23503") return { ok: false, status: 404, error: "Not found." };
     if (done.ok === false && done.code === "23505") {
       return { ok: false, status: 409, error: "This quotation has already been reviewed." };
+    }
+    if (done.ok === false && done.code === "GF014") {
+      return { ok: false, status: 403, error: "The reviewer cannot be the person who submitted the quotation. Another person must decide it." };
+    }
+    if (done.ok === false && done.code === "GF009") {
+      // A quotation a project holder attached to an uploaded document is accepted only on a document a person has verified (0054).
+      return {
+        ok: false,
+        status: 409,
+        error: "This quotation rests on an uploaded file that has not been verified. Verify the file first (its stored bytes are checked against the digest recorded at upload), then accept the quotation.",
+      };
     }
     if (done.ok === false && done.code === "23514") {
       return { ok: false, status: 422, error: "That quotation cannot be accepted: it is invalid or has expired." };

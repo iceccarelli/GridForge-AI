@@ -11,6 +11,7 @@ import { spawn, spawnSync, type ChildProcess } from "node:child_process";
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import { siteUrl } from "@/lib/site";
 import { resetMemoryLimiter } from "@/lib/rate-limit";
+import { engineAvailable } from "./_engine-guard";
 
 const hasPython = spawnSync("python3", ["--version"]).status === 0;
 const KEY = "adversarial-compare-key";
@@ -248,5 +249,12 @@ describe.runIf(hasPython)("what the site does to the bytes it forwards", () => {
     expect(r.status).toBe(200);
     expect(Object.keys(r.json.request).sort()).toEqual(["intake", "objective"]);
     expect(JSON.stringify(r.json.request)).not.toMatch(/cost_evidence|api_key|x-api-key/i);
+  });
+});
+
+describe("the real-engine tests in this file cannot be skipped silently where they are required", () => {
+  it("python3 is present whenever GRIDFORGE_REQUIRE_ENGINE=1 or CI=true", () => {
+    const g = engineAvailable(hasPython);
+    expect(g.ok, g.reason).toBe(true);
   });
 });

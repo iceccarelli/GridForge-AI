@@ -77,7 +77,7 @@ export const AUDIENCES: Audience[] = [
     path: [
       { kind: "qualifier", why: "Seven numbers you already know, free, to see which constraint is likely to bind before spending anything." },
       { kind: "density_screen", why: "The first paid step: one hall, a document naming what binds and the first costed rungs, which you can hand to your own engineers." },
-      { kind: "envelope_study_deposit", why: "When the screen shows the hall is worth pursuing: the full ladder, architectures compared and a model pack you keep." },
+      { kind: "envelope_study_deposit", why: "When the Density Screen shows the hall is worth pursuing: the full ladder, architectures compared and a model pack you keep." },
     ],
     askUs: [
       "Which inputs in the result were assumed rather than supplied, and which are the most sensitive?",
@@ -244,7 +244,7 @@ export const AUDIENCES: Audience[] = [
   },
   {
     slug: "engineering-teams",
-    name: "Energy and electrical engineering teams",
+    name: "Energy and electrical engineers",
     role: "electrical or energy engineer",
     summary: "You will be asked to sign off or deliver the work, and need to see the method, the inputs and the equations before you rely on it.",
     headline: "Read the method, check the equations, and run it yourself before you rely on a number.",
