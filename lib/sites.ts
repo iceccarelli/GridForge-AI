@@ -24,6 +24,7 @@ import { identify } from "@/lib/portal";
 import { creds, rpc } from "@/lib/pgrest";
 import { guardRequest } from "@/lib/rate-limit";
 import { readBoundedJson } from "@/lib/http-body";
+import { noticeCrossDomainAttach } from "@/lib/notifications";
 import {
   DATA_ORIGINS, EVIDENCE_CLASS_CODES, FIELD_PATH_PATTERN, ORIGINS, ORIGINS_CAPPED_AT_E3, ORIGINS_NEEDING_A_SOURCE, ROLES, UNIT_PATTERN,
 } from "@/lib/site-registry-fields";
@@ -117,14 +118,23 @@ export const SiteBody = z.strictObject({
   orgId: id,
   name: name("The site name"),
   country: z.string().trim().regex(/^[A-Za-z]{2}$/, "Use a two-letter country code, for example DE.").nullable().optional(),
-  dataOrigin: z.enum(DATA_ORIGINS, { errorMap: () => ({ message: "Say whether this site holds production, test or synthetic data." }) }),
+  dataOrigin: z.enum(DATA_ORIGINS, { error: "Say whether this site holds production, test or synthetic data." }),
 });
 
 export const HallBody = z.strictObject({ label: name("The hall label") });
 
 export const CursorQuery = z.string().min(2).max(600);
 
-export const AttachBody = z.strictObject({ projectToken: z.string().trim().min(8, "Paste the project's link token.").max(200) });
+/**
+ * `confirmNonProductionSite` is the caller's explicit acknowledgement that attaching a project to a TEST or SYNTHETIC site permanently keeps
+ * the project's observations out of the shared calibration ledger (0052). It must be the boolean true (not "true", not 1); anything but a
+ * boolean is a 400, and a site that is not production refuses without a true value (attachProject below). It is not needed, and changes
+ * nothing, for a production site.
+ */
+export const AttachBody = z.strictObject({
+  projectToken: z.string().trim().min(8, "Paste the project's link token.").max(200),
+  confirmNonProductionSite: z.boolean({ error: "confirmNonProductionSite must be true or false." }).optional(),
+});
 
 export const InputBody = z
   .strictObject({
@@ -354,10 +364,57 @@ export async function hallTimeline(actor: string, hall: string, limit: number, c
 export async function detachProject(actor: string, hall: string, project: string) {
   return done(await ask("gf_detach_project_from_hall", { p_actor: actor, p_hall: hall, p_project: project }), () => ({}));
 }
-export async function attachProject(actor: string, hall: string, b: z.infer<typeof AttachBody>) {
-  return done(await ask("gf_attach_project_to_hall", { p_actor: actor, p_hall: hall, p_project_token: b.projectToken }), (d) => ({
+/** The most the operator notice may hold an attach response. */
+export const ATTACH_NOTICE_BUDGET_MS = 3000;
+
+/** What the caller is told when they have not confirmed attaching to a site that is not production. Says plainly what is permanent. */
+export const NON_PRODUCTION_ATTACH_MESSAGE =
+  "This hall belongs to a test or synthetic site. Attaching a project to it PERMANENTLY excludes that project's observations from the shared " +
+  "calibration ledger (the calibration ledger gate): detaching the project later does not undo it. If you mean that, repeat the request with " +
+  "confirmNonProductionSite: true. If this is real data, attach the project to a production site instead.";
+
+/**
+ * THE CONFIRMATION IS ENFORCED HERE, in the website route, NOT by the database function: gf_attach_project_to_hall (0050) knows nothing of it, and a
+ * service-role caller that bypassed this module would attach without it. The backstop behind it is the ledger view (0052), which keeps the observations of
+ * a project that was ever attached to a non-production site out of the ledger whatever route attached it.
+ *
+ * Attach a project to a hall. The caller must be an authenticated OWNER or EDITOR of the hall's organisation (the database checks it, and
+ * the project's link token alone is not enough). When the hall's site is test or synthetic the caller must also have said
+ * confirmNonProductionSite: true; without it this answers 422 BEFORE anything is written, because the attachment cannot be undone as far as
+ * the calibration ledger is concerned. A caller who could not attach anyway (a viewer, a stranger) is answered by the database exactly as
+ * before (403 / 404), never by this check, so the check reveals nothing they could not already read. On a new attachment the operator may be
+ * told, best effort, that the attacher's email domain differs from the project's buyer's (lib/notifications.ts); that never affects the result.
+ */
+export async function attachProject(actor: string, hall: string, b: z.infer<typeof AttachBody>): Promise<Out<{ projectId: string; projectName: string; alreadyAttached: boolean }>> {
+  // The hall's site and organisation, from the same read every member is allowed (gf_hall_inputs). A site's origin is fixed once written.
+  const where = await hallInputs(actor, hall, { history: false, limit: 1 });
+  if (!where.ok) return where;
+  if (where.value.hall.dataOrigin !== "production" && b.confirmNonProductionSite !== true) {
+    const mine = await myOrgs(actor);
+    if (!mine.ok) return mine;
+    const role = mine.value.find((o) => o.id === where.value.hall.orgId)?.role;
+    if (role === "owner" || role === "editor") {
+      return { ok: false, response: refuse(422, NON_PRODUCTION_ATTACH_MESSAGE, { reason: "non_production_site_unconfirmed", dataOrigin: where.value.hall.dataOrigin }) };
+    }
+    // Not a role that may attach: fall through, and the database refuses (403) as it always did.
+  }
+  const r = done(await ask("gf_attach_project_to_hall", { p_actor: actor, p_hall: hall, p_project_token: b.projectToken }), (d) => ({
     projectId: String(d.project_id), projectName: String(d.project_name), alreadyAttached: Boolean(d.already_attached),
   }));
+  if (r.ok && !r.value.alreadyAttached) {
+    // Best effort and silent when notifications are not configured. It never changes the answer and never holds it for more than the budget: the
+    // notice does several store reads and a mail call, and a slow one must not delay (or, on a platform that stops work after the response, kill) the attach.
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    try {
+      await Promise.race([
+        noticeCrossDomainAttach({ projectId: r.value.projectId, hallId: hall, actorEmail: actor }).catch(() => undefined),
+        new Promise<void>((resolve) => { timer = setTimeout(resolve, ATTACH_NOTICE_BUDGET_MS); }),
+      ]);
+    } finally {
+      if (timer) clearTimeout(timer);
+    }
+  }
+  return r;
 }
 
 // --------------------------------------------------------------------------------------------------------------- the route frame

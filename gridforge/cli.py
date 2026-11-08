@@ -552,15 +552,27 @@ def _cmd_calibrate(args) -> int:
     from .calibration.keys import known
     from .calibration.ledger import (BUNDLED_PATH, LedgerIntegrityError, append_observation, import_export,
                                      private_path)
-    from .calibration.schema import site_ref
+    from .calibration import siteref
+    from .calibration.ledger import AliasFileUnreadable, _read, site_alias_file, site_aliases
     from .validation.evidence import EvidenceClass as _EvidenceClass
 
     if args.cal_cmd == "where":
         print(f"  published ledger (committed, no client data) : {BUNDLED_PATH}")
         print(f"  yours (gitignored, site observations)        : {private_path()}"
               f"{'' if private_path().exists() else '   [not created yet]'}")
-        led = load_ledger()
+        alias_note = ""
+        try:
+            led = load_ledger()
+            n_alias = str(len(site_aliases()))
+        except AliasFileUnreadable as exc:
+            # `where` is how an operator finds out what is wrong, so it must still work: it reports the file and counts WITHOUT the aliases.
+            led = load_ledger(use_aliases=False)
+            n_alias = "alias file unreadable"
+            alias_note = f"  (alias file unreadable: {exc}; the site counts below IGNORE it and may count one site twice)"
         print(f"  observations in effect                       : {len(led.observations)}")
+        print(f"  unsalted -> keyed site aliases declared      : {n_alias}")
+        if alias_note:
+            print(alias_note)
         print(f"  sites                                        : "
               f"{len({o.site for o in led.observations})}"
               f"  (halls: {len({o.site_ref for o in led.observations})})")
@@ -579,7 +591,7 @@ def _cmd_calibrate(args) -> int:
             print(f"refused: cannot read {args.export}: {exc}", file=sys.stderr)
             return 2
         try:
-            out = import_export(doc, Path(args.ledger) if args.ledger else None)
+            out = import_export(doc, Path(args.ledger) if args.ledger else None, accept_mixed_refs=args.accept_mixed_refs)
         except LedgerIntegrityError:
             raise
         except ObservationError as exc:
@@ -593,6 +605,55 @@ def _cmd_calibrate(args) -> int:
         else:
             print(f"imported {out['imported']} verified observation(s) -> {out['path']} "
                   f"(ledger now holds {out['ledger_observations']})")
+            how = {"aliases": f"{out['aliases']} alias(es) declared", "none_needed": "you recorded that no site spans the 0053 boundary",
+                   "accept_mixed_refs": "--accept-mixed-refs for this import only"}[out["mixed_ref_decision"]]
+            print(f"  counted as: {out['distinct_sites_imported']} distinct site reference(s) in this import; {out['rekeyed']} of {out['imported']} row(s) "
+                  f"re-keyed by your alias file ({how}).")
+            if out["mixed_ref_decision"] == "accept_mixed_refs":
+                print("  NOTE: nothing was merged. A site exported under both an UNSALTED (before 0053) and a KEYED reference is counted as TWO sites; declare it "
+                      "with `gridforge calibrate alias` and the ledger will read it as one.", file=sys.stderr)
+        return 0
+
+    if args.cal_cmd == "alias":
+        where = siteref.alias_path(private=Path(args.ledger) if args.ledger else private_path())
+        try:
+            if args.none_needed:
+                if args.site or args.legacy_ref:
+                    print("refused: --none-needed stands alone (it declares that NO site spans the 0053 boundary)", file=sys.stderr)
+                    return 2
+                new = siteref.acknowledge_none_needed(where)
+                print(f"{'recorded' if new else 'already recorded'}: no site spans the migration-0053 boundary, dated in {where}")
+                print("  this is your statement, not something the software can check; `calibrate import` will now accept exports without --accept-mixed-refs.")
+                return 0
+            if not args.site.strip():
+                print("usage: gridforge calibrate alias --site 'NAME' [--legacy-ref site_xxxxxxxxxxxx] [--ledger PATH]  declares that the unsalted (pre-0053) "
+                      "and the keyed reference of NAME are ONE site; a non-ASCII NAME needs --legacy-ref from the database.\n"
+                      "       gridforge calibrate alias --none-needed   declares that no site spans the boundary", file=sys.stderr)
+                return 2
+            siteref.check_argv_text(args.site)
+            key, source = siteref.resolve_key()
+            note = siteref.key_warning(source)
+            if note:
+                siteref.warn(note)
+            keyed = siteref.keyed_site_only_ref(args.site, key)
+            if args.legacy_ref:
+                legacy = siteref.validated_legacy_ref(args.legacy_ref)
+                try:
+                    computed = siteref.legacy_site_only_ref(args.site)
+                except siteref.LegacyRefNeedsDatabase:
+                    computed = None
+                if computed is not None and computed != legacy:
+                    print(f"refused: for this plain-ASCII name the database derives {computed}, not {legacy}; the name or the reference is wrong. "
+                          f"Nothing was written.", file=sys.stderr)
+                    return 2
+            else:
+                legacy = siteref.legacy_site_only_ref(args.site)
+            added = siteref.add_alias(where, legacy, keyed)
+        except (siteref.SiteRefError, AliasFileUnreadable) as exc:
+            print(f"refused: {exc}", file=sys.stderr)
+            return 2
+        print(f"{'recorded' if added else 'already recorded'}: {legacy} (unsalted) -> {keyed} (keyed) in {where}")
+        print("  from now on the ledger reads both as one site; the chained ledger file itself is not edited.")
         return 0
 
     if args.cal_cmd == "keys":
@@ -601,7 +662,11 @@ def _cmd_calibrate(args) -> int:
         return 0
 
     if args.cal_cmd == "show":
-        led = load_ledger()
+        try:
+            led = load_ledger()
+        except AliasFileUnreadable as exc:           # the site count rests on the aliases; a damaged file stops it rather than count a site twice
+            print(f"refused: {exc}\nFix or remove the alias file (`gridforge calibrate where` reports it).", file=sys.stderr)
+            return 2
         block = accuracy_block(all_keys(), led)
         print(block["statement"])
         print()
@@ -630,8 +695,30 @@ def _cmd_calibrate(args) -> int:
               "non-reversible site reference.", file=sys.stderr)
         return 2
     try:
+        siteref.check_argv_text(args.site)
+        siteref.check_argv_text(args.hall)
+        key, source = siteref.resolve_key()
+        ledger_file = Path(args.ledger) if args.ledger else private_path()
+        # The ledger may already hold this site under its UNSALTED reference (a row from before migration 0053). Writing the keyed one beside it would
+        # silently make one site count as two, so it is refused until the operator declares them one site. For a name whose unsalted reference cannot
+        # be computed here (non-ASCII), the check cannot be made: say so, and let --legacy-ref make it.
+        try:
+            legacy = siteref.validated_legacy_ref(args.legacy_ref) if args.legacy_ref else siteref.legacy_site_only_ref(args.site)
+        except siteref.LegacyRefNeedsDatabase:
+            legacy = None
+            siteref.warn(f"cannot check whether {args.site!r} is already in this ledger under its UNSALTED reference: the name is not plain ASCII and the "
+                         f"database's lower-casing differs from Python's. If it may be, get the reference from the database (--legacy-ref; see "
+                         f"`gridforge calibrate alias`) or this row may count the site twice.")
+        if legacy and legacy not in site_aliases(ledger_file) and any(o.site == legacy for o in _read(ledger_file)):
+            print(f"refused: this ledger already holds {args.site!r} under its UNSALTED site reference ({legacy}). Recording the keyed reference "
+                  f"beside it would make one site count as two. Declare them one site first: `gridforge calibrate alias --site {args.site!r}`. "
+                  f"Nothing was written.", file=sys.stderr)
+            return 2
+        note = siteref.key_warning(source)
+        if note:
+            siteref.warn(note)
         obs = Observation(
-            key=args.key, site_ref=site_ref(args.site, args.hall),
+            key=args.key, site_ref=siteref.keyed_site_ref(args.site, args.hall, key),
             predicted=float(args.predicted), observed=float(args.observed),
             unit=args.unit, observed_on=args.on,
             evidence=_EvidenceClass[args.evidence], method=args.method,
@@ -644,7 +731,7 @@ def _cmd_calibrate(args) -> int:
     except KeyError:
         print(f"unknown evidence class {args.evidence!r}", file=sys.stderr)
         return 2
-    except ObservationError as exc:
+    except (ObservationError, siteref.SiteRefError) as exc:           # includes AliasFileUnreadable
         print(f"refused: {exc}", file=sys.stderr)
         return 2
     try:
@@ -1225,7 +1312,14 @@ def main(argv: list[str] | None = None) -> int:
 
     s = sub.add_parser("calibrate",
                        help="the accuracy record: model vs what the site turned out to be")
-    s.add_argument("cal_cmd", choices=["show", "add", "keys", "where", "import"])
+    s.add_argument("cal_cmd", choices=["show", "add", "keys", "where", "import", "alias"])
+    s.add_argument("--legacy-ref", default="",
+                   help="alias/add: the site's UNSALTED reference (site_ + 12 hex) as the DATABASE derives it. Required for a non-ASCII --site (Python cannot know "
+                        "how the database lower-cases it); the database expression is printed when it is needed.")
+    s.add_argument("--none-needed", action="store_true",
+                   help="alias: record, dated, that no site spans the migration-0053 boundary, so `import` needs no further decision")
+    s.add_argument("--accept-mixed-refs", action="store_true",
+                   help="import: for THIS import only, accept that a site under both an unsalted and a keyed reference counts as two sites")
     s.add_argument("export", nargs="?", default="",
                    help="import: the admin calibration export (GET /api/admin/calibration-export), saved as JSON")
     s.add_argument("--kind", default="measured",
@@ -1237,7 +1331,9 @@ def main(argv: list[str] | None = None) -> int:
     s.add_argument("--reviewed-by", default="", help="self-asserted reviewer name")
     s.add_argument("--reviewed-at", default="", help="ISO date or timestamp of the review")
     s.add_argument("--key", default="", help="`gridforge calibrate keys` lists them")
-    s.add_argument("--site", default="", help="client site name — hashed, never stored")
+    s.add_argument("--site", default="",
+                   help="client site name — hashed with a secret (GRIDFORGE_SITE_REF_SECRET, else GRIDFORGE_KEY_SECRET), never stored. "
+                        "alias: declares the site's unsalted (pre-0053) and keyed references to be one site. Rotating the secret changes every reference.")
     s.add_argument("--hall", default="", help="hall id — hashed with the site name")
     s.add_argument("--predicted", default="0", help="what this engine said")
     s.add_argument("--observed", default="0", help="what the site turned out to be")

@@ -11,8 +11,11 @@ import { adminToken } from "@/lib/admin";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { createHash } from "node:crypto";
 import { siteUrl } from "@/lib/site";
+import { siteRefFor } from "@/lib/site-ref";
 import { PgError, PostgrestFake } from "./postgrest-fake";
 import { installProjectRpcs } from "./project-rpc-fake";
+
+const SITE_REF_TEST_SECRET = "test-site-ref-secret-0123456789-not-real";
 
 const jar: { name: string; value: string }[] = [];
 vi.mock("next/headers", () => ({ cookies: async () => ({ get: (n: string) => jar.find((c) => c.name === n) }) }));
@@ -45,8 +48,9 @@ beforeEach(() => {
   }]);
   restore = db.install();
   process.env.VERCEL_ENV = "production";      // 0047: only a production deployment stamps data_origin 'production' (the cases below say otherwise)
+  process.env.GRIDFORGE_SITE_REF_SECRET = SITE_REF_TEST_SECRET;   // a production deployment refuses to record a site reference without a secret (lib/site-ref.ts)
 });
-afterEach(() => { restore(); delete process.env.ADMIN_PASSWORD; delete process.env.VERCEL_ENV; delete process.env.GRIDFORGE_DATA_ORIGIN; });
+afterEach(() => { restore(); delete process.env.ADMIN_PASSWORD; delete process.env.VERCEL_ENV; delete process.env.GRIDFORGE_DATA_ORIGIN; delete process.env.GRIDFORGE_SITE_REF_SECRET; });
 
 const json = (path: string, body: unknown) =>
   new Request(siteUrl(path), { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) });
@@ -398,11 +402,14 @@ describe("the human review", () => {
     expect((await state(p.token)).observations[0].ledger_blockers).toEqual(["the evidence artifact changed after review"]);
   });
 
-  it("derives the site reference and the engine digest in the database, never from the caller", async () => {
+  it("computes the site reference (salted, server-side) and reads the engine digest from the case revision, never from the caller", async () => {
     const p = await project();
     await submit(p.token, good(p.id, { site_ref: "site_000000000000", engine_provenance_digest: "f".repeat(64) }));
     const row: any = db.rows("project_observations")[0];
-    expect(row.site_ref).toBe(`site_${createHash("sha256").update("dublin dc1").digest("hex").slice(0, 12)}`);
+    // 0053: HMAC-SHA256(GRIDFORGE_SITE_REF_SECRET, "dublin dc1"), not the bare hash and not the value the request body tried to choose
+    expect(row.site_ref).toBe(siteRefFor("Dublin DC1", SITE_REF_TEST_SECRET));
+    expect(row.site_ref).not.toBe("site_000000000000");
+    expect(row.site_ref).not.toBe(`site_${createHash("sha256").update("dublin dc1").digest("hex").slice(0, 12)}`);
     expect(row.engine_provenance_digest).toBe("c".repeat(64));
     expect(row.report_date).toBe("2026-03-01");
   });

@@ -13,6 +13,7 @@
 import { adminToken } from "@/lib/admin";
 import { reviewHash } from "@/lib/deliverables";
 import { sessionRef } from "@/lib/projects";
+import { siteRefFor } from "@/lib/site-ref";
 import fs from "node:fs";
 
 import os from "node:os";
@@ -31,6 +32,7 @@ vi.mock("next/headers", () => ({ cookies: async () => ({ get: (n: string) => jar
 // These journeys prove database behaviour with checkout sessions Stripe has never seen; the release gate that asks Stripe whether a payment still stands is covered in tests/site/release-payment-standing.test.ts.
 vi.mock("@/lib/payment-standing", () => ({ paymentStanding: async () => ({ state: "ok", partial_refund_cents: 0 }) }));
 
+const SITE_REF_SECRET = "realdb-site-ref-secret-0123456789-not-real";
 const PGRST = process.env.GF_PGRST_URL ?? "";
 const JWT = process.env.GF_PGRST_JWT ?? "";
 const enabled = !!PGRST && !!JWT && spawnSync("python3", ["--version"]).status === 0;
@@ -451,15 +453,18 @@ describe.skipIf(!enabled)("observed outcome against a real prediction, on real P
     expect((await obs({ ...input, observed_on: "2026-08-31" })).status).toBe(422);
     expect(await rows("project_observations", `&project_id=eq.${proj.id}`)).toHaveLength(0);
     process.env.VERCEL_ENV = "production";                              // only a production deployment stamps data_origin 'production'
+    process.env.GRIDFORGE_SITE_REF_SECRET = SITE_REF_SECRET;            // and a production deployment will not record a site reference without a secret (0053 / lib/site-ref.ts)
     let sub;
-    try { sub = await j(await obs({ ...input, predicted_value: 12345, data_origin: "synthetic" })); } finally { delete process.env.VERCEL_ENV; }
+    try { sub = await j(await obs({ ...input, predicted_value: 12345, data_origin: "synthetic" })); } finally { delete process.env.VERCEL_ENV; delete process.env.GRIDFORGE_SITE_REF_SECRET; }
     const [row] = await rows("project_observations", `&project_id=eq.${proj.id}`);
     expect(Number(row.predicted_value)).toBeCloseTo(engineMW, 6);          // the engine's, not the caller's
     expect(Number(row.delta_value)).toBeCloseTo(-3, 6);
     expect(sub.observation.state).toBe("submitted");
-    // captured by the database, not the caller: the site-only reference and the engine build that made the prediction
+    // the salted site reference the application computed (migration 0053 stores it as given) - not the old bare hash of the label - and the engine
+    // build that made the prediction, which the database reads from the case revision
     const { createHash } = await import("node:crypto");
-    expect(row.site_ref).toBe(`site_${createHash("sha256").update(site.toLowerCase()).digest("hex").slice(0, 12)}`);
+    expect(row.site_ref).toBe(siteRefFor(site, SITE_REF_SECRET));
+    expect(row.site_ref).not.toBe(`site_${createHash("sha256").update(site.toLowerCase()).digest("hex").slice(0, 12)}`);
     const live = await (await fetch(`${process.env.GRIDFORGE_API_URL}/v1/version`, { headers: { "x-api-key": KEY } })).json();
     expect(row.engine_provenance_digest).toMatch(/^[0-9a-f]{64}$/);
     expect(row.engine_provenance_digest).toBe(live.provenance.digest);       // the running engine's own identity, read around the assessment
@@ -517,7 +522,7 @@ describe.skipIf(!enabled)("observed outcome against a real prediction, on real P
       site_ref: row.site_ref, observed_value: engineMW - 3 })]);
     const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "gf-cal-"));
     fs.writeFileSync(path.join(tmp, "export.json"), JSON.stringify({ ...exported, rows: mine }));
-    const imp = spawnSync("python3", ["-m", "gridforge", "calibrate", "import", path.join(tmp, "export.json"), "--ledger", path.join(tmp, "ledger.json")],
+    const imp = spawnSync("python3", ["-m", "gridforge", "calibrate", "import", path.join(tmp, "export.json"), "--ledger", path.join(tmp, "ledger.json"), "--accept-mixed-refs"],
       { encoding: "utf8", cwd: process.cwd() });
     expect(imp.status, imp.stderr).toBe(0);
     expect(imp.stdout).toMatch(/imported 1 verified/);
@@ -525,7 +530,7 @@ describe.skipIf(!enabled)("observed outcome against a real prediction, on real P
     expect(chain).toHaveLength(1);
     expect(chain[0]).toMatchObject({ source: "import", source_ref: `${row.id}:${mine[0].evidence_sha256}`, model_digest: live.provenance.digest, kind: "measured" });
     expect(chain[0].prev_hash).toBe("0".repeat(64));
-    const again = spawnSync("python3", ["-m", "gridforge", "calibrate", "import", path.join(tmp, "export.json"), "--ledger", path.join(tmp, "ledger.json")],
+    const again = spawnSync("python3", ["-m", "gridforge", "calibrate", "import", path.join(tmp, "export.json"), "--ledger", path.join(tmp, "ledger.json"), "--accept-mixed-refs"],
       { encoding: "utf8", cwd: process.cwd() });
     expect(again.status).toBe(2);                                          // the same row cannot be imported twice
 

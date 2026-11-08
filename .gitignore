@@ -47,6 +47,11 @@ cost_library.local.json
 /walkthrough_deck_sample.html
 calibration.local.json
 calibration.local.json.lock
+.calibration.local.json.*.tmp
+# site references declared to be one site (gridforge calibrate alias): refs of client sites, never committed
+site_ref_aliases.local.json
+site_ref_aliases.local.json.lock
+.site_ref_aliases.local.json.*.tmp
 calibration.records.local.jsonl
 calibration.records.local.jsonl.lock
 .claude/worktrees/

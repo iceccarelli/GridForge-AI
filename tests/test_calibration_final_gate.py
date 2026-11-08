@@ -1,6 +1,6 @@
 """The FINAL calibration gate, read back from a database built by the whole migration chain.
 
-0046, 0047, 0048 and 0052 each replace calibration_ledger_rows, and 0038, 0047 each define gf_submit_observation. The definition that governs is
+0046, 0047, 0048 and 0052 each replace calibration_ledger_rows, and 0038, 0047 and 0053 each define gf_submit_observation. The definition that governs is
 whichever ran last, so a reordered migration, a replay of an older one, or a later migration that redefines the view from an old copy would
 silently weaken the gate without any behavioural test noticing (those build fixtures that happen to satisfy the missing condition). This
 reads what the database ACTUALLY holds at the end of the chain (pg_get_viewdef, pg_get_functiondef, pg_proc, pg_trigger) and fails if any
@@ -41,6 +41,14 @@ VIEW_GATES = {
     "the project was never filed under a non-production site":
         r"NOT \(EXISTS \( SELECT 1 FROM hall_project_attachments hpa JOIN sites st ON st\.id = hpa\.site_id "
         r"WHERE hpa\.project_id = o\.project_id AND st\.data_origin <> 'production'::text\)\)",
+}
+# What 0053's gf_submit_observation must contain to handle site_ref (read back from pg_get_functiondef: a plpgsql body is stored as written, so these
+# are the source lines, whitespace-normalised below).
+SUBMIT_SITE_REF_PARTS = {
+    "reads the supplied value": "supplied text := p->>'site_ref'",
+    "refuses a malformed one with 23514, nothing written": "supplied !~ '^site_[0-9a-f]{12}$' then raise exception 'site_ref must be site_ followed by 12 lowercase hex characters' using errcode = '23514'",
+    "stores the supplied one only for a project with a label": "if label <> '' then site := supplied",
+    "keeps the unsalted derivation for an absent one": "site := case when label <> '' then 'site_' || substr(encode(sha256(convert_to(label, 'UTF8')), 'hex'), 1, 12) end;",
 }
 VIEW_COLUMNS = ["id", "key", "observed_value", "predicted_value", "unit", "site_ref", "measurement_kind", "evidence_sha256",
                 "engine_provenance_digest", "report_date", "observed_on", "method", "evidence_class", "reviewed_by", "reviewed_at"]
@@ -101,9 +109,14 @@ def final_gaps(name):
     cols = scalar(name, "select string_agg(column_name, ',' order by ordinal_position) from information_schema.columns where table_name = 'calibration_ledger_rows'")
     if cols.split(",") != VIEW_COLUMNS:
         gaps.append("view: the column list or order changed")
-    submit = scalar(name, "select pg_get_functiondef('public.gf_submit_observation(jsonb, jsonb)'::regprocedure)")
+    submit = " ".join(scalar(name, "select pg_get_functiondef('public.gf_submit_observation(jsonb, jsonb)'::regprocedure)").split())
     if "data_origin" not in submit:
         gaps.append("gf_submit_observation: does not store data_origin")
+    # 0053: the salted site reference the application computes is taken as given (well formed, project has a label), a malformed one is refused, an
+    # absent one falls back to the unsalted derivation. 0038/0047 ignore the key, so replaying either after 0053 loses this.
+    for label, needle in SUBMIT_SITE_REF_PARTS.items():
+        if needle not in submit:
+            gaps.append(f"gf_submit_observation: site_ref handling lost ({label})")
     review = scalar(name, "select prosecdef::text || '|' || coalesce(array_to_string(proconfig, ','), '') from pg_proc where proname = 'gf_review_evidence'")
     if not review.startswith("true|") or "search_path=" not in review:
         gaps.append("gf_review_evidence: not SECURITY DEFINER with a pinned search_path")
@@ -147,6 +160,36 @@ def test_the_migrations_that_define_the_view_run_in_the_order_the_header_notes_s
     assert holders == ["0038", "0046", "0047", "0048", "0052"], holders
     for f in [*sorted(MIGRATIONS.glob("004[678]_*.sql")), *sorted(MIGRATIONS.glob("0052_*.sql"))]:
         assert "REPLAY ORDER" in f.read_text(), f.name
+
+
+def test_gf_submit_observation_is_defined_by_exactly_the_migrations_the_header_notes_and_0053_governs():
+    """0017, 0038, 0047 and 0053 define it; the governing one is the last, 0053 (it takes the salted site_ref). A further definition would be a new
+    deliberate decision that must update this test, not an accident."""
+    holders = [f.name[:4] for f in sorted(MIGRATIONS.glob("*.sql")) if "create or replace function public.gf_submit_observation" in f.read_text()]
+    assert holders == ["0017", "0038", "0047", "0053"], holders
+    for f in [*sorted(MIGRATIONS.glob("0047_*.sql")), *sorted(MIGRATIONS.glob("0053_*.sql"))]:
+        assert "REPLAY ORDER" in f.read_text(), f.name
+    assert "WRITTEN, NOT APPLIED" in next(MIGRATIONS.glob("0053_*.sql")).read_text()[:2500]
+
+
+@pytest.mark.parametrize("older", ["0038", "0047"])
+def test_replaying_0038_or_0047_after_0053_loses_the_site_ref_handling_and_is_reported(older):
+    """The replay-order guard for the function: the older body ignores a supplied site_ref and derives the unsalted hash again. Run last, it must be named;
+    replaying 0053 afterwards restores it."""
+    name = make_database()
+    try:
+        assert final_gaps(name) == []
+        psql(name, file=next(MIGRATIONS.glob(f"{older}_*.sql")))
+        gaps = final_gaps(name)
+        assert any(g.startswith("gf_submit_observation: site_ref handling lost") for g in gaps), gaps
+        # the unsalted derivation is in the older bodies too; the other three parts are what was lost
+        assert sum(g.startswith("gf_submit_observation: site_ref handling lost") for g in gaps) == len(SUBMIT_SITE_REF_PARTS) - 1, gaps
+        psql(name, file=next(MIGRATIONS.glob("0048_*.sql")))
+        psql(name, file=next(MIGRATIONS.glob("0052_*.sql")))
+        psql(name, file=next(MIGRATIONS.glob("0053_*.sql")))
+        assert final_gaps(name) == []
+    finally:
+        drop_database(name)
 
 
 def test_the_reader_bites_replaying_an_older_migration_last_is_reported_as_gaps():

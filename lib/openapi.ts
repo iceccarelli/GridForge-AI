@@ -317,13 +317,20 @@ const REGISTRY_PATHS: Record<string, Record<string, unknown>> = {
     post: {
       operationId: "attachProjectToHall",
       summary: "Attach an existing project to the hall by its link token. Editors and owners.",
-      description: "The project's link token is the credential for that engagement and is never returned. Attaching makes the project's history, supplier dates and observations appear on the hall's timeline, and writes a project_attached_to_hall event to the project's own log. A project is in at most one hall at a time. A project attached to a test or synthetic site is not eligible for the calibration ledger.",
+      description: "The project's link token is the credential for that engagement and is never returned. Attaching makes the project's history, supplier dates and observations appear on the hall's timeline, and writes a project_attached_to_hall event to the project's own log. A project is in at most one hall at a time. A project attached to a test or synthetic site is not eligible for the calibration ledger, and that is permanent: attaching to such a site is refused with 422 unless the request carries confirmNonProductionSite: true. That confirmation is enforced by this route, not by the database function (the calibration ledger gate is the backstop behind it).",
       parameters: [idParam("id", "The hall.")],
-      requestBody: jsonBody({ type: "object", required: ["projectToken"], additionalProperties: false, properties: { projectToken: { type: "string", minLength: 8, maxLength: 200 } } }),
+      requestBody: jsonBody({
+        type: "object", required: ["projectToken"], additionalProperties: false,
+        properties: {
+          projectToken: { type: "string", minLength: 8, maxLength: 200 },
+          confirmNonProductionSite: { type: "boolean", description: "Must be exactly true to attach to a hall whose site is test or synthetic; it changes nothing for a production site. Any other type is a 400." },
+        },
+      }),
       responses: {
         "200": success("The project was already attached to this hall.", envelope({ projectId: { type: "string", format: "uuid" }, projectName: { type: "string" }, alreadyAttached: { type: "boolean", const: true } }, ["projectId", "projectName", "alreadyAttached"])),
         "201": success("Attached.", envelope({ projectId: { type: "string", format: "uuid" }, projectName: { type: "string" }, alreadyAttached: { type: "boolean", const: false } }, ["projectId", "projectName", "alreadyAttached"])),
         ...WRITE, "404": failure("No such hall, or no project has that link token."), "409": failure("The project already belongs to another hall; it has to be detached from it first (reason project_in_other_hall)."),
+        "422": failure("The hall's site is test or synthetic and the request did not carry confirmNonProductionSite: true (reason non_production_site_unconfirmed; the body also names dataOrigin). Attaching a project to a test or synthetic site PERMANENTLY excludes its observations from the calibration ledger; detaching does not undo it. Nothing was written. Send true to confirm."),
       },
     },
     delete: {
