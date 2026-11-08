@@ -6,7 +6,7 @@
 // figures the engine gave are equal.
 
 import type { CompareResult, CompareScenario } from "@/lib/ttp-compare";
-import { basisLabel } from "@/lib/cost-evidence-claims";
+import { basisLabel } from "@/lib/cost-evidence-labels";
 
 /** The effect as the engine sends it. The site's CompareCostEvidence type names the fields the buyer page needs; this names all of them. */
 export interface EngineStepChange {
