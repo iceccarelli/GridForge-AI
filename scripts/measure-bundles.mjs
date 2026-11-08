@@ -29,6 +29,19 @@ const DEFAULT_ROUTES = [
   "/reference",
   "/constraints",
   "/evidence",
+  "/products/density-screen",
+  "/constraints/busway-ampacity",
+  "/for/ai-operators",
+  "/lead-times",
+  "/commissioned",
+  "/platforms",
+  "/observatory",
+  "/observatory/presenter",
+  "/legal/terms",
+  "/legal/privacy",
+  "/legal/security",
+  "/guides/nameplate-vs-useful-compute",
+  "/account/sites",
 ];
 
 function arg(name, fallback) {

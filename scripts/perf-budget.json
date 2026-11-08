@@ -1,6 +1,7 @@
 {
-  "_comment": "Max first-load JavaScript per route, transferred kB (gzip over the wire), 375 px mobile viewport, cold cache, production build (npm run build && npx next start -p 3140; node scripts/measure-bundles.mjs). Each value is the measured figure at the time of writing plus 10%. Lab bytes, not Core Web Vitals. Enforced by tests/site/perf-budget.test.ts when PERF_BASE_URL is set.",
+  "_comment": "Max first-load JavaScript per route, transferred kB (gzip over the wire), 375 px mobile viewport, cold cache, production build (npm run build && npx next start -p 3140; node scripts/measure-bundles.mjs). Each value is the measured figure at the time of writing plus 10%. Lab bytes, not Core Web Vitals. Enforced by tests/site/perf-budget.test.ts against a live production server: by the `site` CI job on every pull request, and by hand with PERF_BASE_URL set. It is a ratchet: lower a number when a route gets lighter; raise one only by a deliberate, reviewed edit.",
   "measured_on": "2026-11-03",
+  "coverage_added_on": "2026-11-08 (13 routes added from a measurement plus 10%: /products/density-screen /constraints/busway-ampacity /for/ai-operators /lead-times /commissioned /platforms /observatory /observatory/presenter /legal/* /guides/nameplate-vs-useful-compute /account/sites)",
   "viewport": "375x800 mobile",
   "routes": {
     "/": 179.1,
@@ -20,6 +21,19 @@
     "/contact": 168.7,
     "/reference": 168.7,
     "/constraints": 168.7,
-    "/evidence": 168.7
+    "/evidence": 168.7,
+    "/products/density-screen": 193.2,
+    "/constraints/busway-ampacity": 176.2,
+    "/for/ai-operators": 177.5,
+    "/lead-times": 177.7,
+    "/commissioned": 180.0,
+    "/platforms": 176.2,
+    "/observatory": 198.1,
+    "/observatory/presenter": 183.9,
+    "/legal/terms": 176.1,
+    "/legal/privacy": 176.1,
+    "/legal/security": 176.1,
+    "/guides/nameplate-vs-useful-compute": 176.1,
+    "/account/sites": 209.9
   }
 }

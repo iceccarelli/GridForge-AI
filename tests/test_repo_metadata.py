@@ -1,0 +1,154 @@
+"""Repository metadata that nothing else exercises: the font licences we are bound by, and the dependency-update configuration.
+
+No YAML dependency (see tests/workflow_jobs.py): dependabot.yml is a small, flat file and is read as one.
+"""
+from __future__ import annotations
+
+import re
+from pathlib import Path
+
+ROOT = Path(__file__).resolve().parent.parent
+
+# ---- fonts: SIL Open Font License notices ---------------------------------------------------------------------------------------
+
+#: Every directory that ships font files must ship the licence next to them (OFL 1.1 condition 2: the copyright notice and the licence
+#: travel with every copy). app/fonts is what the site's CSS embeds; public/reference/fonts is what the reference pages serve.
+FONT_DIRS = [ROOT / "app" / "fonts", ROOT / "public" / "reference" / "fonts"]
+#: filename prefix -> (family, a string every notice for that family must carry)
+FAMILIES = {
+    "inter": ("Inter", "Inter Project Authors (https://github.com/rsms/inter)"),
+    "jetbrains-mono": ("JetBrains Mono", "github.com/JetBrains/JetBrainsMono"),
+}
+FONT_SUFFIXES = {".woff2", ".woff", ".ttf", ".otf", ".eot"}
+
+
+def _ofl(d: Path) -> bytes:
+    return (d / "OFL.txt").read_bytes()
+
+
+def test_each_font_directory_ships_its_licence():
+    for d in FONT_DIRS:
+        assert (d / "OFL.txt").is_file(), f"{d.relative_to(ROOT)} ships fonts without OFL.txt"
+
+
+def test_the_two_licence_copies_are_byte_identical():
+    a, b = (_ofl(d) for d in FONT_DIRS)
+    assert a == b, "app/fonts/OFL.txt and public/reference/fonts/OFL.txt differ; they are one notice in two places"
+
+
+def test_the_notice_starts_with_the_copyright_lines_and_the_ofl_header():
+    text = _ofl(FONT_DIRS[0]).decode("utf-8")
+    lines = text.splitlines()
+    assert lines[0].startswith("Copyright "), "the notice must open with the copyright statement"
+    head = "\n".join(lines[:8])
+    assert "This Font Software is licensed under the SIL Open Font License, Version 1.1." in head
+    assert "SIL OPEN FONT LICENSE Version 1.1 - 26 February 2007" in text
+    for section in ("PREAMBLE", "DEFINITIONS", "TERMINATION", "DISCLAIMER"):
+        assert section in text, f"the licence text lost its {section} section"
+    assert "PERMISSION" in text and "CONDITIONS" in text
+    assert text.endswith("\n"), "a trailing newline keeps the file diff-clean"
+    assert "\r" not in text, "CRLF line endings"
+
+
+def test_the_notice_carries_a_copyright_line_for_every_font_family_shipped():
+    text = _ofl(FONT_DIRS[0]).decode("utf-8")
+    copyright_lines = [ln for ln in text.splitlines() if ln.startswith("Copyright ")]
+    assert len(copyright_lines) >= len(FAMILIES), copyright_lines
+    for prefix, (family, marker) in FAMILIES.items():
+        hits = [ln for ln in copyright_lines if marker in ln]
+        assert hits, f"no copyright line for {family} (expected one containing {marker!r}); lines: {copyright_lines}"
+        assert re.search(r"\b20\d\d\b", hits[0]), f"the {family} copyright line has no year: {hits[0]}"
+
+
+def test_only_the_families_the_notice_covers_are_shipped():
+    """A new font dropped into either directory without a notice would ship under a licence nobody read."""
+    for d in FONT_DIRS:
+        fonts = [p for p in d.iterdir() if p.suffix.lower() in FONT_SUFFIXES]
+        assert fonts, f"{d.relative_to(ROOT)} has no fonts; delete its OFL.txt or restore them"
+        for p in fonts:
+            assert any(p.name.startswith(prefix + "-") for prefix in FAMILIES), f"{p.relative_to(ROOT)} is a font the OFL notice does not cover"
+        shipped = {pre for pre in FAMILIES if any(p.name.startswith(pre + "-") for p in fonts)}
+        assert shipped == set(FAMILIES), f"{d.relative_to(ROOT)} ships {sorted(shipped)}; the notice covers {sorted(FAMILIES)}"
+
+
+# ---- dependabot ------------------------------------------------------------------------------------------------------------------
+
+DEPENDABOT = ROOT / ".github" / "dependabot.yml"
+ECOSYSTEM_MARKER = {  # package-ecosystem -> a file that must exist in the directory it is pointed at
+    "npm": ("package.json", "package-lock.json"),
+    "pip": ("pyproject.toml",),
+    "github-actions": (".github/workflows",),
+}
+UPDATE_KEYS = {
+    "package-ecosystem", "directory", "directories", "schedule", "open-pull-requests-limit", "groups", "ignore", "labels",
+    "commit-message", "reviewers", "assignees", "milestone", "target-branch", "versioning-strategy", "rebase-strategy",
+    "pull-request-branch-name", "insecure-external-code-execution", "registries", "vendor", "allow", "cooldown",
+    "enable-beta-ecosystems", "exclude-paths",
+}
+INTERVALS = {"daily", "weekly", "monthly", "quarterly", "semiannually", "yearly", "cron"}
+
+
+def _updates() -> tuple[str, list[dict[str, str]]]:
+    """(version, [one flat dict per `- package-ecosystem:` entry; nested keys are recorded as 'schedule.interval'])"""
+    version, entries, cur, nest = "", [], None, ""
+    for raw in DEPENDABOT.read_text().splitlines():
+        if not raw.strip() or raw.lstrip().startswith("#"):
+            continue
+        ind = len(raw) - len(raw.lstrip())
+        line = raw.strip()
+        if ind == 0:
+            m = re.fullmatch(r"version:\s*(\S+)", line)
+            if m:
+                version = m.group(1)
+            nest = ""
+            continue
+        if ind == 2 and line.startswith("- "):
+            cur = {}
+            entries.append(cur)
+            line = line[2:]
+            ind = 4
+            nest = ""
+        if cur is None:
+            continue
+        m = re.fullmatch(r"([\w-]+):\s*(.*)", line)
+        assert m, f"cannot read dependabot.yml line: {raw}"
+        k, v = m.group(1), m.group(2).strip().strip("\"'")
+        if ind == 4:
+            nest = k if not v else ""
+            cur[k] = v
+        else:
+            cur[f"{nest}.{k}" if nest else k] = v
+    return version, entries
+
+
+def test_dependabot_is_version_2_with_the_three_ecosystems_this_repository_uses():
+    version, entries = _updates()
+    assert version == "2"
+    assert sorted(e["package-ecosystem"] for e in entries) == ["github-actions", "npm", "pip"]
+
+
+def test_dependabot_entries_use_only_known_keys_and_intervals():
+    _, entries = _updates()
+    for e in entries:
+        top = {k.split(".")[0] for k in e}
+        assert top <= UPDATE_KEYS, f"{e['package-ecosystem']}: unknown dependabot keys {sorted(top - UPDATE_KEYS)}"
+        assert "directory" in e or "directories" in e, f"{e['package-ecosystem']}: no directory"
+        assert e.get("schedule.interval") in INTERVALS, f"{e['package-ecosystem']}: schedule.interval {e.get('schedule.interval')!r}"
+        limit = e.get("open-pull-requests-limit")
+        assert limit is None or (limit.isdigit() and int(limit) >= 0), limit
+
+
+def test_every_directory_dependabot_watches_exists_and_holds_what_the_ecosystem_reads():
+    _, entries = _updates()
+    for e in entries:
+        d = ROOT / e["directory"].lstrip("/")
+        assert d.is_dir(), f"{e['package-ecosystem']}: directory {e['directory']!r} does not exist"
+        for marker in ECOSYSTEM_MARKER[e["package-ecosystem"]]:
+            assert (d / marker).exists(), f"{e['package-ecosystem']}: {e['directory']} has no {marker}"
+
+
+def test_the_reference_build_copies_the_licence_so_a_fresh_run_does_not_delete_it():
+    """public/reference is rebuilt from scratch by scripts/build-reference.sh and CI fails if a fresh run differs from the commit.
+    A hand-placed public/reference/fonts/OFL.txt that the script does not write is deleted by that run (main went red this way)."""
+    src = (ROOT / "scripts" / "build-reference.sh").read_text()
+    assert 'cp app/fonts/OFL.txt "$OUT/fonts/OFL.txt"' in src

@@ -532,6 +532,11 @@ jobs:
           # can be told a table does not exist — which is how `subscriptions` and
           # `scenarios` shipped with no migration and nobody noticed.
           npm test
+        env:
+          # tests/site/perf-budget.test.ts FAILS in CI unless it can measure a running build, and there is no build yet at this point.
+          # The deferral is explicit and is measured by the step "No route may ship more first-load JavaScript..." below, which sets
+          # PERF_BASE_URL instead. tests/test_ops_ci_workflow.py allows this variable on this one step and nowhere else.
+          PERF_BUDGET_DEFERRED: '1'
       - name: Build (card URLs are made absolute from NEXT_PUBLIC_SITE_URL, so the origin the check below serves from is set here)
         run: npm run build
         env:
@@ -543,6 +548,38 @@ jobs:
           NEXT_PUBLIC_SITE_URL=http://127.0.0.1:3941 SITE_URL=http://127.0.0.1:3941 npx next start -p 3941 > /tmp/next-start.log 2>&1 &
           for i in $(seq 1 60); do curl -sf -o /dev/null http://127.0.0.1:3941/ && break; sleep 1; done
           node scripts/check-share-cards.mjs http://127.0.0.1:3941 || { tail -30 /tmp/next-start.log; exit 1; }
+      - name: No route may ship more first-load JavaScript than scripts/perf-budget.json allows (production server, real browser)
+        # The budget is a ratchet and used to be enforced only by whoever remembered to set PERF_BASE_URL by hand, which is how /pricing
+        # went over unnoticed. This starts the production build on its own port, waits until it answers 200, measures every budgeted route
+        # in Chromium at 375 px (scripts/measure-bundles.mjs) and fails the job if ANY route is over its number. It never raises a budget:
+        # a deliberate increase is an edit to scripts/perf-budget.json in the pull request, where a reviewer sees it. The server is
+        # always stopped (trap), and a server that never comes up fails the step with its own log, not with a timeout in the browser.
+        # Playwright is installed to a scratch prefix, not into package.json: only this lab measurement needs it.
+        timeout-minutes: 20
+        env:
+          PERF_PORT: '3140'
+          PLAYWRIGHT_VERSION: '1.63.0'
+        run: |
+          set -euo pipefail
+          PW=/tmp/perf-playwright
+          mkdir -p "$PW"
+          npm install --prefix "$PW" --no-audit --no-fund --loglevel=error "playwright@${PLAYWRIGHT_VERSION}"
+          "$PW/node_modules/.bin/playwright" install --with-deps chromium
+          SITE_URL="http://127.0.0.1:${PERF_PORT}" ./node_modules/.bin/next start -p "$PERF_PORT" > /tmp/perf-next-start.log 2>&1 &
+          SERVER_PID=$!
+          trap 'kill "$SERVER_PID" 2>/dev/null || true' EXIT
+          up=0
+          for i in $(seq 1 60); do
+            if [ "$(curl -s -o /dev/null -w '%{http_code}' "http://127.0.0.1:${PERF_PORT}/" || true)" = "200" ]; then up=1; break; fi
+            kill -0 "$SERVER_PID" 2>/dev/null || break
+            sleep 1
+          done
+          if [ "$up" != "1" ]; then
+            echo "::error::the production server did not answer HTTP 200 on port ${PERF_PORT} within 60 s, so the JavaScript budget was NOT measured"
+            tail -40 /tmp/perf-next-start.log
+            exit 1
+          fi
+          PERF_BASE_URL="http://127.0.0.1:${PERF_PORT}" NODE_PATH="$PW/node_modules" npx vitest run tests/site/perf-budget.test.ts
       - name: A token-addressed page may not be indexed or leak
         run: |
           node -e "
