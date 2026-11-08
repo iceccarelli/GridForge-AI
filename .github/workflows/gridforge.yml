@@ -20,7 +20,7 @@ jobs:
         python-version: ['3.11', '3.12', '3.13']
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@v7
         with:
           python-version: ${{ matrix.python-version }}
       - name: Install test dependency only
@@ -52,7 +52,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@v7
         with:
           python-version: '3.13'
       - name: Blank intake must survive every command
@@ -208,7 +208,7 @@ jobs:
     # longer keep. Regenerate it here and fail on any byte of difference.
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@v7
         with:
           python-version: '3.13'
       - name: Regenerate the published worked example
@@ -328,7 +328,7 @@ jobs:
     # regenerate it here (same discipline as the `reference` job) and fail on any byte of difference.
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@v7
         with:
           python-version: '3.13'
       - name: Install test dependency only
@@ -355,7 +355,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@v7
         with:
           python-version: '3.13'
       - name: Start the engine
@@ -560,7 +560,7 @@ jobs:
           }
           console.log('token-addressed pages are closed');
           "
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@v7
         with:
           python-version: '3.13'
       - name: Every purchased deliverable has a generation path
@@ -653,7 +653,7 @@ jobs:
       GF_REQUIRE_REALDB: "1"
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@v7
         with:
           python-version: '3.13'
       - uses: actions/setup-node@v4
@@ -760,7 +760,7 @@ jobs:
       GF_REQUIRE_REAL_STORAGE: "1"
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@v7
         with:
           python-version: '3.13'
       - uses: actions/setup-node@v4
