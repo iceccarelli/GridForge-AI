@@ -83,7 +83,7 @@ export default async function PlatformPage({ params }: { params: Promise<{ id: s
         <Link href="/" className="hover:text-power">Home</Link> /{" "}
         <Link href="/platforms" className="hover:text-power">Platforms</Link> / <span className="text-mute">{p.name}</span>
       </nav>
-      <p className="font-mono text-[11px] uppercase tracking-[0.18em] text-power">Platform library · {p.status}</p>
+      <p className="font-mono text-[11px] uppercase tracking-[0.18em] text-power">Rack library · {p.status}</p>
       <h1 className="mt-3 text-3xl font-semibold leading-tight text-ghost sm:text-4xl">
         What a {p.name} rack asks of an existing hall
       </h1>
@@ -156,7 +156,7 @@ export default async function PlatformPage({ params }: { params: Promise<{ id: s
         <p className="mt-3 text-sm text-faint">
           Vendor-sourced values are marked as such in the provenance of every study they appear in. Platforms whose rack power is
           unpublished are deliberately absent from the library; see the{" "}
-          <Link href="/platforms" className="text-power underline">platform library</Link>.
+          <Link href="/platforms" className="text-power underline">rack library</Link>.
         </p>
       </section>
 

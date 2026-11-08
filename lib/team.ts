@@ -2,7 +2,7 @@
 //
 // lib/products.ts declares how many seats each plan has. This module is where that number stops being a label:
 //
-//   - The owner is the subscription's billing address and is always one seat. Developer 1, Team 5, Enterprise unlimited.
+//   - The owner is the subscription's billing address and is always one seat. Solo 1, Team 5, Organisation unlimited (display names; the plan keys are developer, team, enterprise).
 //   - Inviting reserves a seat; accepting claims it; removing or revoking frees it. All of it runs inside the database
 //     (gf_invite_member / gf_accept_invitation) under a row lock on the owner's subscription, so two people racing for
 //     the last seat cannot both get it. Nothing here counts seats in TypeScript and then writes: a check-then-write in

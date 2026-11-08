@@ -181,7 +181,7 @@ machine description of the same operations is ${SITE}/openapi.json.
 
 ## What this is, and what it is not
 
-What it is: a screening engine for existing data halls, and a published reference of the thirteen constraints and the rack platform library it
+What it is: a screening engine for existing data halls, and a published reference of the thirteen constraints and the rack library (the engine's platform library) it
 uses. Seven numbers about a hall go in; the constraint that binds first comes out, with the racks the hall carries as found and after relief,
 the item that sets the time to power, and the inputs nobody has measured. Output is planning-grade screening, not an issued engineering opinion.
 
@@ -248,7 +248,7 @@ Machine-readable index: ${SITE}/reference/constraints.json
 
 ${constraintLines}
 
-## Platform library
+## Rack library (the engine's platform library)
 
 Machine-readable: ${SITE}/reference/platforms.json
 
@@ -275,7 +275,7 @@ ${absent}
 - ${SITE}/qualify — the free capacity qualifier (seven numbers in, the binding constraint out)
 - ${SITE}/reference — the worked example, with its calibration record
 - ${SITE}/constraints — the thirteen constraints, one page each
-- ${SITE}/platforms — the rack platform library, with a page per sourced, non-generic platform
+- ${SITE}/platforms — the rack library (the engine's platform library), with a page per sourced, non-generic platform
 - ${SITE}/evidence — the evidence classes E0 to E7, the calibration status, and the register of market figures with how each was checked (#market-figures)
 - ${SITE}/guides/nameplate-vs-useful-compute — how the usable rack count of an existing hall is decided, with a worked example from the synthetic reference hall
 - ${SITE}/contact — how to reach the founder and what to include
@@ -285,7 +285,7 @@ ${absent}
 - ${SITE}/pricing — every price in one place
 - ${SITE}/observatory — scenario demonstrations on live public data
 - ${SITE}/intelligence — the Intelligence subscription: a modelled ranking of regions by time to energize, measured US queue history (LBNL) and day-ahead market context, each input labelled with its source and basis; not a verified-site portfolio
-- ${SITE}/developers — the machine interface; OpenAPI at ${SITE}/openapi.json
+- ${SITE}/developers — API and MCP, the machine interface; OpenAPI at ${SITE}/openapi.json
 
 ## What can be bought
 

@@ -169,7 +169,7 @@ export default function TeamPanel({ headers }: { headers: () => Promise<Record<s
       {full && (
         <p className="data text-[10px] text-faint mt-2">
           {t.seats === 1
-            ? "The Developer plan has one seat, the billing owner's. A larger plan adds seats."
+            ? "The Solo plan has one seat, the billing owner's. A larger plan adds seats."
             : "Remove a member or revoke an invitation to free a seat."}
         </p>
       )}

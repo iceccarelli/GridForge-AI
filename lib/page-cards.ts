@@ -30,7 +30,7 @@ export const PAGE_CARDS: Record<string, CardContent> = {
     facts: ["Density Screen", "Envelope Study", "Procurement Specification", "Hall Watch"],
   },
   platforms: {
-    kicker: "Platform library",
+    kicker: "Rack library",
     title: "What an existing hall is asked to carry",
     subtitle: "Published rack power, liquid share, flow and floor loading, with sources, and the platforms deliberately left out.",
     facts: ["Manufacturer-published", "Sources listed"],

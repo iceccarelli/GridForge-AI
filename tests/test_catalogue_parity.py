@@ -201,6 +201,53 @@ def test_every_intelligence_tier_is_priced_and_ordered():
     assert all(p > 0 for p in prices)
 
 
+# --- names: unique, and one thing per word ------------------------------------------------------
+# Display names only. The keys (developer, team, enterprise), the product ids, the prices and the Stripe metadata are what billing reads, and they
+# do not change when a name does. tests/site/definitions.test.ts holds the same rule over the navigation, the audiences and the OpenAPI operation ids.
+
+INTELLIGENCE_DISPLAY_NAMES = {"developer": "Solo", "team": "Team", "enterprise": "Organisation"}
+
+
+def test_intelligence_display_names_are_pinned_and_the_keys_are_untouched():
+    plans = intelligence_plans()
+    assert {k: v["name"] for k, v in plans.items()} == INTELLIGENCE_DISPLAY_NAMES
+    assert {k: v["priceCents"] for k, v in plans.items()} == {"developer": 49_900, "team": 199_900, "enterprise": 499_900}
+
+
+def test_every_name_in_the_catalogue_is_unique_case_insensitively():
+    site = [p["name"] for p in ts_products().values()]
+    intelligence = [p["name"] for p in intelligence_plans().values()]
+    engine = [a.name for a in API_PLANS.values()] + [e.name for e in ENGAGEMENTS.values()]
+    for group in (site, intelligence, engine, site + intelligence):
+        lowered = [n.lower() for n in group]
+        assert len(lowered) == len(set(lowered)), f"two catalogue entries share a name: {sorted(group)}"
+
+
+def test_no_intelligence_plan_name_is_the_name_of_something_the_engine_sells():
+    """'Developer' was the API audience's word, and 'Enterprise' a segment of data-centre owner. A plan name must not be one of the engine's
+    plan or engagement names, nor contain the words that name another surface (developer, platform, screen)."""
+    engine = {a.name.lower() for a in API_PLANS.values()} | {e.name.lower() for e in ENGAGEMENTS.values()}
+    site = {p["name"].lower() for p in ts_products().values()}
+    for name in INTELLIGENCE_DISPLAY_NAMES.values():
+        assert name.lower() not in engine | site
+        assert not re_words(name, ("developer", "developers", "platform", "platforms", "screen", "enterprise"))
+
+
+def re_words(name: str, words: tuple[str, ...]) -> list[str]:
+    import re
+    return [w for w in words if re.search(rf"\b{w}\b", name, re.I)]
+
+
+def test_the_word_platform_is_a_name_only_for_the_api_plan_and_screen_only_in_two_qualified_names():
+    names = [p["name"] for p in ts_products().values()] + list(INTELLIGENCE_DISPLAY_NAMES.values())
+    assert sorted({n for n in names if re_words(n, ("platform", "platforms"))}) == ["API — Platform"]
+    screens = {n.replace(" — deposit", "") for n in names if re_words(n, ("screen",))}
+    assert screens == {"Density Screen", "Portfolio Screen"}
+    # the API plan's name is the engine's: the site cannot rename it alone
+    assert API_PLANS["api_platform"].name == "API — Platform"
+    assert {a.name for a in ENGAGEMENTS.values() if re_words(a.name, ("screen",))} == {"Density Screen", "Portfolio Screen"}
+
+
 def test_intelligence_never_looks_like_a_substitute_for_the_study():
     """The same rule already applied to the API plans, and for the same reason: a
     monthly subscription that reads as comparable in price to the flagship study is

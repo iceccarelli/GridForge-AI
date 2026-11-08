@@ -242,7 +242,7 @@ describe("the capabilities the registry used to omit", () => {
     expect(INTELLIGENCE_PLANS.team.seats).toBe(5);
     expect(INTELLIGENCE_PLANS.enterprise.seats).toBeNull();
     const c = cap("intelligence_team_seats");
-    expect(c.description).toMatch(/Developer 1, Team 5, Enterprise unlimited/);
+    expect(c.description).toMatch(/Solo 1, Team 5, Organisation unlimited/);
     expect(c.stripe_product_or_price).toBe("none");
   });
 
