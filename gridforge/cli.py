@@ -552,7 +552,8 @@ def _cmd_calibrate(args) -> int:
     from .calibration.keys import known
     from .calibration.ledger import (BUNDLED_PATH, LedgerIntegrityError, append_observation, import_export,
                                      private_path)
-    from .calibration.schema import site_ref
+    from .calibration import siteref
+    from .calibration.ledger import _read, site_aliases
     from .validation.evidence import EvidenceClass as _EvidenceClass
 
     if args.cal_cmd == "where":
@@ -561,6 +562,12 @@ def _cmd_calibrate(args) -> int:
               f"{'' if private_path().exists() else '   [not created yet]'}")
         led = load_ledger()
         print(f"  observations in effect                       : {len(led.observations)}")
+        try:
+            n_alias = len(site_aliases())
+        except ObservationError as exc:
+            print(f"refused: {exc}", file=sys.stderr)
+            return 2
+        print(f"  unsalted -> keyed site aliases declared      : {n_alias}")
         print(f"  sites                                        : "
               f"{len({o.site for o in led.observations})}"
               f"  (halls: {len({o.site_ref for o in led.observations})})")
@@ -593,6 +600,31 @@ def _cmd_calibrate(args) -> int:
         else:
             print(f"imported {out['imported']} verified observation(s) -> {out['path']} "
                   f"(ledger now holds {out['ledger_observations']})")
+            print(f"  site references re-keyed by your alias file: {out['rekeyed']} of {out['imported']} "
+                  f"({out['aliases']} alias(es) declared)")
+            print("  NOTE: an export made before migration 0053 is applied carries UNSALTED site references, later ones KEYED ones, and a reference does "
+                  "not say which. The same site under both counts as TWO sites until you declare it: `gridforge calibrate alias --site 'NAME'`. "
+                  "Declare every site that was exported before and after 0053.", file=sys.stderr)
+        return 0
+
+    if args.cal_cmd == "alias":
+        if not args.site.strip():
+            print("usage: gridforge calibrate alias --site 'NAME' [--ledger PATH]: declares that the unsalted (pre-0053) and the keyed reference of "
+                  "NAME are ONE site", file=sys.stderr)
+            return 2
+        key, source = siteref.resolve_key()
+        note = siteref.key_warning(source)
+        if note:
+            siteref.warn(note)
+        try:
+            legacy, keyed = siteref.legacy_site_only_ref(args.site), siteref.keyed_site_only_ref(args.site, key)
+            where = siteref.alias_path(private=Path(args.ledger) if args.ledger else private_path())
+            added = siteref.add_alias(where, legacy, keyed)
+        except siteref.SiteRefError as exc:
+            print(f"refused: {exc}", file=sys.stderr)
+            return 2
+        print(f"{'recorded' if added else 'already recorded'}: {legacy} (unsalted) -> {keyed} (keyed) in {where}")
+        print("  from now on the ledger reads both as one site; the chained ledger file itself is not edited.")
         return 0
 
     if args.cal_cmd == "keys":
@@ -630,8 +662,21 @@ def _cmd_calibrate(args) -> int:
               "non-reversible site reference.", file=sys.stderr)
         return 2
     try:
+        key, source = siteref.resolve_key()
+        legacy = siteref.legacy_site_only_ref(args.site)
+        ledger_file = Path(args.ledger) if args.ledger else private_path()
+        # The ledger may already hold this site under its UNSALTED reference (a row from before migration 0053). Writing the keyed one beside it would
+        # silently make one site count as two, so it is refused until the operator declares them one site.
+        if legacy not in site_aliases(ledger_file) and any(o.site == legacy for o in _read(ledger_file)):
+            print(f"refused: this ledger already holds {args.site!r} under its UNSALTED site reference ({legacy}). Recording the keyed reference "
+                  f"beside it would make one site count as two. Declare them one site first: `gridforge calibrate alias --site {args.site!r}`. "
+                  f"Nothing was written.", file=sys.stderr)
+            return 2
+        note = siteref.key_warning(source)
+        if note:
+            siteref.warn(note)
         obs = Observation(
-            key=args.key, site_ref=site_ref(args.site, args.hall),
+            key=args.key, site_ref=siteref.keyed_site_ref(args.site, args.hall, key),
             predicted=float(args.predicted), observed=float(args.observed),
             unit=args.unit, observed_on=args.on,
             evidence=_EvidenceClass[args.evidence], method=args.method,
@@ -644,7 +689,7 @@ def _cmd_calibrate(args) -> int:
     except KeyError:
         print(f"unknown evidence class {args.evidence!r}", file=sys.stderr)
         return 2
-    except ObservationError as exc:
+    except (ObservationError, siteref.SiteRefError) as exc:
         print(f"refused: {exc}", file=sys.stderr)
         return 2
     try:
@@ -1225,7 +1270,7 @@ def main(argv: list[str] | None = None) -> int:
 
     s = sub.add_parser("calibrate",
                        help="the accuracy record: model vs what the site turned out to be")
-    s.add_argument("cal_cmd", choices=["show", "add", "keys", "where", "import"])
+    s.add_argument("cal_cmd", choices=["show", "add", "keys", "where", "import", "alias"])
     s.add_argument("export", nargs="?", default="",
                    help="import: the admin calibration export (GET /api/admin/calibration-export), saved as JSON")
     s.add_argument("--kind", default="measured",
@@ -1237,7 +1282,9 @@ def main(argv: list[str] | None = None) -> int:
     s.add_argument("--reviewed-by", default="", help="self-asserted reviewer name")
     s.add_argument("--reviewed-at", default="", help="ISO date or timestamp of the review")
     s.add_argument("--key", default="", help="`gridforge calibrate keys` lists them")
-    s.add_argument("--site", default="", help="client site name — hashed, never stored")
+    s.add_argument("--site", default="",
+                   help="client site name — hashed with a secret (GRIDFORGE_SITE_REF_SECRET, else GRIDFORGE_KEY_SECRET), never stored. "
+                        "alias: declares the site's unsalted (pre-0053) and keyed references to be one site. Rotating the secret changes every reference.")
     s.add_argument("--hall", default="", help="hall id — hashed with the site name")
     s.add_argument("--predicted", default="0", help="what this engine said")
     s.add_argument("--observed", default="0", help="what the site turned out to be")

@@ -17,7 +17,7 @@ MINIMUM_EVIDENCE = EvidenceClass.E5_CUSTOMER_DATA
 
 KEY_RE = re.compile(r"^[a-z0-9_]+\.[A-Za-z0-9_.]+$")
 #: "site_" + 12 hex of the site alone, optionally "-" + 8 hex of site+hall. The part before "-" is the SITE.
-SITE_REF_RE = re.compile(r"^site_[0-9a-f]{12}(-[0-9a-f]{8})?$")
+SITE_REF_RE = re.compile(r"^site_[0-9a-f]{12}(-[0-9a-f]{8})?\Z")      # \Z, not $: "$" also matches before a trailing newline
 SHA256_RE = re.compile(r"^[0-9a-f]{64}$")
 #: observation id + ":" + the sha256 of the evidence artifact it was reviewed against.
 SOURCE_REF_RE = re.compile(r"^[A-Za-z0-9_-]{8,64}:[0-9a-f]{64}$")

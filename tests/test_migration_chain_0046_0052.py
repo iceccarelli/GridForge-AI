@@ -1,12 +1,13 @@
-"""The whole chain, 0001..0052, as one thing: what the three families added together (L1 0046-0048, L2 0049-0051, the site-origin gate 0052)
-must leave true, which no single family's tests can see.
+"""The whole chain, 0001..0053, as one thing: what the families added together (L1 0046-0048, L2 0049-0051, the site-origin gate 0052, the salted site
+reference 0053) must leave true, which no single family's tests can see. (The file keeps its name; 0053's own behaviour is in tests/test_salted_site_ref_migration.py.)
 
   * every function the later migrations add is closed to PUBLIC, anon and authenticated (a Supabase project's default privileges hand a new
     function to the API roles; each migration has to take it back);
   * project_events_event_type_check allows every event type any code writes (lib/ and app/ via ev("..."), the database functions that
     emit, and the types the migrations themselves add), so no migration's rebuild of that list dropped another's type;
-  * replaying 0049-0052 a second time changes nothing;
-  * applying 0046-0052 over a database that already holds rows from 0001-0045 succeeds and rewrites nothing.
+  * replaying 0049-0053 a second time changes nothing;
+  * applying 0046-0053 over a database that already holds rows from 0001-0045 succeeds and rewrites nothing (0053 holds no table, column or row change:
+    an existing observation keeps its unsalted site_ref, which is why one site can carry two references across the boundary).
 
 Real PostgreSQL. Skipped, loudly, where there is none; GRIDFORGE_REQUIRE_DB=1 turns the skip into a failure. Every value is synthetic.
 """
@@ -117,7 +118,7 @@ def test_every_allowed_type_can_actually_be_written(db):
 # ---------------------------------------------------------------------------------------------------- replay twice
 
 def fingerprint(db):
-    """Everything 0049-0052 define or constrain, plus the rows in their tables, as one digest per kind."""
+    """Everything 0049-0053 define or constrain, plus the rows in their tables, as one digest per kind."""
     return {
         "functions": scalar(db, "select md5(string_agg(pg_get_functiondef(p.oid), '' order by p.oid::regprocedure::text)) from pg_proc p join pg_namespace n on n.oid = p.pronamespace "
                                 "where n.nspname = 'public' and p.proname like 'gf\\_%' and p.prokind = 'f'"),
@@ -135,7 +136,7 @@ def fingerprint(db):
     }
 
 
-def test_replaying_0049_to_0052_twice_is_harmless():
+def test_replaying_0049_to_0053_twice_is_harmless():
     name = make_database()
     try:
         owner, editor = "owner-a@a.example", "editor-a@a.example"
@@ -152,7 +153,7 @@ def test_replaying_0049_to_0052_twice_is_harmless():
         first = fingerprint(name)
         assert first["rows"].split("/")[5] == "1"
         for _ in range(2):
-            for n in ("0049", "0050", "0051", "0052"):
+            for n in ("0049", "0050", "0051", "0052", "0053"):
                 psql(name, file=migration(n))
         assert fingerprint(name) == first
         # and it still works afterwards: the registry's guard on the attached project holds, a new site can be made
@@ -163,6 +164,8 @@ def test_replaying_0049_to_0052_twice_is_harmless():
 
 # ---------------------------------------------------------------------------------------------------- applying over legacy rows
 
+# the unsalted reference 0038 derived for the label 'Cork DC2': sha256('cork dc2')
+LEGACY_SITE_REF = "site_4f244bf6344d"
 LEGACY_TABLES = ["projects", "project_events", "project_evidence", "project_observations", "project_observation_reviews", "power_deployment_cases",
                  "project_links"]
 
@@ -177,7 +180,7 @@ def snapshot(db):
     return out
 
 
-def test_applying_0046_to_0052_over_legacy_rows_succeeds_and_rewrites_nothing():
+def test_applying_0046_to_0053_over_legacy_rows_succeeds_and_rewrites_nothing():
     name = make_database(through="0045")
     try:
         old_types = allowed_event_types(name)
@@ -192,16 +195,16 @@ def test_applying_0046_to_0052_over_legacy_rows_succeeds_and_rewrites_nothing():
                    "'result', '{\"architectures\": [{\"label\": \"A\", \"available_MW\": 12.5}]}'::jsonb, 'changed_fields', '[]'::jsonb), "
                    "'{\"event_type\": \"btm_case_revised\", \"actor\": \"x\", \"payload\": {}}'::jsonb)")
         obs = scalar(name, "insert into project_observations (project_id, prediction_ref, case_token, case_revision, architecture, calibration_key, unit, predicted_value, predicted_source, "
-                           "observed_value, observed_on, method, evidence_id, installed_attested, installed_basis, submitted_by) values "
+                           "observed_value, observed_on, method, evidence_id, installed_attested, installed_basis, submitted_by, site_ref) values "
                            f"('{owner_project}', 'power_deployment_case:legacy-case:r1:A', 'legacy-case', 1, 'A', 'btm.firm_MW', 'MW', 12.5, 'engine', 11, '2026-03-01', 'meter', "
-                           f"'{files['verified']}', true, 'commissioning sheet', 'x@a.example') returning id")
+                           f"'{files['verified']}', true, 'commissioning sheet', 'x@a.example', '{LEGACY_SITE_REF}') returning id")
         psql(name, "insert into project_observation_reviews (observation_id, project_id, decision, evidence_class, reviewer) "
                    f"values ('{obs}', '{owner_project}', 'verified', 'E5', 'reviewer@desk.example')")
         assert other_project
         before = snapshot(name)
         assert all(before[t]["rows"] for t in LEGACY_TABLES if t != "project_links"), {t: len(v["rows"]) for t, v in before.items()}
 
-        for n in ("0046", "0047", "0048", "0049", "0050", "0051", "0052"):
+        for n in ("0046", "0047", "0048", "0049", "0050", "0051", "0052", "0053"):
             r = psql(name, file=migration(n), check=False)
             assert r.returncode == 0, (n, r.stderr)
 
@@ -215,6 +218,7 @@ def test_applying_0046_to_0052_over_legacy_rows_succeeds_and_rewrites_nothing():
         # the added columns hold what 'not stated' means, not an invention
         new_obs = after["project_observations"]["rows"][0]
         assert new_obs["data_origin"] == "unclassified"
+        assert new_obs["site_ref"] == LEGACY_SITE_REF == before["project_observations"]["rows"][0]["site_ref"]       # 0053 leaves the legacy (unsalted) reference exactly as it was
         assert after["power_deployment_cases"]["rows"][0]["case_digest"] is None
         assert {r["review_status"] for r in after["project_evidence"]["rows"]} == {"verified", "rejected", "unverified"}
         assert all(r.get("site_id") is None and r.get("hall_id") is None for r in after["projects"]["rows"])

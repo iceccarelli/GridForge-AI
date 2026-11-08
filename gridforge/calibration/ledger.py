@@ -7,11 +7,12 @@ import os
 import re
 import time
 from contextlib import contextmanager
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from datetime import date
 from pathlib import Path
 
 from .schema import Observation, ObservationError, SHA256_RE
+from .siteref import SiteRefError, alias_path, canonical, read_aliases
 from ..validation.evidence import EvidenceClass
 
 try:                                  # POSIX. Elsewhere a lock-file fallback keeps two writers apart.
@@ -42,6 +43,22 @@ class LedgerIntegrityError(ObservationError):
 def private_path() -> Path:
     env = os.environ.get("GRIDFORGE_CALIBRATION_LEDGER")
     return Path(env) if env else Path.cwd() / PRIVATE_FILENAME
+
+
+def site_aliases(ledger: Path | None = None) -> dict[str, str]:
+    """The legacy -> keyed site-reference aliases that apply to a ledger file (see siteref.py: MIXED REFERENCES). Empty when there is no alias file."""
+    try:
+        return read_aliases(alias_path(private=Path(ledger) if ledger else private_path()))
+    except SiteRefError as exc:
+        raise ObservationError(str(exc))
+
+
+def _canonicalised(obs: list[Observation], aliases: dict[str, str]) -> list[Observation]:
+    """The same observations with a legacy (unsalted) site reference replaced by the keyed one the alias file declares to be the SAME site. The file
+    on disk, and its hash chain, are untouched: this is how the ledger is READ."""
+    if not aliases:
+        return obs
+    return [replace(o, site_ref=canonical(o.site_ref, aliases)) if canonical(o.site_ref, aliases) != o.site_ref else o for o in obs]
 
 
 @dataclass
@@ -156,6 +173,7 @@ def load_ledger(published_only: bool = False) -> Ledger:
                       private_loaded=False, heads=heads)
     p = private_path()
     private, phead = read_chain(p)
+    private = _canonicalised(private, site_aliases(p))
     if private:
         sources.append(str(p))
         heads[str(p)] = phead
@@ -229,8 +247,10 @@ def _append_many(new: list[Observation], target: Path) -> Path:
     with _locked(target):
         raw, legacy = _load(target)
         existing = [Observation.from_dict(d) for d in raw]
+        aliases = site_aliases(target)
         refs = {o.source_ref for o in existing if o.source_ref}
-        ident = {(o.key, o.site_ref, o.observed_on) for o in existing}
+        # One site is one site whichever of its two references (unsalted before migration 0053, keyed after) a row carries, once the operator declared it.
+        ident = {(o.key, canonical(o.site_ref, aliases), o.observed_on) for o in existing}
         batch_refs: set[str] = set()
         for o in new:
             if o.source_ref:
@@ -241,7 +261,7 @@ def _append_many(new: list[Observation], target: Path) -> Path:
                 if o.source_ref in batch_refs:
                     raise ObservationError(f"duplicate source_ref {o.source_ref} in this batch")
                 batch_refs.add(o.source_ref)
-            k = (o.key, o.site_ref, o.observed_on)
+            k = (o.key, canonical(o.site_ref, aliases), o.observed_on)
             if k in ident:
                 raise ObservationError(
                     f"{o.key} for {o.site_ref} on {o.observed_on} is already recorded — "
@@ -334,7 +354,22 @@ def import_export(doc, path: Path | None = None) -> dict:
         raise ObservationError(f"not a calibration export: expected {{'schema': '{EXPORT_SCHEMA}', 'rows': [...]}}")
     rows = doc["rows"]
     new = [_row_to_observation(r, i + 1) for i, r in enumerate(rows)]
+    # An export row carries a site_<12 hex> in EITHER of two forms: the unsalted hash (rows made before migration 0053 is applied) or the keyed HMAC
+    # (after). Nothing in the row says which, and the ledger holds no label, so the two can be told to be one site only from what the operator declared
+    # (`gridforge calibrate alias`). A declared legacy reference is stored as the keyed one, so the two are ONE site; any other is stored as exported.
+    aliases = site_aliases(target)
+    rekeyed = 0
+    if aliases:
+        fixed = []
+        for o in new:
+            c = canonical(o.site_ref, aliases)
+            if c != o.site_ref:
+                rekeyed += 1
+                o = replace(o, site_ref=c, note=(o.note + "; " if o.note else "") + "site_ref re-keyed from its unsalted form by the alias file")
+            fixed.append(o)
+        new = fixed
     if new:
         _append_many(new, target)
     total = len(read_chain(target)[0]) if target.exists() else 0
-    return {"imported": len(new), "ledger_observations": total, "path": str(target)}
+    return {"imported": len(new), "ledger_observations": total, "path": str(target), "rekeyed": rekeyed,
+            "aliases": len(aliases), "distinct_sites_imported": len({o.site for o in new})}

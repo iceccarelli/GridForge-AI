@@ -13,6 +13,7 @@
 
 import { createHash } from "node:crypto";
 import { deploymentCaseRevision, latestDeploymentCase } from "@/lib/power-deploy";
+import { siteRefFromEnv } from "@/lib/site-ref";
 import { GATE_BY_ID, LEDGER_GATES, RECORD_SHAPE, type ConditionGroup, type GateResult } from "@/lib/calibration-gates";
 import {
   creds,
@@ -237,6 +238,11 @@ export async function submitObservation(
     };
   }
 
+  // The site reference is computed HERE under a server secret (lib/site-ref.ts), never by the database from the bare label and never from the request.
+  // A production deployment with no secret refuses, before anything is written.
+  const siteRef = siteRefFromEnv(project.site_label);
+  if (!siteRef.ok) return { ok: false, status: 503, error: siteRef.error };
+
   const added = await rpc<ObservationRow>("gf_submit_observation", {
     p: {
       project_id: project.id,
@@ -258,10 +264,13 @@ export async function submitObservation(
       submitted_by,
       measurement_kind,
       // Who submitted, as far as the site can know it: the project token's hash. Stored so a review by the same
-      // party can be refused; the site_ref and the prediction's engine digest are read by the database, not sent.
+      // party can be refused; the prediction's engine digest is read by the database, not sent.
       submitted_by_ref: createHash("sha256").update(project.project_token).digest("hex"),
       // Stamped by the server, never read from the request: production only on a production deployment (see dataOrigin).
       data_origin: dataOrigin(),
+      // The salted site reference (migration 0053 stores it; before 0053 the database ignores this key and derives the unsalted one). Absent
+      // when the project has no site label: the database then stores none, and the observation can never be exported.
+      ...(siteRef.ref ? { site_ref: siteRef.ref } : {}),
     },
     p_event: ev("observation_submitted", submitted_by, {}),
   });
@@ -279,6 +288,11 @@ export async function submitObservation(
       return { ok: false, status: 403, error: "That evidence does not belong to this project." };
     }
     return { ok: false, status: 502, error: "The observation could not be saved. Nothing was recorded." };
+  }
+  // Feature detection, honestly reported: a database that has not had 0053 applied ignores the key and stores the UNSALTED hash. The observation is
+  // still valid; the log says its reference is the old, guessable kind so the operator can see that 0053 is still to be applied.
+  if (siteRef.ref && added.data.site_ref !== siteRef.ref) {
+    console.warn("[GridForge] gf_submit_observation did not keep the salted site_ref (migration 0053 is not applied): this observation's site reference is the UNSALTED legacy hash.");
   }
   return { ok: true, observation: added.data };
 }

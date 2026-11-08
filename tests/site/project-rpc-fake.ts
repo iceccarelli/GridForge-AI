@@ -79,10 +79,15 @@ export function installProjectRpcs(db: PostgrestFake): void {
     if (!(typeof own?.available_MW === "number" && own.available_MW === p.predicted_value)) {
       throw new PgError("GF004", "the predicted value must be the number the stored forecast holds", 400);
     }
-    // The database, not the caller, derives the site reference (site label only) and reads the prediction's engine
-    // digest from the case revision.
+    // Migration 0053: the application sends the SALTED site reference (lib/site-ref.ts) and the database stores it when it is well formed;
+    // otherwise (absent, or malformed) it derives the old unsalted one from the label, as 0038/0047 did. The prediction's engine digest is
+    // read from the case revision, never taken from the caller.
     const label = String(db.rows("projects").find((x) => x.id === p.project_id)?.site_label ?? "").trim().toLowerCase();
-    const site_ref = label ? `site_${createHash("sha256").update(label).digest("hex").slice(0, 12)}` : null;
+    if (p.site_ref !== undefined && p.site_ref !== null && !(typeof p.site_ref === "string" && /^site_[0-9a-f]{12}$/.test(p.site_ref))) {
+      throw new PgError("23514", "site_ref must be site_ followed by 12 lowercase hex characters", 400);          // present but malformed: refused, never replaced
+    }
+    const unsalted = label ? `site_${createHash("sha256").update(label).digest("hex").slice(0, 12)}` : null;
+    const site_ref = p.site_ref && label ? p.site_ref : unsalted;                                              // stored as given only for a project that has a label
     const cs: any = db.rows("power_deployment_cases").find((x) => x.case_token === p.case_token && x.revision === p.case_revision);
     const prov = cs?.engine_provenance ?? null;
     const { site_ref: _s, engine_provenance_digest: _d, report_date: _r, ...given } = p;

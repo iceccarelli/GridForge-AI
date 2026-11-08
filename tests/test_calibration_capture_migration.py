@@ -283,9 +283,15 @@ def test_the_site_ref_is_derived_by_the_database_with_the_engines_algorithm(db):
     assert a["site_ref"] == b["site_ref"]
 
 
-def test_a_caller_cannot_choose_the_site_ref(db):
-    _, _, o = submitted(db, site="Real Site", site_ref="site_000000000000")
+def test_a_malformed_site_ref_cannot_be_chosen_and_an_absent_one_is_derived(db):
+    """0038 ignored any site_ref in the payload ("a caller cannot choose the site_ref"). Since 0053 the APPLICATION's salted reference is taken as given
+    when it is well formed (tests/test_salted_site_ref_migration.py covers that in full); what must still hold is that nothing malformed is accepted or
+    silently replaced, and that a payload with no site_ref gets the derivation this file's other tests pin. HTTP callers never reach this key: the
+    route builds the payload (tests/site/project-observations.test.ts)."""
+    _, _, o = submitted(db, site="Real Site")
     assert o["site_ref"] == site_only_ref("Real Site")
+    project, ev, r = submit(db, site="Real Site", site_ref="not-a-reference")
+    assert r.returncode != 0 and "site_ref must be site_" in r.stderr
 
 
 def test_a_project_with_no_site_label_has_no_site_ref_and_is_never_exported(db):

@@ -51,7 +51,7 @@ COOLING_MODES = ("air", "rear_door", "direct_to_chip", "immersion", "hybrid")
 MAX_ABS_VALUE = 1e15
 
 _ID_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.:-]{2,95}$")
-_SITE_RE = re.compile(r"^site_[0-9a-f]{12}$")
+_SITE_RE = re.compile(r"^site_[0-9a-f]{12}\Z")
 _HALL_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.-]{0,63}$")
 _VERSION_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.+-]{0,63}$")
 _CTRL_RE = re.compile(r"[\x00-\x1f\x7f]")

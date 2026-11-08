@@ -71,6 +71,9 @@ export function checkEnv(env) {
   }
   if (/^(sk|rk)_test_/.test(env.STRIPE_SECRET_KEY ?? "")) warnings.push({ name: "STRIPE_SECRET_KEY", reason: "is a TEST-mode key (expected only before go-live)" });
   if (!env.ADMIN_PASSWORD) warnings.push({ name: "ADMIN_PASSWORD", reason: "unset: /admin is disabled" });
+  // Optional, but a production deployment is better served by a key of its own: rotating GRIDFORGE_KEY_SECRET would otherwise change every site reference in the calibration ledger.
+  if (!env.GRIDFORGE_SITE_REF_SECRET) warnings.push({ name: "GRIDFORGE_SITE_REF_SECRET", reason: "unset: site references are keyed with GRIDFORGE_KEY_SECRET, so rotating it would change every one (sites would look new). Set a long-lived key of its own" });
+  else if (env.GRIDFORGE_SITE_REF_SECRET.length < 16) warnings.push({ name: "GRIDFORGE_SITE_REF_SECRET", reason: "shorter than 16 characters: it is ignored, and the observation route falls back to GRIDFORGE_KEY_SECRET" });
   return { ok: problems.length === 0, problems, warnings, checked: RULES.length };
 }
 
