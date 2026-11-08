@@ -511,20 +511,25 @@ def test_an_argument_that_is_not_valid_utf8_is_a_clean_refusal(tmp_path):
     assert not (tmp_path / "l.json").exists() and not (tmp_path / siteref.ALIAS_FILENAME).exists()
 
 
-def _add_one(args):
-    path, i = args
-    siteref.add_alias(Path(path), "site_%012x" % (i + 1), "site_%012x" % (i + 100001))
-    return i
+def _add_many(args):
+    path, start, count, barrier = args
+    barrier.wait(timeout=60)                                   # all writers begin together, so unlocked read-modify-write cycles interleave
+    for i in range(start, start + count):
+        siteref.add_alias(Path(path), "site_%012x" % (i + 1), "site_%012x" % (i + 100001))
+    return count
 
 
 def test_concurrent_alias_writers_do_not_lose_each_others_lines(tmp_path):
     import multiprocessing
     path = tmp_path / siteref.ALIAS_FILENAME
-    n = 24
-    with multiprocessing.get_context("spawn").Pool(8) as pool:
-        pool.map(_add_one, [(str(path), i) for i in range(n)])
-    assert len(siteref.read_aliases(path)) == n
-    assert siteref.read_aliases(path)["site_%012x" % 5] == "site_%012x" % 100005
+    ctx = multiprocessing.get_context("fork")
+    workers, each = 8, 40
+    barrier = ctx.Barrier(workers)
+    with ctx.Pool(workers) as pool:
+        pool.map(_add_many, [(str(path), w * each, each, barrier) for w in range(workers)], chunksize=1)
+    aliases = siteref.read_aliases(path)
+    assert len(aliases) == workers * each, f"{workers * each - len(aliases)} aliases were lost"
+    assert aliases["site_%012x" % 5] == "site_%012x" % 100005
 
 
 def test_where_works_with_an_unreadable_alias_file_and_says_so_while_import_and_add_stop(tmp_path):
