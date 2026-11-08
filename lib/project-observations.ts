@@ -13,6 +13,7 @@
 
 import { createHash } from "node:crypto";
 import { deploymentCaseRevision, latestDeploymentCase } from "@/lib/power-deploy";
+import { GATE_BY_ID, LEDGER_GATES, RECORD_SHAPE, type ConditionGroup, type GateResult } from "@/lib/calibration-gates";
 import {
   creds,
   ev,
@@ -377,23 +378,51 @@ export function ledgerBlockers(
   evidence: { review_status: string; sha256: string } | null | undefined,
   standing?: PermissionStanding
 ): string[] {
-  if (!r) return ["not reviewed yet"];
-  if (r.decision !== "verified") return ["rejected by the reviewer"];
-  const why: string[] = [];
-  if (r.evidence_class !== REVIEW_CLASS) why.push(`evidence class is not ${REVIEW_CLASS}`);
-  if (o.measurement_kind === null || !(MEASUREMENT_KINDS as readonly string[]).includes(o.measurement_kind)) {
-    why.push("no measurement kind was recorded");
+  return blockerDetails(o, r, evidence, standing, false).map((b) => b.reason);
+}
+
+interface Blocker {
+  gate: ConditionGroup;
+  reason: string;
+}
+
+/**
+ * The blockers `ledgerBlockers` names, each filed under the gate it belongs to. `full` keeps going when the observation has no verified
+ * review, so the other gates can still be read: without it the first answer is "not reviewed yet" or "rejected", as before.
+ */
+function blockerDetails(
+  o: Pick<ObservationRow, "measurement_kind" | "site_ref" | "engine_provenance_digest" | "submitted_by" | "data_origin">,
+  r: Pick<ReviewRow, "decision" | "evidence_class" | "reviewer" | "evidence_sha256"> | null | undefined,
+  evidence: { review_status: string; sha256: string } | null | undefined,
+  standing: PermissionStanding | undefined,
+  full: boolean
+): Blocker[] {
+  const why: Blocker[] = [];
+  const add = (gate: ConditionGroup, reason: string) => why.push({ gate, reason });
+  const reviewed = Boolean(r) && r?.decision === "verified";
+  if (!r) {
+    add("independent_review", "not reviewed yet");
+    if (!full) return why;
+  } else if (r.decision !== "verified") {
+    add("independent_review", "rejected by the reviewer");
+    if (!full) return why;
   }
-  if (!o.site_ref) why.push("the project has no site label, so there is no site reference");
-  if (!o.engine_provenance_digest) why.push("the prediction's engine build was not recorded");
-  if (!r.evidence_sha256) why.push("the review did not record the evidence digest");
-  if (!evidence || evidence.review_status !== "verified") why.push("the evidence artifact is not verified");
-  else if (r.evidence_sha256 && evidence.sha256 !== r.evidence_sha256) why.push("the evidence artifact changed after review");
-  if (r.reviewer.trim().toLowerCase() === o.submitted_by.trim().toLowerCase()) why.push("reviewer is the submitter");
-  if (o.data_origin !== "production") why.push(`the data origin is not production (${o.data_origin ?? "not recorded"})`);
-  if (standing === "revoked") why.push("the project's permission to share its measurements was revoked");
-  else if (standing === "unknown") why.push("the project's permission record could not be read");
-  else if (standing !== "granted") why.push("no permission from the project's owner to share its measurements is on record");
+  if (r && reviewed) {
+    if (r.evidence_class !== REVIEW_CLASS) add("independent_review", `evidence class is not ${REVIEW_CLASS}`);
+  }
+  if (o.measurement_kind === null || !(MEASUREMENT_KINDS as readonly string[]).includes(o.measurement_kind)) {
+    add("record_shape", "no measurement kind was recorded");
+  }
+  if (!o.site_ref) add("record_shape", "the project has no site label, so there is no site reference");
+  if (!o.engine_provenance_digest) add("record_shape", "the prediction's engine build was not recorded");
+  if (r && reviewed && !r.evidence_sha256) add("file_decision", "the review did not record the evidence digest");
+  if (!evidence || evidence.review_status !== "verified") add("file_decision", "the evidence artifact is not verified");
+  else if (r && reviewed && r.evidence_sha256 && evidence.sha256 !== r.evidence_sha256) add("file_decision", "the evidence artifact changed after review");
+  if (r && reviewed && r.reviewer.trim().toLowerCase() === o.submitted_by.trim().toLowerCase()) add("independent_review", "reviewer is the submitter");
+  if (o.data_origin !== "production") add("production_origin", `the data origin is not production (${o.data_origin ?? "not recorded"})`);
+  if (standing === "revoked") add("owner_permission", "the project's permission to share its measurements was revoked");
+  else if (standing === "unknown") add("owner_permission", "the project's permission record could not be read");
+  else if (standing !== "granted") add("owner_permission", "no permission from the project's owner to share its measurements is on record");
   return why;
 }
 
@@ -404,6 +433,121 @@ export function ledgerEligible(
   standing?: PermissionStanding
 ): boolean {
   return ledgerBlockers(o, r, evidence, standing).length === 0;
+}
+
+// --- the whole checklist ------------------------------------------------------------------------------------------------------
+//
+// `ledgerBlockers` is what the project panel shows to the holder of a project link. It cannot see two things the export view also requires:
+// a recorded file decision (project_evidence_reviews) and the project's site history (hall_project_attachments joined to sites). An
+// administrator can, with the service role. `ledgerGateChecklist` is `ledgerBlockers` plus those two, plus a read of the stored forecast,
+// reported gate by gate as met / not met / cannot be read. A record that could not be read is never "met".
+
+/** What project_evidence_reviews holds for the observation's evidence file. */
+export type FileDecisionRead = "unreadable" | "none" | { decision: "verified" | "rejected"; sha256_confirmed: string | null };
+/** What hall_project_attachments joined to sites says about the project: how many attachments there are, and how many are to a non-production site. */
+export type SiteOriginRead = "unreadable" | { attachments: number; nonProduction: number };
+/** The stored case revision the prediction came from (its request and result are not read here). */
+export type ForecastRead = "unreadable" | "missing" | { created_at: string | null; case_digest: string | null };
+
+export interface GateInputs {
+  standing: PermissionStanding;
+  fileDecision: FileDecisionRead;
+  siteOrigin: SiteOriginRead;
+  forecast: ForecastRead;
+}
+
+type ChecklistObservation = Pick<ObservationRow, "measurement_kind" | "site_ref" | "engine_provenance_digest" | "submitted_by" | "data_origin" | "observed_on">;
+type ChecklistReview = Pick<ReviewRow, "decision" | "evidence_class" | "reviewer" | "evidence_sha256">;
+
+const SHA256 = /^[0-9a-f]{64}$/;
+
+/**
+ * Every gate the final export view enforces (lib/calibration-gates.ts), each as met / not met / cannot be read with the reason, in the
+ * order the public page lists them, then the shape of the record. The view is still the authority and a person still imports; this is
+ * what an administrator reads to see what blocks a row. One thing is checked only in part: the view recomputes the forecast's digest and
+ * its predicted value from the stored request and result, which this does not, so a forecast that passes here is marked `partial`.
+ */
+export function ledgerGateChecklist(
+  o: ChecklistObservation,
+  r: ChecklistReview | null | undefined,
+  evidence: { review_status: string; sha256: string } | null | undefined,
+  inputs: GateInputs
+): GateResult[] {
+  const details = blockerDetails(o, r, evidence, inputs.standing, true);
+  const of = (g: ConditionGroup) => details.filter((b) => b.gate === g).map((b) => b.reason);
+  const result = (id: ConditionGroup, title: string, reasons: string[], met: string, partial?: boolean): GateResult =>
+    reasons.length
+      ? { id, title, status: "not_met", reason: reasons.join("; ") }
+      : { id, title, status: "met", reason: met, ...(partial ? { partial: true } : {}) };
+  const unreadable = (id: ConditionGroup, title: string, reason: string): GateResult => ({ id, title, status: "unreadable", reason });
+  const title = (id: ConditionGroup) => (id === "record_shape" ? RECORD_SHAPE.title : GATE_BY_ID.get(id)!.title);
+  const out: GateResult[] = [];
+
+  for (const gate of LEDGER_GATES) {
+    const id = gate.id;
+    const t = title(id);
+    switch (id) {
+      case "independent_review":
+        out.push(result(id, t, of(id), "Verified as E5 by a reviewer whose typed name differs from the submitter's."));
+        break;
+      case "frozen_forecast": {
+        const f = inputs.forecast;
+        if (f === "unreadable") out.push(unreadable(id, t, "The stored case revision could not be read."));
+        else if (f === "missing") out.push({ id, title: t, status: "not_met", reason: "The case revision the prediction cites was not found." });
+        else {
+          const reasons: string[] = [];
+          const late = forecastPredatesOutcome(f.created_at, o.observed_on);
+          if (late) reasons.push(late);
+          if (typeof f.case_digest !== "string" || !SHA256.test(f.case_digest)) reasons.push("The case revision carries no digest, so nothing shows it was not rewritten.");
+          out.push(
+            result(id, t, reasons, `Stored ${f.created_at} (before ${o.observed_on}, the date the submitter declared) and a digest is on record. Not checked here: that the digest still matches the stored forecast and that the predicted value is still its number. The export view checks both.`, true)
+          );
+        }
+        break;
+      }
+      case "production_origin":
+        out.push(result(id, t, of(id), "Recorded on a production deployment."));
+        break;
+      case "owner_permission":
+        out.push(
+          inputs.standing === "unknown"
+            ? unreadable(id, t, "The permission record could not be read.")
+            : result(id, t, of(id), "The newest permission record is a grant (an assertion an administrator recorded; not authenticated).")
+        );
+        break;
+      case "file_decision": {
+        const d = inputs.fileDecision;
+        if (d === "unreadable") {
+          out.push(unreadable(id, t, "The file decision record could not be read."));
+          break;
+        }
+        const reasons = of(id);
+        if (d === "none") reasons.push("no file decision is on record");
+        else if (d.decision !== "verified") reasons.push("the file was rejected");
+        else if (evidence && d.sha256_confirmed !== evidence.sha256) reasons.push("the digest confirmed by the file decision differs from the file's stored digest");
+        if (!r) reasons.push("the observation has not been reviewed, so the digest its reviewer saw is not recorded yet");
+        out.push(result(id, t, reasons, "A verified file decision is on record, its confirmed digest equals the stored one, and the reviewer recorded that digest."));
+        break;
+      }
+      case "never_test_site": {
+        const s = inputs.siteOrigin;
+        if (s === "unreadable") out.push(unreadable(id, t, "The project's site history could not be read."));
+        else if (s.nonProduction > 0) {
+          out.push({ id, title: t, status: "not_met", reason: `The project has been filed under a test or synthetic site (${s.nonProduction} attachment${s.nonProduction === 1 ? "" : "s"}); detaching does not undo it.` });
+        } else {
+          out.push({ id, title: t, status: "met", reason: s.attachments === 0 ? "The project has never been filed under any site." : `All ${s.attachments} site attachment${s.attachments === 1 ? "" : "s"} are to production sites.` });
+        }
+        break;
+      }
+    }
+  }
+  out.push(result("record_shape", title("record_shape"), of("record_shape"), "Metric, measurement kind, site reference and engine build digest are all recorded."));
+  return out;
+}
+
+/** The checklist as sentences, for what is not met or could not be read. Empty only when every gate was read and met. */
+export function exportBlockers(gates: readonly GateResult[]): string[] {
+  return gates.filter((g) => g.status !== "met").map((g) => `${g.title}: ${g.reason}`);
 }
 
 export interface CalibrationExportRow {

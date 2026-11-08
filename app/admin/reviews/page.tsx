@@ -44,11 +44,17 @@ export default async function EvidenceReviewPage() {
           Each item is decided once, by a named person, and the decision cannot be changed. Nothing here is verified automatically and
           there is no bulk action. <Link href="/admin/pipeline" className="text-power underline">Engagements</Link>
         </p>
+        <p className="mt-3 text-sm text-mute">
+          Each observation lists every gate the calibration export applies, read from the records behind it: met, not met, or cannot be
+          read. The list explains; the export view decides, and a person still runs the import. The gates are described in full on{" "}
+          <Link href="/evidence#ledger-gates" className="text-power underline">the public evidence page</Link>.
+        </p>
       </header>
       <ProjectEvidenceReview
         observations={q.ok ? q.observations : []}
         actuals={q.ok ? q.actuals : []}
         files={q.ok ? q.files : []}
+        verified={q.ok ? q.verified : undefined}
         counts={q.ok ? q.counts : undefined}
         reviewClass={REVIEW_CLASS}
         initialError={q.ok ? null : q.error}

@@ -10,6 +10,13 @@ import { pageImages } from "@/lib/page-cards";
 import { QUALIFY_LINK } from "@/lib/nav";
 import { EvidenceBoundary } from "@/components/diagrams/EvidenceBoundary";
 import { MARKET_EVIDENCE, isPublishable, verificationLabel } from "@/lib/market-evidence";
+import { CalibrationTransparency } from "@/components/CalibrationTransparency";
+import { GATE_COUNT_WORD, VIEW_CONDITION_COUNT } from "@/lib/calibration-gates";
+import { readLiveResiduals } from "@/lib/calibration-residuals";
+
+// The live residual status is read from the engine, so this page re-renders without a site redeploy (the pattern of lib/engine-capabilities.ts
+// pages). A build with no network renders the "could not be read" state and is replaced at the first revalidation; it never invents a number.
+export const revalidate = 300;
 
 const TITLE = "Evidence classes E0 to E7: headline figures";
 const DESCRIPTION =
@@ -44,6 +51,7 @@ async function calibration(): Promise<Calibration | null> {
 
 export default async function EvidencePage() {
   const cal = await calibration();
+  const live = await readLiveResiduals();
   // The visible questions and the FAQPage markup are one list, so the structured data can never say what the page does not.
   const faq: { q: string; a: string }[] = [
     {
@@ -51,6 +59,10 @@ export default async function EvidencePage() {
       a: cal
         ? `Not yet. The calibration record is "${cal.state}": ${cal.statement}`
         : "The calibration record could not be read on this deployment, so no validation claim is made here.",
+    },
+    {
+      q: "What has to be true before a site measurement can count toward calibration?",
+      a: `${GATE_COUNT_WORD[0].toUpperCase()}${GATE_COUNT_WORD.slice(1)} gates, applied together by one database view across ${VIEW_CONDITION_COUNT} conditions: an independent reviewer verified it as E5; its forecast was frozen and stored before the declared outcome date; it was recorded on a production deployment; an administrator recorded a standing permission from the project's owner; its evidence file has a verified decision whose hash matches; and the project was never filed under a test or synthetic site. The outcome date is the submitter's declaration and the permission is an assertion, not authentication. A verdict is final. Clearing the gates makes an observation exportable, not accurate.`,
     },
     {
       q: "What does an evidence class mean?",
@@ -144,10 +156,12 @@ export default async function EvidencePage() {
           <p className="mt-2 text-sm text-mute">The calibration record is not built on this deployment.</p>
         )}
         <p className="mt-3 text-sm text-faint">
-          This page reads the same file the deliverables do (<span className="font-mono">/reference/calibration.json</span>). When the
-          number of reconciled observations changes, this page changes with it.
+          The figures above are a snapshot committed with this site: the file the deliverables read (<span className="font-mono">/reference/calibration.json</span>),
+          which changes when the site is rebuilt. The engine&rsquo;s residual report, read from the engine, is in the next section.
         </p>
       </section>
+
+      <CalibrationTransparency live={live} />
 
       <div className="mt-10">
         <EvidenceBoundary />

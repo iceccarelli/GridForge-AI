@@ -37,7 +37,15 @@ describe("/evidence", () => {
   it("renders the live calibration record, and says the model is not yet validated while that is true", async () => {
     const cal = JSON.parse(readFileSync("public/reference/calibration.json", "utf8"));
     const { default: Page } = await import("@/app/evidence/page");
-    const html = renderToStaticMarkup(await Page());
+    // The page reads the engine's residual report; this test is about the committed record, so the engine is unreachable, deterministically.
+    const realFetch = globalThis.fetch;
+    globalThis.fetch = (async () => { throw new Error("engine unreachable"); }) as typeof fetch;
+    let html: string;
+    try {
+      html = renderToStaticMarkup(await Page());
+    } finally {
+      globalThis.fetch = realFetch;
+    }
     const t = text(html);
     expect(t).toContain(cal.statement.replace(/\s+/g, " ").slice(0, 60));
     if (cal.observations === 0) expect(t).toContain("Not yet.");
