@@ -532,6 +532,11 @@ jobs:
           # can be told a table does not exist — which is how `subscriptions` and
           # `scenarios` shipped with no migration and nobody noticed.
           npm test
+        env:
+          # tests/site/perf-budget.test.ts FAILS in CI unless it can measure a running build, and there is no build yet at this point.
+          # The deferral is explicit and is measured by the step "No route may ship more first-load JavaScript..." below, which sets
+          # PERF_BASE_URL instead. tests/test_ops_ci_workflow.py allows this variable on this one step and nowhere else.
+          PERF_BUDGET_DEFERRED: '1'
       - name: Build (card URLs are made absolute from NEXT_PUBLIC_SITE_URL, so the origin the check below serves from is set here)
         run: npm run build
         env:
@@ -543,6 +548,66 @@ jobs:
           NEXT_PUBLIC_SITE_URL=http://127.0.0.1:3941 SITE_URL=http://127.0.0.1:3941 npx next start -p 3941 > /tmp/next-start.log 2>&1 &
           for i in $(seq 1 60); do curl -sf -o /dev/null http://127.0.0.1:3941/ && break; sleep 1; done
           node scripts/check-share-cards.mjs http://127.0.0.1:3941 || { tail -30 /tmp/next-start.log; exit 1; }
+      - name: No route may ship more first-load JavaScript than scripts/perf-budget.json allows (production server, real browser)
+        # The budget is a ratchet and used to be enforced only by whoever remembered to set PERF_BASE_URL by hand, which is how /pricing
+        # went over unnoticed. This starts the production build on its own port, waits until it answers 200, measures every budgeted route
+        # in Chromium at 375 px (scripts/measure-bundles.mjs) and fails the job if ANY route is over its number. It never raises a budget:
+        # a deliberate increase is an edit to scripts/perf-budget.json in the pull request, where a reviewer sees it. The server is
+        # always stopped (trap), and a server that never comes up fails the step with its own log, not with a timeout in the browser.
+        # Playwright is installed to a scratch prefix, not into package.json: only this lab measurement needs it.
+        timeout-minutes: 20
+        env:
+          PERF_PORT: '3140'
+          PLAYWRIGHT_VERSION: '1.63.0'
+        run: |
+          set -euo pipefail
+          PW="${RUNNER_TEMP:-/tmp}/perf-playwright"
+          LOG="${RUNNER_TEMP:-/tmp}/perf-next-start.log"
+          WAIT="${PERF_WAIT_SECONDS:-60}"
+          # The required `site` check now depends on npm, the Playwright CDN and apt being reachable. A transient failure of any of them
+          # should cost a retry, not a red pull request; a persistent one still fails the step after three attempts.
+          retry() {
+            local attempts="$1" i; shift
+            for i in $(seq 1 "$attempts"); do
+              if "$@"; then return 0; fi
+              echo "attempt ${i}/${attempts} failed: $*" >&2
+              if [ "$i" -lt "$attempts" ]; then sleep $((i * ${PERF_RETRY_BACKOFF:-10})); fi
+            done
+            return 1
+          }
+          mkdir -p "$PW"
+          retry 3 npm install --prefix "$PW" --no-audit --no-fund --loglevel=error "playwright@${PLAYWRIGHT_VERSION}"
+          retry 3 "$PW/node_modules/.bin/playwright" install --with-deps chromium
+          # Something already answering on this port would be measured INSTEAD of this build (our server would die with EADDRINUSE).
+          if curl -s -o /dev/null --max-time 2 "http://127.0.0.1:${PERF_PORT}/"; then
+            echo "::error::port ${PERF_PORT} already answers HTTP before the production server was started; refusing to measure a server that is not this build"
+            exit 1
+          fi
+          SITE_URL="http://127.0.0.1:${PERF_PORT}" ./node_modules/.bin/next start -p "$PERF_PORT" > "$LOG" 2>&1 &
+          SERVER_PID=$!
+          trap 'kill "$SERVER_PID" 2>/dev/null || true' EXIT
+          up=0
+          for i in $(seq 1 "$WAIT"); do
+            kill -0 "$SERVER_PID" 2>/dev/null || break
+            if [ "$(curl -s -o /dev/null --max-time 3 -w '%{http_code}' "http://127.0.0.1:${PERF_PORT}/" || true)" = "200" ]; then
+              # a server that lost the race for the port dies within a moment: confirm the process we started is the one that is alive
+              sleep 2
+              if kill -0 "$SERVER_PID" 2>/dev/null; then up=1; fi
+              break
+            fi
+            sleep 1
+          done
+          if [ "$up" != "1" ]; then
+            if kill -0 "$SERVER_PID" 2>/dev/null; then
+              echo "::error::the production server did not answer HTTP 200 on port ${PERF_PORT} within ${WAIT} s, so the JavaScript budget was NOT measured"
+            else
+              echo "::error::the production server process exited before it served port ${PERF_PORT} (port already in use?), so the JavaScript budget was NOT measured"
+            fi
+            tail -40 "$LOG"
+            exit 1
+          fi
+          PERF_BASE_URL="http://127.0.0.1:${PERF_PORT}" NODE_PATH="$PW/node_modules" npx vitest run tests/site/perf-budget.test.ts
+
       - name: A token-addressed page may not be indexed or leak
         run: |
           node -e "
@@ -708,8 +773,14 @@ jobs:
         run: python -m pytest tests/test_site_origin_gate.py -q
       - name: Site and hall registry (0049-0051) - organisations, roles, declared origin, hall inputs and their sources, attach/detach, timeline - constraints, grants and the apply gates on real PostgreSQL (fails, never skips)
         run: python -m pytest tests/test_site_registry_migration.py tests/test_hall_inputs_migration.py tests/test_hall_timeline_migration.py tests/test_site_registry_apply.py -q
-      - name: The whole chain (0001-0052) - closed function privileges, every event type, replaying 0049-0052 twice, and applying 0046-0052 over legacy rows without rewriting any (fails, never skips)
+      - name: The whole chain (0001-0053) - closed function privileges, every event type, replaying 0049-0053 twice, and applying 0046-0053 over legacy rows without rewriting any (fails, never skips)
         run: python -m pytest tests/test_migration_chain_0046_0052.py -q
+      - name: Salted site reference (0053) - function body, malformed refusal, both orders, legacy rows untouched, importer alias on real PostgreSQL (fails, never skips)
+        run: python -m pytest tests/test_salted_site_ref_migration.py -q
+      - name: Project supplier quotations (0054) - file gate in function AND trigger, final-state reader, 100-claim cap, locks, hostile text, legacy rows untouched on real PostgreSQL (fails, never skips)
+        run: python -m pytest tests/test_project_quotation_claims_migration.py tests/test_project_quotation_final_gate.py -q
+      - name: Project supplier quotations - claims through the real routes, real PostgREST + PostgreSQL (UTF-8 cluster: the hostile-text cases need it) (fails, never skips)
+        run: bash scripts/realdb-run.sh npx vitest run tests/site/project-quotation-claims.realdb.test.ts
       - name: Site and hall registry - organisations, sites, halls, hall inputs, attach/detach and timeline through the real routes, real PostgREST + PostgreSQL (fails, never skips)
         run: bash scripts/realdb-run.sh npx vitest run tests/site/site-registry.realdb.test.ts
       - name: Integrity hardening - production default ACLs (API roles hold nothing), truncate guards, deposit credit invariants, release reviewer, package/project keys, purchase session reference on real PostgreSQL (fails, never skips)

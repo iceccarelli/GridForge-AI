@@ -1,19 +1,44 @@
 import fs from "node:fs";
-import { execFileSync } from "node:child_process";
+import { execFileSync, spawnSync } from "node:child_process";
 import { describe, expect, it } from "vitest";
+import { isPrefetchRequest } from "../../scripts/perf-prefetch-filter.mjs";
 
 // Per-route first-load JavaScript budget (transferred kB, 375 px mobile viewport, cold cache, production build).
 //
-// The baseline is scripts/perf-budget.json: each route's measured value plus 10%. The comparison against a live build runs only when
-// PERF_BASE_URL points at one (`npm run build && npx next start -p 3140`, then
+// The baseline is scripts/perf-budget.json: each route's measured value plus 10%. It is a RATCHET: a number goes down when a route gets
+// lighter, and goes up only by a deliberate, reviewed edit of that file. The comparison against a live build runs when PERF_BASE_URL
+// points at one (`npm run build && npx next start -p 3140`, then
 // `PERF_BASE_URL=http://localhost:3140 NODE_PATH=/opt/node-tools/node_modules npx vitest run tests/site/perf-budget.test.ts`).
-// Without it the live comparison is SKIPPED, and this file says so below rather than passing silently. These are lab bytes,
-// not Core Web Vitals.
+//
+// ON A DEVELOPER MACHINE without PERF_BASE_URL the live comparison is SKIPPED, and this file says so below rather than passing silently.
+// IN CI it may not be skipped: when CI is set and PERF_BASE_URL is not, the "is measured in CI" test below FAILS. That is how the
+// /pricing overrun got through: the comparison skipped itself everywhere it was not run by hand. The `site` job measures in a dedicated
+// step (it starts the production server and sets PERF_BASE_URL); the one earlier step that runs the whole suite (`npm test`, before there
+// is a build to measure) says so explicitly with PERF_BUDGET_DEFERRED=1, and tests/test_ops_ci_workflow.py pins both. These are lab
+// bytes, not Core Web Vitals.
+//
+// WHAT IS MEASURED: the page's own first load. Next's <Link> PREFETCH traffic (RSC fetches carrying `next-router-prefetch`) is aborted by
+// scripts/measure-bundles.mjs, because whether those fetches, and the client chunks they pull in, finished before "networkidle" depended on
+// machine load: one build measured 157.7 kB and 188.6 kB for /pricing on different runs. With prefetch blocked the figures are identical
+// run to run (checked under idle, 4 busy CPU hogs and a single pinned niced CPU). A real visitor prefetches more than this; the number
+// is for comparing builds. A plain RSC navigation (e.g. /account redirecting to /account/login) is NOT blocked: aborting it makes Next
+// reload the page and double-count it.
+
+export type LiveDecision = "run" | "skip" | "fail";
+
+/** What to do about the live comparison, given an environment. Pure, so the CI rule is itself tested. */
+export function liveDecision(env: Record<string, string | undefined>): LiveDecision {
+  if (env.PERF_BASE_URL) return "run";
+  const ci = !!env.CI && env.CI !== "false" && env.CI !== "0";
+  if (ci && env.PERF_BUDGET_DEFERRED !== "1") return "fail";
+  return "skip";
+}
 
 const BASE = process.env.PERF_BASE_URL;
+const DECISION = liveDecision(process.env);
 const budget = JSON.parse(fs.readFileSync("scripts/perf-budget.json", "utf8")) as { routes: Record<string, number> };
 
-if (!BASE) {
+if (DECISION === "skip") {
   console.info("perf-budget: PERF_BASE_URL is not set, so the per-route JavaScript budget is NOT being measured in this run (skipped).");
 }
 
@@ -28,23 +53,111 @@ describe("the committed per-route JavaScript budget", () => {
     }
   });
 
-  it.skipIf(!BASE)(
+  it("lists exactly the routes scripts/measure-bundles.mjs measures by default", () => {
+    // A route measured but unbudgeted (or budgeted but never measured) is a gap the live comparison would only report as a mismatch.
+    const src = fs.readFileSync("scripts/measure-bundles.mjs", "utf8");
+    const block = /const DEFAULT_ROUTES = \[([\s\S]*?)\];/.exec(src);
+    expect(block, "DEFAULT_ROUTES not found in scripts/measure-bundles.mjs").not.toBeNull();
+    const measured = [...block![1].matchAll(/"([^"]+)"/g)].map((m) => m[1]);
+    expect([...measured].sort()).toEqual(Object.keys(budget.routes).sort());
+  });
+
+  it("the measurement blocks link prefetch (and only prefetch), so a figure does not depend on machine load", () => {
+    const base = { accept: "*/*", rsc: "1", "next-router-state-tree": "%5B%22%22%5D", "next-url": "/pricing" };
+    // aborted: the App Router's prefetch fetches, however the header is cased, and browser-level prefetch hints
+    expect(isPrefetchRequest({ url: "http://x/qualify?_rsc=abc", headers: { ...base, "next-router-prefetch": "1" } })).toBe(true);
+    expect(isPrefetchRequest({ url: "http://x/?_rsc=abc", headers: { ...base, "Next-Router-Prefetch": "1" } })).toBe(true);
+    expect(isPrefetchRequest({ url: "http://x/a", headers: { Purpose: "prefetch" } })).toBe(true);
+    expect(isPrefetchRequest({ url: "http://x/a", headers: { "Sec-Purpose": "prefetch;prerender" } })).toBe(true);
+    // kept: the document, the page's own scripts, styles, fonts and images, and a real client navigation
+    expect(isPrefetchRequest({ url: "http://x/pricing", headers: { accept: "text/html" } })).toBe(false);
+    expect(isPrefetchRequest({ url: "http://x/_next/static/chunks/app/pricing/page-1.js", headers: { accept: "*/*" } })).toBe(false);
+    expect(isPrefetchRequest({ url: "http://x/_next/static/css/a.css", headers: {} })).toBe(false);
+    expect(isPrefetchRequest({ url: "http://x/account/login?_rsc=abc", headers: base })).toBe(false); // /account's own redirect
+    expect(isPrefetchRequest({ url: "not a url", headers: {} })).toBe(false);
+    // and the measurement script is wired to it
+    const script = fs.readFileSync("scripts/measure-bundles.mjs", "utf8");
+    expect(script).toContain('import { isPrefetchRequest } from "./perf-prefetch-filter.mjs"');
+    expect(script).toMatch(/route\.abort\(\)/);
+  });
+
+  it("budgets every static page, or exempts it with a reason, and budgets nothing that no longer exists", () => {
+    // A page added without a budget is a page whose weight nobody is watching. Dynamic segments ([slug], [...rest]) are not enumerable
+    // here: one representative of each family is budgeted by hand (/products/density-screen, /constraints/busway-ampacity, /for/ai-operators).
+    const pages: string[] = [];
+    const walk = (dir: string) => {
+      for (const e of fs.readdirSync(dir, { withFileTypes: true })) {
+        const full = `${dir}/${e.name}`;
+        if (e.isDirectory()) walk(full);
+        else if (e.name === "page.tsx") pages.push(dir);
+      }
+    };
+    walk("app");
+    const routeOf = (dir: string) =>
+      "/" + dir.split("/").slice(1).filter((seg) => !/^\(.*\)$/.test(seg)).join("/"); // route groups add no segment
+    const all = pages.map(routeOf);
+    const staticRoutes = all.filter((r) => !r.includes("[")).sort();
+    expect(staticRoutes.length).toBeGreaterThan(20);
+    const EXEMPT: Record<string, string> = {}; // route -> why it is not budgeted. Empty on purpose: every static page is measured.
+    for (const [route, why] of Object.entries(EXEMPT)) {
+      expect(why.length, `${route}: an exemption needs a reason`).toBeGreaterThan(10);
+      expect(budget.routes[route], `${route} is exempt AND budgeted`).toBeUndefined();
+      expect(staticRoutes, `${route} is exempt but no such page exists`).toContain(route);
+    }
+    const unbudgeted = staticRoutes.filter((r) => budget.routes[r] === undefined && !(r in EXEMPT));
+    expect(unbudgeted, "static pages with no entry in scripts/perf-budget.json (add one from a measurement + 10%, or exempt it with a reason)").toEqual([]);
+    // and every budgeted route is a real page (a dynamic one matches its pattern)
+    const patterns = all.map((r) => new RegExp("^" + r.replace(/\[\.\.\.[^\]]+\]/g, ".+").replace(/\[[^\]]+\]/g, "[^/]+") + "$"));
+    const stale = Object.keys(budget.routes).filter((r) => !patterns.some((re) => re.test(r)));
+    expect(stale, "budgeted routes that match no page").toEqual([]);
+  });
+
+  it("decides the live comparison from the environment: CI may defer it only by saying so, never by omission", () => {
+    expect(liveDecision({ PERF_BASE_URL: "http://localhost:3140" })).toBe("run");
+    expect(liveDecision({ CI: "true", PERF_BASE_URL: "http://localhost:3140" })).toBe("run");
+    expect(liveDecision({})).toBe("skip");
+    expect(liveDecision({ CI: "false" })).toBe("skip");
+    expect(liveDecision({ CI: "true" })).toBe("fail");
+    expect(liveDecision({ CI: "1", PERF_BASE_URL: "" })).toBe("fail");
+    expect(liveDecision({ CI: "true", PERF_BUDGET_DEFERRED: "1" })).toBe("skip");
+    expect(liveDecision({ CI: "true", PERF_BUDGET_DEFERRED: "yes" })).toBe("fail");
+  });
+
+  it("is measured in CI: with CI set and no PERF_BASE_URL this file FAILS instead of skipping", () => {
+    if (DECISION === "fail") {
+      throw new Error(
+        "perf-budget: CI is set but PERF_BASE_URL is not, so the per-route JavaScript budget would not be measured. " +
+          "In CI the `site` job's production-server step must set PERF_BASE_URL (see .github/workflows/gridforge.yml). " +
+          "A step that runs this file before there is a build to measure must say so with PERF_BUDGET_DEFERRED=1.",
+      );
+    }
+    if (process.env.PERF_GUARD_CHILD) return; // the run below is the child; do not recurse
+    // End to end: run this very file the way a CI step with the variable missing would, and require it to fail loudly.
+    const env: NodeJS.ProcessEnv = { ...process.env, CI: "true", PERF_GUARD_CHILD: "1" };
+    delete env.PERF_BASE_URL;
+    delete env.PERF_BUDGET_DEFERRED;
+    const r = spawnSync("npx", ["vitest", "run", "tests/site/perf-budget.test.ts"], { encoding: "utf8", env, timeout: 120_000 });
+    expect(r.status, `a CI run without PERF_BASE_URL passed:\n${r.stdout}\n${r.stderr}`).not.toBe(0);
+    expect(`${r.stdout}\n${r.stderr}`).toContain("PERF_BASE_URL is not, so the per-route JavaScript budget would not be measured");
+  }, 130_000);
+
+  it.skipIf(DECISION !== "run")(
     "no route transfers more first-load JavaScript than its budget",
     () => {
       const routes = Object.keys(budget.routes);
       const out = execFileSync("node", ["scripts/measure-bundles.mjs", "--base", BASE!, "--routes", routes.join(",")], {
         encoding: "utf8",
         maxBuffer: 16 * 1024 * 1024,
-        timeout: 280_000,
+        timeout: 540_000,
       });
       const measured = JSON.parse(out).measured as { route: string; status: number; js_kb: number }[];
       expect(measured.map((m) => m.route).sort()).toEqual(routes.sort());
       const over = measured
         .filter((m) => m.js_kb > budget.routes[m.route])
-        .map((m) => `${m.route}: ${m.js_kb} kB > budget ${budget.routes[m.route]} kB`);
+        .map((m) => `${m.route}: ${m.js_kb} kB > budget ${budget.routes[m.route]} kB (over by ${Math.round((m.js_kb - budget.routes[m.route]) * 10) / 10} kB)`);
       expect(over).toEqual([]);
       for (const m of measured) expect(m.status, m.route).toBe(200);
     },
-    300_000,
+    600_000,
   );
 });
