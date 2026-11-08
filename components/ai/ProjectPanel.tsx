@@ -7,8 +7,10 @@ import type { ProjectState } from "@/lib/project-state";
 import { PRODUCTS, eurFromCents } from "@/lib/products";
 import { PROJECT_ATTACHABLE_KINDS } from "@/lib/project-products";
 import { EvidenceUpload } from "@/components/ai/EvidenceUpload";
-import { QuotationSection } from "@/components/QuotationClaims";
-import { EvidenceLadderCard } from "@/components/ai/EvidenceLadderCard";
+import dynamic from "next/dynamic";
+// Shown only once a project has loaded, so they are fetched on demand and stay out of the workspace's first-load JavaScript (scripts/perf-budget.json).
+const QuotationSection = dynamic(() => import("@/components/QuotationClaims").then((m) => m.QuotationSection), { ssr: false });
+const EvidenceLadderCard = dynamic(() => import("@/components/ai/EvidenceLadderCard").then((m) => m.EvidenceLadderCard), { ssr: false });
 import { evidenceLadder } from "@/lib/project-spec-relief";
 
 /**
