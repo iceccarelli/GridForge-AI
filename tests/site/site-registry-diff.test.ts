@@ -155,6 +155,18 @@ describe("a change is never shown without the evidence class it rests on", () =>
     expect(cap).toContain("meter.pdf (file reviewed and verified)");
     expect(cap).toContain("E5");
   });
+  it("a CHANGED and a WITHDRAWN row carry the evidence on both sides, in the same list item", () => {
+    const r = diffPoints(buildChains(ALL), pt("2026-01-10"), NOW_POINT);
+    if (!r.ok) throw new Error(r.error);
+    const html = renderToStaticMarkup(React.createElement(DiffView, { diff: r.diff }));
+    const items = html.split('<li class="px-4').slice(1).filter((i) => /data-kind="(changed|withdrawn)"/.test(i));
+    expect(items).toHaveLength(2);
+    const changed = items.find((i) => i.includes("grid.firm_capacity_mva"))!;
+    expect(changed).toContain("Rests on: declared assumed E0, no file cited → declared measured E5, meter.pdf (file reviewed and verified)");
+    expect(changed).toContain("+2 MVA");
+    const withdrawn = items.find((i) => i.includes("grid.current_site_peak_mw"))!;
+    expect(withdrawn).toContain("Rests on: declared assumed E0, no file cited → missing E0, none (missing)");
+  });
   it("the words 'improved', 'better' and 'saves' are not used", () => {
     const r = diffPoints(buildChains(ALL), pt("2026-01-10"), NOW_POINT);
     if (!r.ok) throw new Error();
