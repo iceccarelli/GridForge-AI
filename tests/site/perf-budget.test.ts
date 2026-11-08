@@ -81,6 +81,37 @@ describe("the committed per-route JavaScript budget", () => {
     expect(script).toMatch(/route\.abort\(\)/);
   });
 
+  it("budgets every static page, or exempts it with a reason, and budgets nothing that no longer exists", () => {
+    // A page added without a budget is a page whose weight nobody is watching. Dynamic segments ([slug], [...rest]) are not enumerable
+    // here: one representative of each family is budgeted by hand (/products/density-screen, /constraints/busway-ampacity, /for/ai-operators).
+    const pages: string[] = [];
+    const walk = (dir: string) => {
+      for (const e of fs.readdirSync(dir, { withFileTypes: true })) {
+        const full = `${dir}/${e.name}`;
+        if (e.isDirectory()) walk(full);
+        else if (e.name === "page.tsx") pages.push(dir);
+      }
+    };
+    walk("app");
+    const routeOf = (dir: string) =>
+      "/" + dir.split("/").slice(1).filter((seg) => !/^\(.*\)$/.test(seg)).join("/"); // route groups add no segment
+    const all = pages.map(routeOf);
+    const staticRoutes = all.filter((r) => !r.includes("[")).sort();
+    expect(staticRoutes.length).toBeGreaterThan(20);
+    const EXEMPT: Record<string, string> = {}; // route -> why it is not budgeted. Empty on purpose: every static page is measured.
+    for (const [route, why] of Object.entries(EXEMPT)) {
+      expect(why.length, `${route}: an exemption needs a reason`).toBeGreaterThan(10);
+      expect(budget.routes[route], `${route} is exempt AND budgeted`).toBeUndefined();
+      expect(staticRoutes, `${route} is exempt but no such page exists`).toContain(route);
+    }
+    const unbudgeted = staticRoutes.filter((r) => budget.routes[r] === undefined && !(r in EXEMPT));
+    expect(unbudgeted, "static pages with no entry in scripts/perf-budget.json (add one from a measurement + 10%, or exempt it with a reason)").toEqual([]);
+    // and every budgeted route is a real page (a dynamic one matches its pattern)
+    const patterns = all.map((r) => new RegExp("^" + r.replace(/\[\.\.\.[^\]]+\]/g, ".+").replace(/\[[^\]]+\]/g, "[^/]+") + "$"));
+    const stale = Object.keys(budget.routes).filter((r) => !patterns.some((re) => re.test(r)));
+    expect(stale, "budgeted routes that match no page").toEqual([]);
+  });
+
   it("decides the live comparison from the environment: CI may defer it only by saying so, never by omission", () => {
     expect(liveDecision({ PERF_BASE_URL: "http://localhost:3140" })).toBe("run");
     expect(liveDecision({ CI: "true", PERF_BASE_URL: "http://localhost:3140" })).toBe("run");

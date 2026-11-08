@@ -44,6 +44,10 @@ const DEFAULT_ROUTES = [
   "/legal/security",
   "/guides/nameplate-vs-useful-compute",
   "/account/sites",
+  "/admin",
+  "/admin/login",
+  "/admin/pipeline",
+  "/admin/reviews",
 ];
 
 function arg(name, fallback) {

@@ -189,4 +189,3 @@ def test_each_ruleset_blocks_deletion_and_force_push_and_requires_a_pull_request
     assert pr["required_review_thread_resolution"] is True
     assert pr["dismiss_stale_reviews_on_push"] is True
     assert set(kinds) == {"deletion", "non_fast_forward", "pull_request", "required_status_checks"}, f"unreviewed rule types: {kinds}"
-

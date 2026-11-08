@@ -561,25 +561,53 @@ jobs:
           PLAYWRIGHT_VERSION: '1.63.0'
         run: |
           set -euo pipefail
-          PW=/tmp/perf-playwright
+          PW="${RUNNER_TEMP:-/tmp}/perf-playwright"
+          LOG="${RUNNER_TEMP:-/tmp}/perf-next-start.log"
+          WAIT="${PERF_WAIT_SECONDS:-60}"
+          # The required `site` check now depends on npm, the Playwright CDN and apt being reachable. A transient failure of any of them
+          # should cost a retry, not a red pull request; a persistent one still fails the step after three attempts.
+          retry() {
+            local attempts="$1" i; shift
+            for i in $(seq 1 "$attempts"); do
+              if "$@"; then return 0; fi
+              echo "attempt ${i}/${attempts} failed: $*" >&2
+              if [ "$i" -lt "$attempts" ]; then sleep $((i * ${PERF_RETRY_BACKOFF:-10})); fi
+            done
+            return 1
+          }
           mkdir -p "$PW"
-          npm install --prefix "$PW" --no-audit --no-fund --loglevel=error "playwright@${PLAYWRIGHT_VERSION}"
-          "$PW/node_modules/.bin/playwright" install --with-deps chromium
-          SITE_URL="http://127.0.0.1:${PERF_PORT}" ./node_modules/.bin/next start -p "$PERF_PORT" > /tmp/perf-next-start.log 2>&1 &
+          retry 3 npm install --prefix "$PW" --no-audit --no-fund --loglevel=error "playwright@${PLAYWRIGHT_VERSION}"
+          retry 3 "$PW/node_modules/.bin/playwright" install --with-deps chromium
+          # Something already answering on this port would be measured INSTEAD of this build (our server would die with EADDRINUSE).
+          if curl -s -o /dev/null --max-time 2 "http://127.0.0.1:${PERF_PORT}/"; then
+            echo "::error::port ${PERF_PORT} already answers HTTP before the production server was started; refusing to measure a server that is not this build"
+            exit 1
+          fi
+          SITE_URL="http://127.0.0.1:${PERF_PORT}" ./node_modules/.bin/next start -p "$PERF_PORT" > "$LOG" 2>&1 &
           SERVER_PID=$!
           trap 'kill "$SERVER_PID" 2>/dev/null || true' EXIT
           up=0
-          for i in $(seq 1 60); do
-            if [ "$(curl -s -o /dev/null -w '%{http_code}' "http://127.0.0.1:${PERF_PORT}/" || true)" = "200" ]; then up=1; break; fi
+          for i in $(seq 1 "$WAIT"); do
             kill -0 "$SERVER_PID" 2>/dev/null || break
+            if [ "$(curl -s -o /dev/null --max-time 3 -w '%{http_code}' "http://127.0.0.1:${PERF_PORT}/" || true)" = "200" ]; then
+              # a server that lost the race for the port dies within a moment: confirm the process we started is the one that is alive
+              sleep 2
+              if kill -0 "$SERVER_PID" 2>/dev/null; then up=1; fi
+              break
+            fi
             sleep 1
           done
           if [ "$up" != "1" ]; then
-            echo "::error::the production server did not answer HTTP 200 on port ${PERF_PORT} within 60 s, so the JavaScript budget was NOT measured"
-            tail -40 /tmp/perf-next-start.log
+            if kill -0 "$SERVER_PID" 2>/dev/null; then
+              echo "::error::the production server did not answer HTTP 200 on port ${PERF_PORT} within ${WAIT} s, so the JavaScript budget was NOT measured"
+            else
+              echo "::error::the production server process exited before it served port ${PERF_PORT} (port already in use?), so the JavaScript budget was NOT measured"
+            fi
+            tail -40 "$LOG"
             exit 1
           fi
           PERF_BASE_URL="http://127.0.0.1:${PERF_PORT}" NODE_PATH="$PW/node_modules" npx vitest run tests/site/perf-budget.test.ts
+
       - name: A token-addressed page may not be indexed or leak
         run: |
           node -e "
@@ -745,8 +773,10 @@ jobs:
         run: python -m pytest tests/test_site_origin_gate.py -q
       - name: Site and hall registry (0049-0051) - organisations, roles, declared origin, hall inputs and their sources, attach/detach, timeline - constraints, grants and the apply gates on real PostgreSQL (fails, never skips)
         run: python -m pytest tests/test_site_registry_migration.py tests/test_hall_inputs_migration.py tests/test_hall_timeline_migration.py tests/test_site_registry_apply.py -q
-      - name: The whole chain (0001-0052) - closed function privileges, every event type, replaying 0049-0052 twice, and applying 0046-0052 over legacy rows without rewriting any (fails, never skips)
+      - name: The whole chain (0001-0053) - closed function privileges, every event type, replaying 0049-0053 twice, and applying 0046-0053 over legacy rows without rewriting any (fails, never skips)
         run: python -m pytest tests/test_migration_chain_0046_0052.py -q
+      - name: Salted site reference (0053) - function body, malformed refusal, both orders, legacy rows untouched, importer alias on real PostgreSQL (fails, never skips)
+        run: python -m pytest tests/test_salted_site_ref_migration.py -q
       - name: Site and hall registry - organisations, sites, halls, hall inputs, attach/detach and timeline through the real routes, real PostgREST + PostgreSQL (fails, never skips)
         run: bash scripts/realdb-run.sh npx vitest run tests/site/site-registry.realdb.test.ts
       - name: Integrity hardening - production default ACLs (API roles hold nothing), truncate guards, deposit credit invariants, release reviewer, package/project keys, purchase session reference on real PostgreSQL (fails, never skips)

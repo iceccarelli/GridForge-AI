@@ -355,3 +355,74 @@ def test_the_header_records_why_the_rulesets_say_what_they_say():
 def test_nothing_in_the_workflows_runs_the_applier():
     for wf in (ROOT / ".github" / "workflows").glob("*.yml"):
         assert "apply-rulesets" not in wf.read_text(), f"{wf.name} would change branch protection from CI"
+
+
+@pytest.mark.parametrize("args", [["--apply", "--dry-run"], ["--dry-run", "--apply"]])
+def test_dry_run_and_apply_together_are_refused_in_either_order_and_write_nothing(env, args):
+    p = env.run(*args)
+    assert p.returncode == 2, (args, p.stdout, p.stderr)
+    assert "mutually exclusive" in p.stderr
+    assert env.calls() == [] and env.writes() == [] and env.live() == []
+
+
+def test_dry_run_flag_alone_and_with_verify_stay_read_only(env):
+    assert env.run("--dry-run").returncode == 0
+    assert env.run("--dry-run", "--verify").returncode == 1  # nothing applied yet: drift, but still no write
+    assert env.writes() == []
+
+
+def _bad_dir(tmp_path: Path, mutate) -> Path:
+    d = tmp_path / "rs"
+    d.mkdir()
+    rs = json.loads((RULESET_DIR / "protect-main.json").read_text())
+    mutate(rs)
+    (d / "x.json").write_text(json.dumps(rs))
+    return d
+
+
+@pytest.mark.parametrize("label, mutate, message", [
+    ("unknown rule type", lambda rs: rs["rules"].append({"type": "delete_everything"}), "type GitHub does not know"),
+    ("typo in a known type", lambda rs: rs["rules"].__setitem__(0, {"type": "non_fastforward"}), "type GitHub does not know"),
+    ("pull_request without parameters", lambda rs: [r for r in rs["rules"] if r["type"] == "pull_request"][0].pop("parameters"), "malformed parameters"),
+    ("bad merge method", lambda rs: [r for r in rs["rules"] if r["type"] == "pull_request"][0]["parameters"].update(allowed_merge_methods=["fast-forward"]), "malformed parameters"),
+    ("review count as text", lambda rs: [r for r in rs["rules"] if r["type"] == "pull_request"][0]["parameters"].update(required_approving_review_count="0"), "malformed parameters"),
+    ("empty required checks", lambda rs: [r for r in rs["rules"] if r["type"] == "required_status_checks"][0]["parameters"].update(required_status_checks=[]), "malformed parameters"),
+    ("check without context", lambda rs: [r for r in rs["rules"] if r["type"] == "required_status_checks"][0]["parameters"]["required_status_checks"].append({"integration_id": 1}), "malformed parameters"),
+])
+def test_a_rule_github_would_refuse_is_refused_locally_before_any_request(env, tmp_path, label, mutate, message):
+    d = _bad_dir(tmp_path, mutate)
+    for flag in ([], ["--apply"]):
+        p = env.run(*flag, "--dir", str(d))
+        assert p.returncode == 2, (label, p.stdout, p.stderr)
+        assert message in p.stderr
+    assert env.calls() == []
+
+
+@pytest.mark.parametrize("repo", ["owner", "owner/", "/name", "a/b/c", "a b/c", "a/b;rm -rf", "a/$(id)", "own er/name", "a/b\nc"])
+def test_a_malformed_repo_is_refused_before_any_request(env, repo):
+    p = env.run("--repo", repo)
+    assert p.returncode == 2 and "must look like OWNER/NAME" in p.stderr
+    assert not any(c["argv"][0] == "api" for c in env.calls())
+
+
+def test_the_target_and_the_plan_are_printed_before_the_first_write(env):
+    p = env.run("--apply", "--repo", "owner/name")
+    out = p.stdout
+    assert out.index("target repository: owner/name") < out.index("plan for owner/name:") < out.index("CREATED")
+    assert "create  protect-main  (POST)" in out and "create  protect-release  (POST)" in out
+    # every GET that builds the plan happens before the first write
+    kinds = ["w" if ("-X" in c["argv"]) else "r" for c in env.calls() if c["argv"][0] == "api"]
+    assert kinds.index("w") > max(i for i, k in enumerate(kinds) if k == "r" and i < kinds.index("w")), kinds
+
+
+def test_bash_older_than_4_is_refused_first_thing():
+    src = SCRIPT.read_text()
+    body = src.split("set -euo pipefail", 1)[1]
+    first_statements = [ln for ln in body.splitlines() if ln.strip() and not ln.lstrip().startswith("#")][:3]
+    assert any("BASH_VERSINFO" in ln for ln in first_statements), first_statements
+
+
+def test_the_header_states_the_limits_honestly():
+    head = SCRIPT.read_text().split("set -euo pipefail")[0].lower()
+    for needle in ("422", "idempotent", "only after main is green", "first fully green run", "release/1.2/hotfix", "not covered", "do_not_enforce_on_create".lower(), "cannot be deleted"):
+        assert needle in head, f"the script header no longer says: {needle}"

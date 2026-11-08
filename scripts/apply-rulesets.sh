@@ -13,8 +13,10 @@
 # --yes-i-am-the-owner are given, so a workflow can never change branch protection by accident. Nothing in .github/workflows calls it.
 #
 # What it does, per .github/rulesets/*.json
-#   1. Validates every file as JSON with the fields a ruleset needs, BEFORE any request is made (one bad file stops the run: no
-#      half-applied state).
+#   1. Validates every file BEFORE any request is made: JSON, the fields a ruleset needs, every rule `type` against GitHub's known set,
+#      and the parameter shape of the types used here. One bad file stops the run with nothing written. This is LOCAL validation only:
+#      GitHub can still refuse a file with a 422 that no local check foresaw. If that happens on the second file, the first has already
+#      been applied. The script is idempotent, so fix the file and run it again; it will not touch what already matches.
 #   2. Looks up an existing ruleset of the SAME NAME in this repository (not inherited ones) and
 #        - none exists            -> POST   repos/OWNER/NAME/rulesets
 #        - exists and differs     -> PUT    repos/OWNER/NAME/rulesets/ID   (GitHub's update verb for rulesets)
@@ -22,6 +24,12 @@
 #      "The same" is judged on normalised JSON: key order and list order do not matter, and fields the server adds on its own (id,
 #      timestamps, parameter defaults) are ignored because only the keys the file declares are compared.
 #   3. NEVER deletes. A ruleset in the repository that has no file here is listed as "left alone" and not touched.
+#
+# ---- ORDER OF OPERATIONS: apply only AFTER main is green -----------------------------------------------------------------------
+# Required checks block merging. If a ruleset requiring the 13 contexts below is applied while main itself fails one of them (at the time
+# of writing `site` fails `npx tsc --noEmit` on origin/main, a regression fixed in the same pull request that adds these files), then
+# NOTHING can merge, including the fix. So: merge the fixes, wait for the first fully green run on main, THEN run --verify, then --apply.
+# The first time, prove the files on a throwaway repository (--apply, then --verify, then a test pull request) before the real one.
 #
 # Exit codes: 0 ok / no drift, 1 drift (--verify) or a request failed, 2 bad usage or an invalid ruleset file, 3 gh/jq missing, not
 # authenticated, or (with --apply) not an administrator, 4 refused under CI.
@@ -42,23 +50,32 @@
 # bypass_actors is empty: nobody, the owner included, pushes straight to a protected branch; the way in is a pull request.
 # `release/*` (protect-release.json) is the same rule set on release branches. It differs in one field: do_not_enforce_on_create is
 # true, because cutting a release branch from a commit that has already passed CI cannot go through a pull request or a status check.
+# That flag relaxes ONLY the status-check requirement at creation; verify on a throwaway repository (--apply, --verify, create a branch)
+# before relying on it. Two consequences worth knowing: (a) `refs/heads/release/*` matches ONE path segment, so `release/1.2` is covered
+# and a nested `release/1.2/hotfix` is NOT covered; nested names are deliberately left unprotected (add `refs/heads/release/**/*` only if the
+# owner wants them). (b) With empty bypass_actors and the `deletion` rule, a protected branch cannot be deleted by anyone, the owner
+# included, until the ruleset is disabled or its enforcement set to evaluate/disabled; that is the intended trade for a release line.
 set -euo pipefail
+
+die() { local rc="$1"; shift; echo "apply-rulesets: $*" >&2; exit "$rc"; }
+# associative arrays below need bash 4 (macOS ships 3.2): fail before anything else, with a message, not halfway through
+[ "${BASH_VERSINFO[0]:-0}" -ge 4 ] || die 3 "bash >= 4 is required (this is ${BASH_VERSION:-unknown}); on macOS: brew install bash"
 
 GH="${GH_BIN:-gh}"
 MODE=dry
+FORCE_DRY=0
 REPO=""
 DIR=""
 YES_OWNER=0
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 
 usage() { sed -n '2,8p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'; }
-die() { local rc="$1"; shift; echo "apply-rulesets: $*" >&2; exit "$rc"; }
 
 while [ $# -gt 0 ]; do
   case "$1" in
     --apply) [ "$MODE" = verify ] && die 2 "--apply and --verify are mutually exclusive"; MODE=apply ;;
     --verify) [ "$MODE" = apply ] && die 2 "--apply and --verify are mutually exclusive"; MODE=verify ;;
-    --dry-run) ;; # accepted for clarity; it is the default
+    --dry-run) FORCE_DRY=1 ;;
     --yes-i-am-the-owner) YES_OWNER=1 ;;
     --repo) [ $# -ge 2 ] || die 2 "--repo needs OWNER/NAME"; REPO="$2"; shift ;;
     --dir) [ $# -ge 2 ] || die 2 "--dir needs a directory"; DIR="$2"; shift ;;
@@ -67,6 +84,8 @@ while [ $# -gt 0 ]; do
   esac
   shift
 done
+
+[ "$FORCE_DRY" = 1 ] && [ "$MODE" = apply ] && die 2 "--dry-run and --apply are mutually exclusive"
 
 # Under CI this script changes nothing unless the owner says so twice. Even a read is refused: there is no reason for a workflow to run it.
 in_ci=0
@@ -85,6 +104,9 @@ FILES=("$DIR"/*.json)
 shopt -u nullglob
 [ "${#FILES[@]}" -gt 0 ] || die 2 "no *.json ruleset files in $DIR"
 
+# The rule types GitHub accepts in a ruleset (docs.github.com, "Available rules for rulesets"). A typo here would be a 422 on the server.
+KNOWN_RULE_TYPES='["creation","update","deletion","required_linear_history","required_signatures","merge_queue","required_deployments","pull_request","required_status_checks","non_fast_forward","commit_message_pattern","commit_author_email_pattern","committer_email_pattern","branch_name_pattern","tag_name_pattern","file_path_restriction","max_file_path_length","file_extension_restriction","max_file_size","workflows","code_scanning","copilot_code_review"]'
+
 # ---- 1. validate every file before a single request ------------------------------------------------------------------------
 declare -A NAME_OF
 for f in "${FILES[@]}"; do
@@ -96,6 +118,21 @@ for f in "${FILES[@]}"; do
          and (.rules | type == "array" and length > 0)
          and (.conditions.ref_name.include | type == "array" and length > 0)' "$f" >/dev/null 2>&1 \
     || die 2 "$f is not a ruleset (needs name, target, enforcement, rules[], conditions.ref_name.include[]); nothing was requested"
+  # every rule type must be one GitHub knows, and the types used here must have the parameters GitHub requires of them
+  jq -e --argjson known "$KNOWN_RULE_TYPES" '[.rules[] | type == "object" and (.type | IN($known[]))] | all' "$f" >/dev/null 2>&1 \
+    || die 2 "$f has a rule whose type GitHub does not know (known: $(jq -r 'join(", ")' <<<"$KNOWN_RULE_TYPES")); nothing was requested"
+  jq -e '
+    (.rules | map(select(.type == "pull_request")) | all(
+        (.parameters | type == "object")
+        and (.parameters.required_approving_review_count | type == "number" and . >= 0 and . == floor)
+        and ((.parameters.allowed_merge_methods // ["merge"]) | type == "array" and length > 0 and all(IN("merge", "squash", "rebase")))
+        and ([.parameters.dismiss_stale_reviews_on_push, .parameters.require_code_owner_review, .parameters.require_last_push_approval,
+              .parameters.required_review_thread_resolution] | all(type == "boolean"))))
+    and (.rules | map(select(.type == "required_status_checks")) | all(
+        (.parameters.required_status_checks | type == "array" and length > 0 and all(.context | type == "string" and length > 0))
+        and ((.parameters.strict_required_status_checks_policy // false) | type == "boolean")))
+    and (.bypass_actors // [] | type == "array")' "$f" >/dev/null 2>&1 \
+    || die 2 "$f has a pull_request or required_status_checks rule with missing or malformed parameters; nothing was requested"
   n="$(jq -r .name "$f")"
   for other in "${!NAME_OF[@]}"; do
     [ "${NAME_OF[$other]}" = "$n" ] && die 2 "$f and $other both define the ruleset named '$n'"
@@ -109,7 +146,7 @@ if [ -z "$REPO" ]; then
   REPO="$("$GH" repo view --json nameWithOwner 2>/dev/null | jq -r '.nameWithOwner // empty')" || true
   [ -n "$REPO" ] || die 3 "could not work out the repository from 'gh repo view'; pass --repo OWNER/NAME"
 fi
-case "$REPO" in */*) ;; *) die 2 "--repo must look like OWNER/NAME, got: $REPO" ;; esac
+[[ "$REPO" =~ ^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$ ]] || die 2 "--repo must look like OWNER/NAME (letters, digits, _ . -), got: $REPO"
 
 repo_json="$("$GH" api "repos/$REPO")" || die 3 "cannot read repos/$REPO with this login"
 is_admin="$(printf '%s' "$repo_json" | jq -r '.permissions.admin // false')"
@@ -138,42 +175,65 @@ def proj($r):
 normalise_file() { jq -S "$JQ_LIB"' norm' "$1"; }
 normalise_live() { jq -S --slurpfile f "$1" "$JQ_LIB"' proj($f[0]) | norm'; }
 
+echo "target repository: $REPO   mode: $MODE   files: ${#FILES[@]} in $DIR"
 created=0; updated=0; same=0; drift=0
-declare -A MANAGED
+declare -A MANAGED ACTION RID DIFFTXT
+
+# ---- 3. plan: read everything first, print the plan, and only then (with --apply) write ------------------------------------------
 for f in "${FILES[@]}"; do
   name="${NAME_OF[$f]}"
   MANAGED["$name"]=1
-  rel="${f#"$ROOT"/}"
-  id="$(printf '%s' "$list_json" | jq -r --arg n "$name" '[.[] | select(.name == $n and ((.source_type // "Repository") == "Repository"))][0].id // empty')"
-  if [ -z "$id" ]; then
-    case "$MODE" in
-      dry)    echo "WOULD CREATE  $name  ($rel)"; created=$((created + 1)) ;;
-      verify) echo "DRIFT         $name is missing from $REPO ($rel)"; drift=$((drift + 1)) ;;
-      apply)
-        "$GH" api -X POST "repos/$REPO/rulesets" -H "Accept: application/vnd.github+json" --input "$f" >/dev/null \
-          || die 1 "creating '$name' failed"
-        echo "CREATED       $name"; created=$((created + 1)) ;;
-    esac
-    continue
+  RID["$f"]="$(printf '%s' "$list_json" | jq -r --arg n "$name" '[.[] | select(.name == $n and ((.source_type // "Repository") == "Repository"))][0].id // empty')"
+  if [ -z "${RID[$f]}" ]; then
+    ACTION["$f"]=create
+  else
+    live="$("$GH" api "repos/$REPO/rulesets/${RID[$f]}")" || die 1 "could not read ruleset '$name' (id ${RID[$f]})"
+    want_n="$(normalise_file "$f")"
+    have_n="$(printf '%s' "$live" | normalise_live "$f")"
+    if [ "$want_n" = "$have_n" ]; then
+      ACTION["$f"]=same
+    else
+      ACTION["$f"]=update
+      DIFFTXT["$f"]="$(diff <(printf '%s\n' "$have_n") <(printf '%s\n' "$want_n") | sed 's/^/    /' | sed -n '1,60p' || true)"
+    fi
   fi
-  live="$("$GH" api "repos/$REPO/rulesets/$id")" || die 1 "could not read ruleset '$name' (id $id)"
-  want_n="$(normalise_file "$f")"
-  have_n="$(printf '%s' "$live" | normalise_live "$f")"
-  if [ "$want_n" = "$have_n" ]; then
-    echo "UNCHANGED     $name (id $id)"; same=$((same + 1)); continue
-  fi
-  case "$MODE" in
-    dry)    echo "WOULD UPDATE  $name (id $id)  ($rel)"; updated=$((updated + 1)) ;;
-    verify) echo "DRIFT         $name (id $id) differs from $rel"; drift=$((drift + 1)) ;;
-    apply)
-      "$GH" api -X PUT "repos/$REPO/rulesets/$id" -H "Accept: application/vnd.github+json" --input "$f" >/dev/null \
-        || die 1 "updating '$name' (id $id) failed"
-      echo "UPDATED       $name (id $id)"; updated=$((updated + 1)) ;;
+done
+echo "plan for $REPO:"
+for f in "${FILES[@]}"; do
+  case "${ACTION[$f]}" in
+    create) echo "  create  ${NAME_OF[$f]}  (POST)" ;;
+    update) echo "  update  ${NAME_OF[$f]}  (PUT id ${RID[$f]})" ;;
+    same)   echo "  keep    ${NAME_OF[$f]}  (id ${RID[$f]}, already matches)" ;;
   esac
-  if [ "$MODE" != apply ]; then
-    diff <(printf '%s\n' "$have_n") <(printf '%s\n' "$want_n") | sed 's/^/    /' | sed -n '1,60p' || true
-    echo "    (lines marked < are live, > are the file)"
-  fi
+done
+
+for f in "${FILES[@]}"; do
+  name="${NAME_OF[$f]}"; id="${RID[$f]}"; rel="${f#"$ROOT"/}"
+  case "${ACTION[$f]}" in
+    same) echo "UNCHANGED     $name (id $id)"; same=$((same + 1)) ;;
+    create)
+      case "$MODE" in
+        dry)    echo "WOULD CREATE  $name  ($rel)"; created=$((created + 1)) ;;
+        verify) echo "DRIFT         $name is missing from $REPO ($rel)"; drift=$((drift + 1)) ;;
+        apply)
+          "$GH" api -X POST "repos/$REPO/rulesets" -H "Accept: application/vnd.github+json" --input "$f" >/dev/null \
+            || die 1 "creating '$name' failed (earlier files in this run may already be applied; fix and re-run, it is idempotent)"
+          echo "CREATED       $name"; created=$((created + 1)) ;;
+      esac ;;
+    update)
+      case "$MODE" in
+        dry)    echo "WOULD UPDATE  $name (id $id)  ($rel)"; updated=$((updated + 1)) ;;
+        verify) echo "DRIFT         $name (id $id) differs from $rel"; drift=$((drift + 1)) ;;
+        apply)
+          "$GH" api -X PUT "repos/$REPO/rulesets/$id" -H "Accept: application/vnd.github+json" --input "$f" >/dev/null \
+            || die 1 "updating '$name' (id $id) failed (earlier files in this run may already be applied; fix and re-run, it is idempotent)"
+          echo "UPDATED       $name (id $id)"; updated=$((updated + 1)) ;;
+      esac
+      if [ "$MODE" != apply ]; then
+        printf '%s\n' "${DIFFTXT[$f]}"
+        echo "    (lines marked < are live, > are the file)"
+      fi ;;
+  esac
 done
 
 # rulesets this script did not create are never touched
