@@ -13,7 +13,7 @@ import { useEffect, useId, useState } from "react";
 import { CircleAlert, Loader2 } from "lucide-react";
 import type { CompareResult } from "@/lib/ttp-compare";
 import { effectView, type EffectView } from "@/lib/quotation-effect";
-import { LEAD_TIME_NOTE, NO_EQUIPMENT_STATEMENT } from "@/lib/cost-evidence-claims";
+import { LEAD_TIME_NOTE, NO_EQUIPMENT_STATEMENT } from "@/lib/cost-evidence-labels";
 import { DateFigure } from "@/components/DateFigure";
 import { ClaimsList, leadTimeText } from "@/components/QuotationClaims";
 import type { ClaimView } from "@/lib/project-quotation-claims";

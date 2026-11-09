@@ -14,7 +14,7 @@ import { useId, useState } from "react";
 import { CircleAlert, CircleCheck, Loader2 } from "lucide-react";
 import type { ClaimView } from "@/lib/project-quotation-claims";
 import { COMPARABILITIES, REVIEW_BASES, reviewBody, type ReviewForm } from "@/lib/evidence-review";
-import { QUOTE_TYPE_LABEL, basisLabel, NO_EQUIPMENT_STATEMENT } from "@/lib/cost-evidence-claims";
+import { QUOTE_TYPE_LABEL, basisLabel, NO_EQUIPMENT_STATEMENT } from "@/lib/cost-evidence-labels";
 
 export type QueuedClaim = ClaimView & { project_id: string };
 

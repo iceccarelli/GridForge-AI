@@ -104,7 +104,7 @@ describe("zero hardware margin: no quotation surface implies GridForge supplies,
   });
 
   it("scans the copy in the source files too, not only what happens to render", () => {
-    for (const rel of ["components/QuotationClaims.tsx", "components/QuotationEffectPanel.tsx", "components/QuotationReview.tsx", "lib/cost-evidence-claims.ts"]) {
+    for (const rel of ["components/QuotationClaims.tsx", "components/QuotationEffectPanel.tsx", "components/QuotationReview.tsx", "lib/cost-evidence-claims.ts", "lib/cost-evidence-labels.ts"]) {
       // The one sentence that DENIES the practice is declared once, in pieces; it is checked whole above and left out here.
       const text = fs.readFileSync(path.join(ROOT, rel), "utf8").replace(/export const NO_EQUIPMENT_STATEMENT =[\s\S]*?;\n/, "");
       // Code identifiers and comments may name the thing they refuse; only string literals and JSX text are copy.
