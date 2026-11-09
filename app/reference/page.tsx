@@ -4,6 +4,7 @@ import type { Metadata } from "next";
 import { OG_BASE } from "@/lib/site";
 import { pageImages } from "@/lib/page-cards";
 import Link from "next/link";
+import { FileAwareLink } from "@/components/FileAwareLink";
 import { ArrowRight, ClipboardList, FileText, Presentation, Table2 } from "lucide-react";
 import { TtpPhoto } from "@/components/TtpPhoto";
 import { QUALIFY_LINK } from "@/lib/nav";
@@ -171,19 +172,19 @@ export default async function ReferencePage() {
           reads it inside their private deliverable page, and this public copy is a standalone page. The engine&rsquo;s
           document body is unchanged, and the synthetic stamp is the only content added to it; the public page also gets a site
           bar, a title and fonts. Its{" "}
-          <Link href="/reference/density_screen.html#data-request" className="text-power underline">&ldquo;What we had to assume&rdquo; section</Link>{" "}
+          <FileAwareLink href="/reference/density_screen.html#data-request" className="text-power underline">&ldquo;What we had to assume&rdquo; section</FileAwareLink>{" "}
           is the data request: the inputs nobody has measured and how to get each one, which you can send to your own engineers.
         </p>
         <div className="mt-5 flex flex-col gap-3 sm:flex-row sm:flex-wrap sm:items-center">
-          <Link
+          <FileAwareLink
             href="/reference/density_screen.html"
             className="inline-flex min-h-11 items-center justify-center gap-2 rounded-xl bg-power px-5 py-2.5 text-sm font-semibold text-ink"
           >
             Read the {screen.name} sample <ArrowRight className="h-4 w-4" />
-          </Link>
-          <Link href="/reference/density_screen.md" className="inline-flex min-h-11 items-center justify-center rounded border border-line px-4 py-2 font-mono text-xs text-mute hover:text-ghost">
+          </FileAwareLink>
+          <FileAwareLink href="/reference/density_screen.md" className="inline-flex min-h-11 items-center justify-center rounded border border-line px-4 py-2 font-mono text-xs text-mute hover:text-ghost">
             density_screen.md
-          </Link>
+          </FileAwareLink>
           <Link href="/products/density-screen" className="inline-flex min-h-11 items-center text-sm text-power underline">
             About the {screen.name} and how to commission it
           </Link>
