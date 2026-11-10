@@ -209,12 +209,12 @@ describe("the allowance", () => {
       const created = await postOrg(who, "10.8.8.8", { name: "Counted" });
       const org = (await created.json()).org.id as string;
       const post = (path: string, body: unknown, mod: () => Promise<any>, ctx?: unknown) => async () => (await mod()).POST(new Request(siteUrl(path), { method: "POST", headers: { ...bearerFor(who), "x-forwarded-for": "10.8.8.8", "content-type": "application/json" }, body: JSON.stringify(body) }), ctx);
-      expect(await countFor(post("/api/sites", { orgId: org, name: "S", dataOrigin: "test" }, () => import("@/app/api/sites/route")))).toBeLessThanOrEqual(2);          // the allowance and the write
+      expect(await countFor(post("/api/sites", { orgId: org, name: "S", dataOrigin: "test" }, () => import("@/app/api/sites/route")))).toBeLessThanOrEqual(3);          // the Auth-lookup counter (review finding 2: +1 on every signed-in request), the allowance and the write
       const get = (path: string, mod: () => Promise<any>, ctx?: unknown) => async () => (await mod()).GET(new Request(siteUrl(path), { headers: { ...bearerFor(who), "x-forwarded-for": "10.8.8.8" } }), ctx);
       const sites = await (await get("/api/sites", () => import("@/app/api/sites/route"))()).json();
       expect(sites.sites[0].halls).toEqual([]);                                   // halls travel inside the site list
-      expect(await countFor(get("/api/sites", () => import("@/app/api/sites/route")))).toBeLessThanOrEqual(3);                // the allowance, the list, the membership check
-      expect(await countFor(get("/api/orgs", () => import("@/app/api/orgs/route")))).toBeLessThanOrEqual(2);
+      expect(await countFor(get("/api/sites", () => import("@/app/api/sites/route")))).toBeLessThanOrEqual(4);                // the Auth-lookup counter, the allowance, the list, the membership check
+      expect(await countFor(get("/api/orgs", () => import("@/app/api/orgs/route")))).toBeLessThanOrEqual(3);                // the Auth-lookup counter + the two it had before
     } finally {
       restore();
     }

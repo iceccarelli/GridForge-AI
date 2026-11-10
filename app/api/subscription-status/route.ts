@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { identify } from "@/lib/portal";
+import { identify, identityRefusal } from "@/lib/portal";
 import { lookupEntitlement, subscriptionsConfigured } from "@/lib/subscribers";
 
 export const runtime = "nodejs";
@@ -20,7 +20,7 @@ export async function POST(req: Request) {
   // "is this address a subscriber" about anybody was an enumeration oracle.
   const who = await identify(req);
   if (!who.ok) {
-    return NextResponse.json({ ok: false, active: false, error: who.error }, { status: who.status });
+    return identityRefusal(who, { active: false });
   }
   const email = who.email;
 

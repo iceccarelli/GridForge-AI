@@ -20,7 +20,7 @@
 
 import { NextResponse } from "next/server";
 import { z } from "zod";
-import { identify } from "@/lib/portal";
+import { identify, identityRefusal } from "@/lib/portal";
 import { creds, rpc } from "@/lib/pgrest";
 import { guardRequest } from "@/lib/rate-limit";
 import { readBoundedJson } from "@/lib/http-body";
@@ -58,7 +58,11 @@ export type Caller = { ok: true; email: string } | { ok: false; response: NextRe
 export async function registryCaller(req: Request): Promise<Caller> {
   if (!creds()) return { ok: false, response: refuse(503, UNAVAILABLE) };
   const who = await identify(req);
-  if (!who.ok) return { ok: false, response: refuse(who.status, who.error) };
+  if (!who.ok) {
+    const response = identityRefusal(who); // a 429 carries its Retry-After
+    response.headers.set("Cache-Control", "no-store");
+    return { ok: false, response };
+  }
   if (!who.verified) return { ok: false, response: refuse(403, CONFIRM_EMAIL) };
   return { ok: true, email: who.email };
 }

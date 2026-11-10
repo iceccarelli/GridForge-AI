@@ -452,7 +452,11 @@ describe("POST /api/siting-analysis (verified subscriber, paid model)", () => {
     db.rows("subscriptions")[0].status = "cancelled";
     expect((await r.POST(ask({ brief: "40 MW" }))).status).toBe(402);
     expect(anthropic).toBe(0);
-    expect(rl()).toHaveLength(0);
+    // INTENTIONAL CHANGE (review finding 2): every Supabase Auth lookup is now counted in the caller's `auth_lookup` budget before the outbound call
+    // (lib/portal.ts), so the two signed-in requests above leave two hits there. What this test is about is unchanged: no REQUEST or PROVIDER counter
+    // (siting, siting_account, anthropic_*) is used by a request that is refused with 402.
+    expect(rl().filter((r) => r.bucket !== "auth_lookup")).toHaveLength(0);
+    expect(rl().filter((r) => r.bucket === "auth_lookup").reduce((n, r) => n + (r.hits as number), 0)).toBe(2);
   });
 
   it("an over-long brief or body is refused before the model", async () => {
