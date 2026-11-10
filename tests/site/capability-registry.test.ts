@@ -136,15 +136,16 @@ describe("the capabilities the registry used to omit", () => {
     expect(c.stripe_product_or_price).toContain("api_payg_enable");
   });
 
-  it("calls calibration_capture unverified, not not_deployed and not live: the live engine was seen serving the route, the snapshot is stale", () => {
+  it("calls calibration_capture live because the deployed engine lists its route, and says that is the route and not evidence in the ledger", () => {
     const c = cap("calibration_capture");
     expect(c.rest_endpoint).toBe("/v1/calibration/residuals");
-    expect(c.production_status).toBe("unverified");
-    expect(c.notes).toMatch(/2026-11-06/);
-    expect(c.notes).toMatch(/lists all 24 endpoints/);
-    expect(c.notes).toMatch(/production state is unverified/);
+    expect(c.production_status).toBe("live");
+    expect(c.notes).toMatch(/dated 2026-11-10/);
+    expect(c.notes).toMatch(/no difference between the deployed engine and this repository/);
+    expect(c.notes).toMatch(/the route, not a claim that the ledger holds evidence: it holds none/);
     expect(snapshot.endpoints).toContain("/v1/calibration/residuals");
     expect(snapshot.endpoints).toHaveLength(24);
+    expect(snapshot.snapshot_date).toBe("2026-11-10");
   });
 
   it("states the calibration gate as the view alone, names its two admin routes and tables, and says the migrations are not applied", () => {
@@ -197,12 +198,12 @@ describe("the capabilities the registry used to omit", () => {
       if (c.production_status === "not_deployed") expect(concrete && !deployed.has(c.rest_endpoint!), `${c.capability_id} is not_deployed without an absent concrete route`).toBe(true);
       if (c.production_status === "unverified") expect(c.notes, c.capability_id).toMatch(/production state is unverified/);
     }
-    for (const id of ["procurement_bids", "study_deck", "proposal", "power_assess", "estimate"]) {
+    for (const id of ["procurement_bids", "study_deck", "proposal", "power_assess", "estimate", "calibration_capture"]) {
       expect(snapshot.endpoints, id).toContain(cap(id).rest_endpoint);
       expect(cap(id).production_status).toBe("live");
     }
     // No route, a wildcard plan or a site-only flow: nothing for the snapshot to prove.
-    for (const id of ["intelligence_developer", "intelligence_team", "intelligence_enterprise", "project_record", "project_buyer_page", "api_triage", "api_scale", "api_platform", "payg_metering", "cost_evidence_runs", "intelligence_team_seats", "engagement_deposit_flow", "calibration_capture", "site_hall_registry"]) {
+    for (const id of ["intelligence_developer", "intelligence_team", "intelligence_enterprise", "project_record", "project_buyer_page", "api_triage", "api_scale", "api_platform", "payg_metering", "cost_evidence_runs", "intelligence_team_seats", "engagement_deposit_flow", "site_hall_registry"]) {
       expect(cap(id).production_status, id).toBe("unverified");
     }
   });

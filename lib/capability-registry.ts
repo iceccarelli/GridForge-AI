@@ -750,11 +750,11 @@ export const CAPABILITY_REGISTRY: Capability[] = [
     stripe_product_or_price: "none",
     deliverable: "Aggregate residual statistics (n_records, per-subsystem); an export file for `gridforge calibrate import`",
     status: "free",
-    production_status: "unverified",
+    production_status: "live",
     notes:
-      "The site offers the capture (the project panel) and its tests pass, but its production state is unverified. Not not_deployed: a " +
-      "read-only GET of /v1/calibration/residuals on the live engine returned 200 on 2026-11-06 and the live /v1/version listed 24 endpoints (observed " +
-      "by the coordinator; not repeated here). The committed snapshot, lib/engine-deployed.json (dated 2026-11-07), lists all 24 endpoints including /v1/calibration/residuals; " +
+      "Live in the sense this registry uses: /v1/calibration/residuals is listed by the deployed engine's /v1/version (the snapshot lib/engine-deployed.json, dated 2026-11-10, " +
+      "after the redeploy of that day, whose drift check found no difference between the deployed engine and this repository), and it is a public read-only route. " +
+      "That is the route, not a claim that the ledger holds evidence: it holds none. "+
       "Nothing here writes the ledger by itself: with no verified observation the export is empty and the answer is 'uncalibrated'. " +
       "The site-side capture needs 0017 and 0038, plus 0046-0048 (forecast freeze, consent and origin, file verification) " +
       "and 0052 (the site-origin gate), all recorded as applied (2026-11-07); no real observation is recorded as having passed review in production. " +
