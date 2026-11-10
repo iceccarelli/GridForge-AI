@@ -6,6 +6,7 @@ import {
   adminConfigured,
   adminSessionReady,
   requestKey,
+  requestCoarseKey,
   throttleLogin,
   ADMIN_COOKIE,
   ADMIN_SESSION_SECONDS,
@@ -35,7 +36,7 @@ export async function POST(req: Request) {
   // Before reading the body, and before comparing anything: a guess must cost
   // something. This gate fronts the whole lead pipeline and the release button. The count is the shared Postgres
   // counter, so it holds across every instance; if it cannot be read the login is refused, not waved through.
-  const wait = await throttleLogin(requestKey(req));
+  const wait = await throttleLogin(requestKey(req), undefined, requestCoarseKey(req));
   if (wait === "unavailable") {
     return NextResponse.json(
       { ok: false, error: "Login is temporarily unavailable. Try again shortly." },

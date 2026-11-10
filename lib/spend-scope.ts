@@ -34,6 +34,8 @@ export interface SpendScope {
   cls: SpendClass;
   /** HMAC pseudonym of the caller's address; null for trusted work. Never an address. */
   caller: string | null;
+  /** HMAC pseudonym of the caller's IPv6 /48 (null for IPv4, unattributed and trusted work); charged beside `caller` on the per-caller provider budget. */
+  caller48?: string | null;
   denial: SpendDenial | null;
 }
 

@@ -9,7 +9,7 @@
 
 import { storeFault } from "@/lib/safe-log";
 import { reviewHash } from "@/lib/deliverables";
-import { RATE_POLICIES, callerIdentity, resetMemoryLimiter, countHit, isProduction, subjectOf } from "@/lib/rate-limit";
+import { RATE_POLICIES, callerIdentity, resetMemoryLimiter, countHit, countCoarseHit, isProduction, subjectOf } from "@/lib/rate-limit";
 import crypto from "node:crypto";
 import { NextResponse } from "next/server";
 import { SITE_URL } from "@/lib/site";
@@ -143,17 +143,30 @@ export function requestKey(req: Request): string {
   return who.ok ? who.subject : (subjectOf("admin-login:unattributed") ?? "admin-login:unattributed");
 }
 
+/** The caller's IPv6 /48 as the rate limiter's pseudonym, or null (IPv4, no trusted address). Pass it to `throttleLogin` beside `requestKey`. */
+export function requestCoarseKey(req: Request): string | null {
+  const who = callerIdentity(req);
+  return who.ok && who.coarse ? who.coarse : null;
+}
+
 /**
  * Record an attempt. Resolves to how long to wait, in seconds, or 0 to proceed, or "unavailable" when the shared counter
  * cannot be read (the caller must refuse, not proceed).
  *
  * Counts the attempt whatever the outcome: a throttle that only counts failures lets an attacker reset it by interleaving
- * a request it will answer. `now` only moves the development/test in-memory window.
+ * a request it will answer. `now` only moves the development/test in-memory window. With `coarseKey` (the caller's IPv6 /48,
+ * `requestCoarseKey`) the attempt is also counted against that /48's ceiling, so rotating through its /64s buys no fresh guesses.
  */
-export async function throttleLogin(key: string, now?: number): Promise<number | "unavailable"> {
+export async function throttleLogin(key: string, now?: number, coarseKey?: string | null): Promise<number | "unavailable"> {
   const h = await countHit("admin_login", key, now);
   if (!h) return "unavailable";
-  return h.allowed ? 0 : Math.max(1, Math.min(h.retryAfter, Math.ceil(WINDOW_MS / 1000)));
+  if (!h.allowed) return Math.max(1, Math.min(h.retryAfter, Math.ceil(WINDOW_MS / 1000)));
+  if (coarseKey) {
+    const wide = await countCoarseHit("admin_login", coarseKey, now);
+    if (!wide) return "unavailable";
+    if (!wide.allowed) return Math.max(1, Math.min(wide.retryAfter, Math.ceil(WINDOW_MS / 1000)));
+  }
+  return 0;
 }
 
 /** Test seam. Never called in a request path. */

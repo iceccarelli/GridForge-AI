@@ -26,6 +26,14 @@
 // email) under a server-side secret. The address is never stored, logged or sent to the database, nor is any header, body,
 // token, prompt or user agent. See `callerIdentity` for which header is trusted and why.
 //
+// IPv6 AND THE /48. A caller is identified by its /64 (the smallest block one subscriber gets). A caller holding a /48 (65,536 /64s)
+// or more could otherwise take a fresh allowance from every /64 it chose to speak from. So an IPv6 caller is ALSO counted in a coarser
+// bucket keyed on its /48, with a ceiling of IPV6_48_FACTOR_DEFAULT (8) times the route's own limit (override: GRIDFORGE_RATE_V6_48_FACTOR),
+// and is refused when EITHER bucket is over. A normal caller (one /64, or an office on a few /64s) is stopped by its own /64 allowance
+// long before it could reach the /48 ceiling; the factor only decides how many /64 allowances one /48 may use. LIMITS: this bounds a
+// /48, not a /32 -- an operator holding many /48s still gets 8 allowances per /48; the shared aggregate budgets below bound the total.
+// IPv4 and the "unattributed" caller are keyed exactly as before.
+//
 // KEY ROTATION AND RETENTION. Rows are (bucket, subject, window start) -> hits and nothing else; windows are at most one
 // hour long and the function deletes rows older than a day on ~1% of calls. Changing RATE_LIMIT_HMAC_KEY (or, when that is
 // unset, SUPABASE_SERVICE_ROLE_KEY, from which the key is derived) re-pseudonymises every caller: existing counters are
@@ -131,6 +139,13 @@ export const RATE_POLICIES = {
   contact: { bucket: "contact", limit: 5, windowSeconds: HOUR },
   /** POST /api/csp-report: browsers post a violation report per blocked resource; report-only, so it can never break a page. Bounded so it cannot be a free write path. */
   csp_report: { bucket: "csp_report", limit: 120, windowSeconds: HOUR },
+  /**
+   * Every Supabase access-token lookup (lib/portal.ts `identify`): one outbound /auth/v1/user call per counted hit. Counted BEFORE the call, per
+   * caller address (and /48), so an unauthenticated stranger sending bearer tokens cannot make this site hammer Supabase Auth. A repeated junk token is
+   * answered from a short per-instance negative cache and is not counted. 300 per 10 min: a signed-in office behind one address loading portal
+   * pages (a few lookups each) is well inside it; a loop is not.
+   */
+  auth_lookup: { bucket: "auth_lookup", limit: 300, windowSeconds: 600 },
   /** GET /api/usage: token-addressed reads of the account's own usage; polled by the portal. */
   usage_read: { bucket: "usage_read", limit: 240, windowSeconds: HOUR },
 } as const satisfies Record<string, RatePolicy>;
@@ -291,18 +306,19 @@ function v6Groups(raw: string): number[] | null {
  * appended; anything to its left is whatever the client sent, so it is never read. Not an IP -> null.
  *
  * IPv6 is bucketed by its /64: that is the smallest block an ISP hands one subscriber, so a single host (or attacker) holding
- * a /64 can mint 2^64 distinct /128 addresses and would otherwise get a fresh allowance for each. An IPv4-mapped IPv6
+ * a /64 can mint 2^64 distinct /128 addresses and would otherwise get a fresh allowance for each. It also carries the /48 as a
+ * coarser identity (`coarse`), charged by the limiters as well (see the header). An IPv4-mapped IPv6
  * address (::ffff:a.b.c.d) is the IPv4 address it wraps, so the two spellings of one host are one caller. IPv4 is unchanged.
  */
-function addressIn(raw: string | null): string | null {
+function addressIn(raw: string | null): { fine: string; coarse?: string } | null {
   if (!raw) return null;
   const last = raw.split(",").pop()?.trim() ?? "";
   if (last.length > 64 || net.isIP(last) === 0) return null;
-  if (net.isIP(last) === 4) return last;
+  if (net.isIP(last) === 4) return { fine: last };
   const g = v6Groups(last);
   if (!g) return null;
-  if (g.slice(0, 5).every((x) => x === 0) && g[5] === 0xffff) return `${g[6] >> 8}.${g[6] & 255}.${g[7] >> 8}.${g[7] & 255}`;
-  return `${g.slice(0, 4).map((x) => x.toString(16)).join(":")}::/64`;
+  if (g.slice(0, 5).every((x) => x === 0) && g[5] === 0xffff) return { fine: `${g[6] >> 8}.${g[6] & 255}.${g[7] >> 8}.${g[7] & 255}` };
+  return { fine: `${g.slice(0, 4).map((x) => x.toString(16)).join(":")}::/64`, coarse: `${g.slice(0, 3).map((x) => x.toString(16)).join(":")}::/48` };
 }
 
 /** The HMAC key, or null when there is none to use (production without a configured secret). */
@@ -330,7 +346,14 @@ export function accountSubject(verifiedEmail: string): string | null {
   return hmac(`acct:${verifiedEmail.trim().toLowerCase()}`);
 }
 
-export type CallerIdentity = { ok: true; subject: string } | { ok: false; reason: "no_trusted_source" | "no_secret" };
+export type CallerIdentity =
+  | {
+      ok: true;
+      subject: string;
+      /** IPv6 only: the pseudonym of the caller's /48. Charged in a second, coarser bucket (see the header). Absent for IPv4 and for "unattributed". */
+      coarse?: string;
+    }
+  | { ok: false; reason: "no_trusted_source" | "no_secret" };
 
 /**
  * Who is calling, as a pseudonym, or why that cannot be established.
@@ -343,7 +366,7 @@ export type CallerIdentity = { ok: true; subject: string } | { ok: false; reason
  */
 export function callerIdentity(req: Request): CallerIdentity {
   const header = trustedIpHeader();
-  let address: string | null;
+  let address: { fine: string; coarse?: string } | null;
   if (header) {
     address = addressIn(req.headers.get(header));
   } else if (isProduction()) {
@@ -351,8 +374,35 @@ export function callerIdentity(req: Request): CallerIdentity {
   } else {
     address = addressIn(req.headers.get("x-real-ip")) ?? addressIn(req.headers.get("x-forwarded-for"));
   }
-  const subject = hmac(address ?? "unattributed");
-  return subject ? { ok: true, subject } : { ok: false, reason: "no_secret" };
+  const subject = hmac(address?.fine ?? "unattributed");
+  if (!subject) return { ok: false, reason: "no_secret" };
+  const coarse = address?.coarse ? hmac(address.coarse) : null;
+  return coarse ? { ok: true, subject, coarse } : { ok: true, subject };
+}
+
+// ---------------------------------------------------------------------------------------------------------------------
+// The coarser IPv6 bucket
+// ---------------------------------------------------------------------------------------------------------------------
+
+/**
+ * How many /64 allowances one IPv6 /48 may use on any IP-keyed limiter. 8: a /48 is what a site or a campus is given, and a normal
+ * caller sits on ONE /64 (refused by its own allowance long before this), while an office on several VLANs still fits; a caller
+ * rotating through a /48's 65,536 /64s is held to 8 allowances instead of 65,536. It trades a little for a campus whose /64s all
+ * lean on one route at once (they share 8 allowances) against an unbounded multiplier. Per-policy limits are scaled, not replaced.
+ */
+export const IPV6_48_FACTOR_DEFAULT = 8;
+
+/** The /48 multiplier: GRIDFORGE_RATE_V6_48_FACTOR when it is an integer from 1 to 1024, else the default. Never "off". */
+export function ipv6CoarseFactor(env: NodeJS.ProcessEnv = process.env): number {
+  const raw = env.GRIDFORGE_RATE_V6_48_FACTOR?.trim();
+  if (!raw || !/^\d{1,4}$/.test(raw)) return IPV6_48_FACTOR_DEFAULT;
+  const n = Number(raw);
+  return n >= 1 && n <= 1024 ? n : IPV6_48_FACTOR_DEFAULT;
+}
+
+/** The /48 counterpart of a policy: its own bucket name, the same window, `factor` times the limit (the counter accepts at most 100000). */
+function coarsePolicy(policy: RatePolicy): RatePolicy {
+  return { bucket: `${policy.bucket}_v6_48`, limit: Math.min(100000, policy.limit * ipv6CoarseFactor()), windowSeconds: policy.windowSeconds };
 }
 
 // ---------------------------------------------------------------------------------------------------------------------
@@ -415,7 +465,15 @@ async function hit(policy: RatePolicy, subject: string): Promise<Hit | null> {
  * moves the development/test in-memory window; the Postgres counter uses the database clock.
  */
 export async function countHit(name: RatePolicyName, subject: string, now?: number): Promise<{ allowed: boolean; retryAfter: number; count: number } | null> {
-  const policy = RATE_POLICIES[name];
+  return countPolicyHit(RATE_POLICIES[name], subject, now);
+}
+
+/** `countHit` for the /48 bucket of a policy (an IPv6 caller's coarse identity, `callerIdentity(...).coarse`). */
+export async function countCoarseHit(name: RatePolicyName, coarseSubject: string, now?: number): Promise<{ allowed: boolean; retryAfter: number; count: number } | null> {
+  return countPolicyHit(coarsePolicy(RATE_POLICIES[name]), coarseSubject, now);
+}
+
+async function countPolicyHit(policy: RatePolicy, subject: string, now?: number): Promise<{ allowed: boolean; retryAfter: number; count: number } | null> {
   if (!creds() && !isProduction()) return memoryHit(policy, subject, now);
   return hit(policy, subject);
 }
@@ -454,6 +512,11 @@ async function charge(policy: RatePolicy, subject: string): Promise<SpendDenial 
   const h = await hit(policy, subject);
   if (!h) return { status: 503, retryAfter: null };
   return h.allowed ? null : { status: 429, retryAfter: h.retryAfter };
+}
+
+/** The /48 charge for an IPv6 caller: null when there is none to charge (IPv4, unattributed) or it is within the ceiling. */
+async function chargeCoarse(policy: RatePolicy, coarse: string | null | undefined): Promise<SpendDenial | null> {
+  return coarse ? charge(coarsePolicy(policy), coarse) : null;
 }
 
 /**
@@ -517,6 +580,9 @@ export async function guardRequest(req: Request, name: RatePolicyName, opts: Gua
   if (!(opts.accountOnly && opts.account)) {
     const own = await charge(RATE_POLICIES[name], who.subject);
     if (own) return { denied: responseFor(own) };
+    // The caller's /48 as well (IPv6 only): rotating through the /64s of one /48 must not mint a fresh allowance each time.
+    const wide = await chargeCoarse(RATE_POLICIES[name], who.coarse);
+    if (wide) return { denied: responseFor(wide) };
   }
 
   if (opts.account) {
@@ -526,7 +592,7 @@ export async function guardRequest(req: Request, name: RatePolicyName, opts: Gua
     if (byAccount) return { denied: responseFor(byAccount) };
   }
 
-  const scope: SpendScope = { cls: opts.cls ?? "public", caller: who.subject, denial: null };
+  const scope: SpendScope = { cls: opts.cls ?? "public", caller: who.subject, caller48: who.coarse ?? null, denial: null };
   return {
     denied: null,
     async run<T>(fn: () => Promise<T>): Promise<T | NextResponse> {
@@ -539,6 +605,21 @@ export async function guardRequest(req: Request, name: RatePolicyName, opts: Gua
       }
     },
   };
+}
+
+/**
+ * Count one hit of a request-level policy against the caller (its address, and its /48 for IPv6) WITHOUT a spend scope, for work that is not
+ * itself a provider call but must be bounded per caller before it happens (the Supabase Auth lookup in lib/portal.ts). Same identity, same
+ * fail-closed rules as `guardRequest`: the denial to answer with (429 with a Retry-After, or 503 when the counter or the caller's identity
+ * cannot be established), or null to proceed.
+ */
+export async function admitCaller(req: Request, name: RatePolicyName): Promise<SpendDenial | null> {
+  const who = callerIdentity(req);
+  if (!who.ok) {
+    console.error(`[GridForge] rate limit: caller identity unavailable (${who.reason}); refusing`);
+    return { status: 503, retryAfter: null };
+  }
+  return (await charge(RATE_POLICIES[name], who.subject)) ?? (await chargeCoarse(RATE_POLICIES[name], who.coarse));
 }
 
 // ---------------------------------------------------------------------------------------------------------------------
@@ -583,7 +664,7 @@ async function admitProviderCall(provider: Provider, url: string): Promise<Spend
   const budget = PROVIDER_BUDGETS[key];
   const shared = subjectOf("aggregate"); // the one shared subject for a bucket's ceiling, pseudonymised like any other
   const denial = shared
-    ? ((await charge(budget.caller, scope.caller)) ?? (await charge(budget.aggregate, shared)))
+    ? ((await charge(budget.caller, scope.caller)) ?? (await chargeCoarse(budget.caller, scope.caller48)) ?? (await charge(budget.aggregate, shared)))
     : ({ status: 503, retryAfter: null } as SpendDenial);
   if (denial) scope.denial = denial;
   return denial;
