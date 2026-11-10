@@ -120,7 +120,7 @@ def _energisation_svg(t: TimeToPower, assumed: bool = False) -> str:
     return f'''<svg viewBox="0 0 {w} {h}" role="img"
   aria-label="Racks energised against elapsed weeks. {ly:.0f} racks at week {lx:.0f}.">
   <style>
-    .ax{{fill:#5A6478;font:500 12px ui-monospace,monospace}}
+    .ax{{fill:#8A94A6;font:500 12px ui-monospace,monospace}}
     .lbl{{fill:#F5F7FA;font:600 13px ui-monospace,monospace}}
     .lbl.big{{font-size:20px}} .lbl.dim{{fill:#8A94A6;font-weight:500}}
     .cap{{fill:#8A94A6;font:500 12px ui-monospace,monospace}}
@@ -313,7 +313,7 @@ def build(intake: Intake, results: list[ScenarioResult], *,
         kicker="Boundary",
         title="What this is, and what it is not",
         bullets=[
-            "An engineering opinion supported by a documented model. Not a design package, and it "
+            "A screening-mode output of a documented model, not an issued engineering opinion. Not a design package, and it "
             "confers no design liability.",
             "No stamped drawings, no CFD of this hall, no equipment selection or bill of materials.",
             "The floor-loading check is a screening calculation; a structural engineer must sign "
@@ -344,7 +344,7 @@ h1{font-size:2rem;line-height:1.15;margin:0;font-weight:650;letter-spacing:-.015
 .figs{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:14px;margin:4px 0}
 .fig{border:1px solid #1E2942;background:#131C2E;border-radius:8px;padding:16px 18px}
 .fig .k{font:600 10px/1 ui-monospace,monospace;letter-spacing:.14em;text-transform:uppercase;
-  color:#5A6478}
+  color:#8A94A6}
 .fig .v{font:650 2.1rem/1.1 ui-monospace,monospace;margin-top:8px;color:#F5F7FA;
   font-variant-numeric:tabular-nums}
 .fig .n{color:#8A94A6;font-size:.85rem;margin-top:6px}
@@ -353,15 +353,15 @@ li{margin-bottom:.5rem}
 .tw{overflow-x:auto;border:1px solid #1E2942;border-radius:8px;background:#131C2E}
 table{border-collapse:collapse;width:100%;font-size:.86rem;font-variant-numeric:tabular-nums}
 th{font:600 10px/1 ui-monospace,monospace;letter-spacing:.12em;text-transform:uppercase;
-  color:#5A6478;text-align:left;padding:10px 14px;border-bottom:1px solid #1E2942;white-space:nowrap}
+  color:#8A94A6;text-align:left;padding:10px 14px;border-bottom:1px solid #1E2942;white-space:nowrap}
 td{padding:9px 14px;border-bottom:1px solid #1E2942;color:#8A94A6;vertical-align:top}
 td:nth-child(2){color:#F5F7FA}
 tr:last-child td{border-bottom:none}
 svg{width:100%;height:auto;max-width:100%}
-.note{margin-top:auto;color:#5A6478;font-size:.8rem;border-top:1px solid #1E2942;padding-top:14px}
+.note{margin-top:auto;color:#8A94A6;font-size:.8rem;border-top:1px solid #1E2942;padding-top:14px}
 .deckhead{padding:44px 44px 8px}
 .deckhead p{color:#8A94A6;margin:.6rem 0 0}
-.count{position:fixed;right:16px;bottom:14px;font:600 11px ui-monospace,monospace;color:#5A6478;
+.count{position:fixed;right:16px;bottom:14px;font:600 11px ui-monospace,monospace;color:#8A94A6;
   background:#0E1524;border:1px solid #1E2942;border-radius:99px;padding:6px 12px}
 @media (max-width:700px){.slide{padding:26px 20px;min-height:0}h1{font-size:1.5rem}
   .slide h2{font-size:1.25rem}.fig .v{font-size:1.6rem}}
@@ -374,6 +374,7 @@ svg{width:100%;height:auto;max-width:100%}
   .kicker{color:#0a6f7f}.lead,.fig .n,td{color:#444}.fig .k,.note{color:#666}
   .fig,.tw{background:#fff;border-color:#ccc}th,td{border-color:#ddd}
   .count{display:none}
+  .fig .v{color:#111}svg .lbl,svg .dim,svg .cap,svg .ax{fill:#222}
   @page{size:A4 landscape;margin:0}
 }
 @media (prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important}}

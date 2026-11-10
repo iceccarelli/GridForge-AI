@@ -76,7 +76,9 @@ export async function POST(req: Request) {
 
   let body: Record<string, unknown> = {};
   try {
-    body = await req.json();
+    const parsedBody: unknown = await req.json();
+    // JSON `null`, a number, a string or an array is not an object: read it as an empty body rather than fail on `body.company`.
+    if (parsedBody && typeof parsedBody === "object" && !Array.isArray(parsedBody)) body = parsedBody as Record<string, unknown>;
   } catch {
     /* empty body is fine — deposit has fixed defaults */
   }

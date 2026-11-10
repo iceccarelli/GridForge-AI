@@ -104,7 +104,7 @@ export function engagementOfferBlock(toolName: string): AgentBlock {
     tool: toolName,
     reason: "engagement_offer",
     label:
-      `Commission the ${product.name} (${eurFromCents(product.amountCents)}) — the ${product.turnaroundDays}-day ` +
+      `Commission the ${product.name} (${eurFromCents(product.amountCents)}) — the ${product.turnaroundDays}-working-day ` +
       `read on what binds this hall, racks as found and after the costed ladder, and what sets the date.${credit}`,
     href: "/pricing",
   });

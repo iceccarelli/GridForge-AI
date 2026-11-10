@@ -78,7 +78,7 @@ Intake is 84% complete. Each row below is a number that moves the answer and tha
 
 ## 5. What is outside scope
 
-This is an engineering opinion supported by a documented model. It is not a design package and confers no design liability. Specifically outside scope:
+This is a screening-mode output of a documented model, not an issued engineering opinion. It is not a design package and confers no design liability. Specifically outside scope:
 
 - Stamped design drawings, or any deliverable requiring a professional engineering signature.
 - CFD of the hall — available as a priced add-on or a later phase.
@@ -91,7 +91,7 @@ This is an engineering opinion supported by a documented model. It is not a desi
 
 - Thirteen independent constraints across electrical, thermal and physical domains are evaluated over one model of your hall. The envelope is the minimum; the binding constraint is the one that produced it.
 - Each constraint reports what relieves it, what that costs and how long it takes, so the answer is an ordered ladder rather than a single number.
-- Every quantity carries an evidence class. A number you supply is your measured data; a number we fall back to is an assumption and is labelled as one. A model applied to measured data stays a model.
+- Every quantity carries an evidence class. A number you supply is recorded as supplied by you (E5), not as something we measured; a number we fall back to is an assumption and is labelled as one. A model applied to measured data stays a model.
 - The document cannot assert measurement over a modelled quantity — that check runs automatically before anything is released.
 - You receive the model, not just the conclusion, so you can re-run it when your inputs change.
 

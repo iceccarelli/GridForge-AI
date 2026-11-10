@@ -97,13 +97,13 @@ export default function ScopingAgentPanel({ open, onClose }: { open: boolean; on
             <div className="flex items-center gap-1">
               <Link
                 href="/workspace"
-                className="text-mute hover:text-power p-1.5 rounded-md transition-colors"
+                className="inline-flex min-h-11 min-w-11 items-center justify-center text-mute hover:text-power rounded-md transition-colors"
                 aria-label="Open full workspace"
                 title="Open full workspace"
               >
                 <PanelsTopLeft size={16} />
               </Link>
-              <button onClick={onClose} className="text-mute hover:text-white p-1.5" aria-label="Close">
+              <button onClick={onClose} className="inline-flex min-h-11 min-w-11 items-center justify-center text-mute hover:text-white" aria-label="Close">
                 <X size={18} />
               </button>
             </div>
@@ -183,7 +183,7 @@ export default function ScopingAgentPanel({ open, onClose }: { open: boolean; on
               <button
                 onClick={send}
                 disabled={loading || !input.trim()}
-                className="shrink-0 rounded-lg bg-power text-ink p-2.5 disabled:opacity-40 hover:bg-power/90 transition-colors"
+                className="inline-flex min-h-11 min-w-11 shrink-0 items-center justify-center rounded-lg bg-power text-ink disabled:opacity-40 hover:bg-power/90 transition-colors"
                 aria-label="Send"
               >
                 <Send size={16} />

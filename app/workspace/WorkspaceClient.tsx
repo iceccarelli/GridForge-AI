@@ -95,6 +95,7 @@ export function WorkspaceClient() {
 
   return (
     <div className="h-[calc(100dvh-4rem)] sm:h-[calc(100dvh-5rem)] flex flex-col bg-ink">
+      <h1 className="sr-only">GridForge engineering workspace</h1>
       {/* Desktop / tablet: three panes side by side */}
       <div className="hidden md:grid flex-1 min-h-0 grid-cols-[340px_1fr_280px] lg:grid-cols-[380px_1fr_300px]">
         <div className="border-r border-line min-h-0 bg-panel/40">

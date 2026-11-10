@@ -114,10 +114,10 @@ def build(ctx: EnvelopeContext, results: list[ScenarioResult],
     r = Report(
         title=title or f"Capacity & Density Envelope Study — {ctx.site.name}, hall {hall.id}",
         subtitle=(f"{client} · target platform {plat.name} · "
-                  f"{len(results)} architectures compared · GridForge-AI envelope engine v0.1"),
+                  f"{len(results)} architectures compared · GridForge-AI envelope engine"),
         watermark=watermark,
-        footer=("Engineering opinion supported by a documented model. Not a design package. "
-                "Professional indemnity and named-signatory arrangements govern reliance on this report."),
+        footer=("Screening-mode output supported by a documented model. Not a design package and not an issued "
+                "engineering opinion: it has no named signatory and no professional indemnity behind it."),
         status="Screening study",
         meta=[
             ("Site", ctx.site.name),
@@ -611,7 +611,7 @@ def build(ctx: EnvelopeContext, results: list[ScenarioResult],
     # 12 --------------------------------------------------------------- scope
     s = Section("13. Scope, basis and limitations")
     s.blocks.append(Para(
-        "This study is an engineering opinion supported by a documented model. It is not a design "
+        "This study is a screening-mode output of a documented model, not an issued engineering opinion. It is not a design "
         "package and confers no design liability. The following are outside scope:"))
     s.blocks.append(Bullets(SCOPE_OUT))
     s.blocks.append(Para(

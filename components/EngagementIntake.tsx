@@ -326,7 +326,7 @@ export function EngagementIntake({
         <Field label="Power factor" hint={`From the utility bill or a power-quality meter. Left blank, the engine assumes ${ENGINE_LIBRARY_DEFAULTS.powerFactor} and names it as an assumption.`}><input className={inputCls} type="number" step="0.01" min="0.7" max="1" placeholder={`engine assumes ${ENGINE_LIBRARY_DEFAULTS.powerFactor}`} value={f.powerFactor} onChange={set("powerFactor")} /></Field>
       </Section>
 
-      <Section title="Distribution" note="400 A legacy against 800–1000 A modern is the most common hard stop.">
+      <Section title="Distribution" note="400 A legacy against 800–1000 A modern: a legacy busway can be the hard stop.">
         <Field label="Busway ampacity · A" required hint="Rating plate on the busway, or the electrical single-line: 400 A legacy, 800 to 1000 A modern."><input className={inputCls} type="number" value={f.buswayAmpacityA} onChange={set("buswayAmpacityA")} required /></Field>
         <Field label="Busway runs" hint={`Count of separate busway runs feeding the racks. Left blank, the engine assumes ${ENGINE_LIBRARY_DEFAULTS.buswayRuns} and names it as an assumption.`}><input className={inputCls} type="number" min="1" step="1" placeholder={`engine assumes ${ENGINE_LIBRARY_DEFAULTS.buswayRuns}`} value={f.buswayRuns} onChange={set("buswayRuns")} /></Field>
         <Field label="Tap-off rating · A" required hint="Rating on the tap-off boxes at the racks: the smallest that feeds a rack position."><input className={inputCls} type="number" value={f.tapoffMaxA} onChange={set("tapoffMaxA")} required /></Field>

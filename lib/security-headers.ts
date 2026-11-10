@@ -24,7 +24,13 @@ export interface HeaderRule {
  */
 export const TOKEN_API_ROUTES = ["/api/keys", "/api/usage", "/api/payg/:path*", "/api/billing/:path*"] as const;
 
-/** The route patterns whose path contains a bearer token, then the API routes that authenticate with one. */
+/**
+ * Pages whose credential is in the QUERY STRING, not the path. /commissioned?session_id=cs_... is the checkout success page: the Stripe session
+ * id is the credential for it, and for an API plan or Hall Watch the page shows the portal link. Never cached, never sent as a referrer, never indexed.
+ */
+export const QUERY_TOKEN_PAGES = ["/commissioned"] as const;
+
+/** The route patterns whose path contains a bearer token, then the pages whose query carries one, then the API routes that authenticate with one. */
 export const TOKEN_ROUTES = [
   "/q/:token*",
   "/intake/:token*",
@@ -34,6 +40,7 @@ export const TOKEN_ROUTES = [
   "/power/deploy/:token*",
   "/account/invite/:token*",
   "/api-access/:token*",
+  ...QUERY_TOKEN_PAGES,
   ...TOKEN_API_ROUTES,
 ] as const;
 

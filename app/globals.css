@@ -391,3 +391,28 @@ textarea:focus-visible {
     animation: none;
   }
 }
+
+/* Print: a page printed from the browser is a document, not the site chrome. The navigation, footer, launcher and sticky bars are
+   screen controls; the text is dark on white whatever the dark theme set. */
+@media print {
+  nav,
+  footer,
+  aside[aria-label="Quick actions"],
+  .fixed {
+    display: none !important;
+  }
+  body {
+    background: #fff !important;
+    color: #111 !important;
+  }
+  .text-ghost,
+  .text-mute,
+  .text-faint,
+  .eyebrow {
+    color: #333 !important;
+  }
+  .panel {
+    background: #fff !important;
+    border-color: #ccc !important;
+  }
+}

@@ -59,7 +59,9 @@ describe.each(PRODUCT_PAGES.map((p) => [p.slug, p] as const))("/products/%s", (s
   it("states turnaround with its basis, from the catalogue, in the words the deposit receipt uses", async () => {
     const rows = beforeYouBuy(page);
     expect(rows.find((r) => r.label === "Turnaround")?.text).toBe(turnaroundText(p));
-    expect(turnaroundText(p)).toContain(String(p.turnaroundDays));
+    // A subscription has no day count to state (Hall Watch is quarterly, with a re-run on every input change); every other product states its days.
+    if (p.recurring) expect(turnaroundText(p)).toMatch(/^Quarterly/);
+    else expect(turnaroundText(p)).toContain(String(p.turnaroundDays));
     const deposit = depositTerms(p.kind);
     if (deposit) {
       // One wording, not two: "from a complete intake and the scoping call, not from payment".

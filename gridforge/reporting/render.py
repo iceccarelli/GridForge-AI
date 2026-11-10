@@ -152,6 +152,7 @@ li{margin-bottom:.3rem}
   font-weight:500;font-variant-numeric:tabular-nums;text-align:right;color:var(--accent)}
 .stmt .basis{grid-column:1;font-size:.84rem;color:var(--muted);font-family:var(--serif);
   font-style:italic}
+.tablewrap:focus-visible{outline:2px solid currentColor;outline-offset:2px}
 .tablewrap{overflow-x:auto;border:1px solid var(--line);background:var(--surface);
   margin:.4rem 0 .6rem}
 table{border-collapse:collapse;width:100%;font-size:.84rem;font-variant-numeric:tabular-nums}
@@ -236,7 +237,7 @@ def _table_html(b: Table, caption: str | None = None) -> str:
                  for row in b.rows)
     cap = caption if caption is not None else b.caption
     cap_html = f"<p class='cap'>{e(cap)}</p>" if cap else ""
-    return (f"<div class='tablewrap'><table><thead><tr>{th}</tr></thead>"
+    return (f"<div class='tablewrap' tabindex='0' role='region' aria-label='Table (scrolls sideways on a narrow screen)'><table><thead><tr>{th}</tr></thead>"
             f"<tbody>{tr}</tbody></table></div>{cap_html}")
 
 
@@ -253,12 +254,12 @@ def _appendix_html(r: Report) -> str:
             "<p>Every number in this report carries an evidence class. The class of a computed "
             "number is never higher than the weakest of its inputs, so a model applied to "
             "measured data yields a modelled number and never a measurement.</p>"
-            "<div class='tablewrap'><table><thead><tr><th scope='col'>Class</th>"
+            "<div class='tablewrap' tabindex='0' role='region' aria-label='Table (scrolls sideways on a narrow screen)'><table><thead><tr><th scope='col'>Class</th>"
             f"<th scope='col'>Meaning</th></tr></thead><tbody>{cls}</tbody></table></div>"
             f"<p><em>{e(E5_NOTE)}</em></p>"
             f"<h3>A.1 Assumptions relied upon</h3><ul>{ass}</ul>"
             f"<h3>A.2 Sources</h3><ul>{src}</ul>"
             "<h3>A.3 Provenance of headline quantities</h3>"
-            "<div class='tablewrap'><table><thead><tr><th scope='col'>Quantity</th>"
+            "<div class='tablewrap' tabindex='0' role='region' aria-label='Table (scrolls sideways on a narrow screen)'><table><thead><tr><th scope='col'>Quantity</th>"
             "<th scope='col'>Evidence</th><th scope='col'>Model</th><th scope='col'>Digest</th>"
             f"</tr></thead><tbody>{rows}</tbody></table></div>")

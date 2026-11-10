@@ -133,7 +133,7 @@ def build(intake: Intake, results: list[ScenarioResult], eng: Engagement, *,
     # 5 — scope boundary
     s = Section("5. What is outside scope")
     s.blocks.append(Para(
-        "This is an engineering opinion supported by a documented model. It is not a design "
+        "This is a screening-mode output of a documented model, not an issued engineering opinion. It is not a design "
         "package and confers no design liability. Specifically outside scope:"))
     s.blocks.append(Bullets(list(eng.scope_out)))
     r.sections.append(s)
@@ -146,7 +146,7 @@ def build(intake: Intake, results: list[ScenarioResult], eng: Engagement, *,
         "constraint is the one that produced it.",
         "Each constraint reports what relieves it, what that costs and how long it takes, so the "
         "answer is an ordered ladder rather than a single number.",
-        "Every quantity carries an evidence class. A number you supply is your measured data; a "
+        "Every quantity carries an evidence class. A number you supply is recorded as supplied by you (E5), not as something we measured; a "
         "number we fall back to is an assumption and is labelled as one. A model applied to "
         "measured data stays a model.",
         "The document cannot assert measurement over a modelled quantity — that check runs "

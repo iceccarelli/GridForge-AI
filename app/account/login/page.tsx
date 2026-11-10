@@ -45,7 +45,7 @@ export default function LoginPage() {
           <div className="eyebrow text-power mb-3">GridForge Intelligence</div>
           <h1 className="text-3xl font-semibold tracking-tight mb-2">Sign in</h1>
           <p className="text-mute text-[15px] mb-8">
-            Access live behind-the-meter siting intelligence. We&apos;ll email you a secure
+            Access the modelled behind-the-meter siting dashboard. We&apos;ll email you a secure
             sign-in link — no password.
           </p>
 

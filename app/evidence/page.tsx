@@ -122,7 +122,7 @@ export default async function EvidencePage() {
       <section className="mt-10" aria-labelledby="floor-h">
         <h2 id="floor-h" className="text-xl font-semibold text-ghost">The floor a claim must clear</h2>
         <p className="mt-2 text-sm text-mute">
-          A claim of each kind may not reach a customer below a minimum class. The engine enforces this; it is not a guideline.
+          In an issued deliverable a claim of each kind may not fall below a minimum class, and the engine refuses to issue one that does. Every document sold here is screening mode: a claim below its floor is delivered with an evidence disclosure that names it.
         </p>
         <ul className="mt-3 list-disc space-y-1 pl-5 text-[15px] text-mute">
           {CLAIM_FLOORS.map((f) => (

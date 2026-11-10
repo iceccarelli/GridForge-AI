@@ -243,17 +243,25 @@ export function TimeToPower() {
               <Play size={14} aria-hidden /> Play
             </button>
           )}
-          {SCENARIOS.map((_, i) => (
+          {SCENARIOS.map((sc, i) => (
             <button
               key={i}
+              type="button"
               onClick={() => { cancelGlide(); dispatch({ type: "scenario_selected" }); setCustom(false); setSceneIdx(i); applyScenario(i); }}
-              aria-label={"Scenario " + (i + 1)}
-              className="h-1.5 rounded-full transition-all"
-              style={{
-                width: i === sceneIdx ? 22 : 6,
-                background: i === sceneIdx ? "var(--power, #38bdf8)" : "rgba(255,255,255,0.18)",
-              }}
-            />
+              aria-label={sc.title}
+              aria-current={i === sceneIdx ? "true" : undefined}
+              // The dot is drawn 6 px high; the button around it is a 24 px (WCAG 2.5.8) by 44 px hit area, so it can be pressed.
+              className="inline-flex h-11 min-w-6 items-center justify-center px-1"
+            >
+              <span
+                aria-hidden="true"
+                className="block h-1.5 rounded-full transition-all"
+                style={{
+                  width: i === sceneIdx ? 22 : 6,
+                  background: i === sceneIdx ? "var(--power, #38bdf8)" : "rgba(255,255,255,0.18)",
+                }}
+              />
+            </button>
           ))}
         </div>
       </div>

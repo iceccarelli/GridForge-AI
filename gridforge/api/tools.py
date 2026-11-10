@@ -97,8 +97,8 @@ TOOLS: list[dict] = [
         },
         tier=Tier.PUBLIC,
         returns=("binding constraint, racks as found and after relief, the item that sets the "
-                 "date, and the inputs nobody has measured. No capital cost, no lead times: "
-                 "those are the paid engagement."),
+                 "date, and the inputs nobody has measured. No capital cost or dated lead times in this free read: "
+                 "the free /v1/compare returns indicative capital and weeks with evidence classes, and the paid documents add the full costed ladder."),
     ),
     _tool(
         "gridforge_estimate",
@@ -123,7 +123,7 @@ TOOLS: list[dict] = [
     _tool(
         "gridforge_screen",
         ("Density Screen. A full intake in, a screening read out: every constraint evaluated, "
-         "the headroom ladder, and which relief unlocks the most racks per euro."),
+         "and the headroom ladder: each relief in binding order, with its cost, lead time and the racks it unlocks."),
         "/v1/screen",
         {"type": "object", "required": ["intake"],
          "properties": {"intake": _INTAKE_SCHEMA, "objective": _OBJECTIVE,

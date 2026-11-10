@@ -76,7 +76,7 @@ export const PRODUCTS: Record<ProductId, Product> = {
     name: "Density Screen",
     amountCents: 450_000, // €4,500
     description:
-      "A five-day screening assessment of one hall: what binds first, how many racks of your " +
+      "A screening assessment of one hall, delivered five working days after a complete intake: what binds first, how many racks of your " +
       "target platform it carries as it stands and after the costed ladder, which item sets " +
       "the date, and the list of inputs nobody has measured.",
     deliverable:
@@ -95,9 +95,9 @@ export const PRODUCTS: Record<ProductId, Product> = {
     name: "Capacity & Density Envelope Study — deposit",
     amountCents: 900_000, // €9,000 against €22k–€45k
     description:
-      "Reserves senior engineering capacity for the full study: the complete constraint ladder, " +
-      "every architecture compared, time to power, sensitivity, economics and a machine-readable " +
-      "model pack you keep.",
+      "Deposit, not the fee. Reserves engineering capacity and opens a scoping conversation; the fee for the " +
+      "full study is agreed in writing, within €22,000 to €45,000, before work starts, and this deposit is " +
+      "credited against it.",
     deliverable:
       "Envelope Study (HTML + Markdown), model_pack.json, and a 90-minute walkthrough with your " +
       "engineering team.",
@@ -121,7 +121,7 @@ export const PRODUCTS: Record<ProductId, Product> = {
       "A quarterly change note naming the inputs that moved the answer, plus a re-run whenever " +
       "you update the hall's numbers (up to 20 an hour). Nothing material to report is itself a " +
       "reportable answer, and we say so in three lines rather than padding it.",
-    turnaroundDays: 2,
+    turnaroundDays: 0,
     producesDeliverable: false,
     recurring: { interval: "month", intervalCount: 3 },
     surface: "ladder",
@@ -133,8 +133,9 @@ export const PRODUCTS: Record<ProductId, Product> = {
     name: "Portfolio Screen — deposit",
     amountCents: 1_500_000, // €15,000 against €60k–€140k
     description:
-      "Five to fifteen halls ranked by deliverable compute, time to power and capital cost per " +
-      "rack, under one methodology so the ranking is comparable.",
+      "Deposit, not the fee. Reserves engineering capacity and opens a scoping conversation; the fee for the " +
+      "portfolio screen (five to fifteen halls ranked under one methodology) is agreed in writing, within " +
+      "€60,000 to €140,000, before work starts, and this deposit is credited against it.",
     deliverable:
       "Portfolio Screen document and one model pack per hall.",
     turnaroundDays: 45,

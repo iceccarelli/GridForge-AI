@@ -1,6 +1,6 @@
 # Capacity & Density Envelope Study — Reference Colocation Campus, hall DH-02
 
-*Reference Project (synthetic) · target platform NVIDIA GB300 NVL72 · 5 architectures compared · GridForge-AI envelope engine v0.1*
+*Reference Project (synthetic) · target platform NVIDIA GB300 NVL72 · 5 architectures compared · GridForge-AI envelope engine*
 
 > **SYNTHETIC REFERENCE DATA — NOT A CUSTOMER ASSET. All values are modelled or assumed; none is a measurement of a real site.**
 
@@ -339,7 +339,7 @@ Proceed with Full DLC plus behind-the-meter supply. The same hall with on-site f
 
 ## 13. Scope, basis and limitations
 
-This study is an engineering opinion supported by a documented model. It is not a design package and confers no design liability. The following are outside scope:
+This study is a screening-mode output of a documented model, not an issued engineering opinion. It is not a design package and confers no design liability. The following are outside scope:
 
 - Stamped design drawings and any deliverable requiring a professional engineering signature.
 - CFD of the hall (available as a priced add-on or a later phase).
@@ -389,7 +389,7 @@ Every number in this report carries an evidence class. The class of a computed n
 
 ### A.1 Assumptions relied upon
 
-- Excludes IT hardware, migration and lost tenancy revenue. Public retrofit benchmarks span 2-12 MEUR per MW; this default is neither a quotation nor a benchmark.
+- Excludes IT hardware, migration and lost tenancy revenue. This default is neither a quotation nor a benchmark.
 - Library default, not a price. Replace with a quotation before this figure supports a capital decision.
 - Class 5 (order of magnitude): -50% / +100%
 - Placeholder re-expressed per MVA from the earlier 1.2 MEUR lump at the reference hall's 9 MVA added (3 x 5 MVA, +60%). Not a market price. Excludes civils and outage management.
@@ -662,6 +662,6 @@ Every number in this report carries an evidence class. The class of a computed n
 
 ---
 
-Engineering opinion supported by a documented model. Not a design package. Professional indemnity and named-signatory arrangements govern reliance on this report.
+Screening-mode output supported by a documented model. Not a design package and not an issued engineering opinion: it has no named signatory and no professional indemnity behind it.
 
 Generated 2026-09-14 by the GridForge-AI envelope engine.

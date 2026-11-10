@@ -24,7 +24,7 @@ export async function GET(req: Request, ctx: { params: Promise<{ token: string }
         error:
           row.status === "awaiting_intake"
             ? "This engagement is waiting on the hall's numbers."
-            : "The document is with a senior engineer for review. You will be told when it is released.",
+            : "The document is with a named engineer for review. You will be told when it is released.",
       },
       { status: 409 }
     );

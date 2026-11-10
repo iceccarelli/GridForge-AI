@@ -73,7 +73,7 @@ Every number in this report carries an evidence class. The class of a computed n
 
 ### A.1 Assumptions relied upon
 
-- Excludes IT hardware, migration and lost tenancy revenue. Public retrofit benchmarks span 2-12 MEUR per MW; this default is neither a quotation nor a benchmark.
+- Excludes IT hardware, migration and lost tenancy revenue. This default is neither a quotation nor a benchmark.
 - Library default, not a price. Replace with a quotation before this figure supports a capital decision.
 - Class 5 (order of magnitude): -50% / +100%
 - Placeholder re-expressed per MVA from the earlier 1.2 MEUR lump at the reference hall's 9 MVA added (3 x 5 MVA, +60%). Not a market price. Excludes civils and outage management.
@@ -104,6 +104,6 @@ Every number in this report carries an evidence class. The class of a computed n
 
 ---
 
-One page for a board. The study it summarises carries the full ladder, scenarios, sensitivity and provenance. Engineering opinion supported by a documented model; not a design package.
+One page for a board. The study it summarises carries the full ladder, scenarios, sensitivity and provenance. Screening-mode output of a documented model; not an issued engineering opinion and not a design package.
 
 Generated 2026-09-14 by the GridForge-AI envelope engine.

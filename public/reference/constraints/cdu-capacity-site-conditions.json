@@ -9,7 +9,7 @@
   "binds_when": "Take the temperature you will run the technology loop at and your facility water supply temperature. The difference is your available approach. Ask for the selection output at THAT approach \u2014 not the datasheet figure.",
   "relief": "Additional CDU capacity, or a colder facility water supply so the approach widens.",
   "relief_risk": "A linear derate against approach is a screening approximation. Confirm against the manufacturer's performance curve before committing capital. Technology-loop water chemistry is a warranty question before it is a capacity question.",
-  "misconception": "The single most common way a liquid retrofit under-delivers: rated duty taken from a datasheet at a reference condition the site does not have.",
+  "misconception": "A way a liquid retrofit can under-deliver: rated duty taken from a datasheet at a reference condition the site does not have.",
   "sources": [
     "OCP Water-Based Transfer Fluids Guidelines; manufacturer performance data at stated approach."
   ],

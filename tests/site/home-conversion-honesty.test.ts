@@ -25,7 +25,7 @@ describe("Hero call-to-action row", () => {
     expect(read("components/home/Hero.tsx")).toContain('<CommissionScreen productId="density_screen" context="hero" tone="text" label={PAID_LABEL} />');
     const html = unesc(await hero());
     const s = PRODUCTS.density_screen;
-    expect(html).toContain(`Order a ${s.name} — ${eurFromCents(s.amountCents)} · ${s.turnaroundDays} days`);
+    expect(html).toContain(`Order a ${s.name} — ${eurFromCents(s.amountCents)} · ${s.turnaroundDays} working days`);
   });
 
   it("orders the three actions primary (free check, filled), secondary (sample deliverable, outlined), tertiary (paid, text)", async () => {

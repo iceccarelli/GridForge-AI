@@ -225,7 +225,7 @@ export const AUDIENCES: Audience[] = [
     constraints: [
       { slug: "firm-supply-capacity", why: "Capacity that cannot be relied on in contingency is not capacity a lender will count." },
       { slug: "ups-capacity", why: "Protected load is the ceiling on what a tenant can be promised without redundancy being given up." },
-      { slug: "transformer-capacity", why: "Its lead time is the single most common reason a stated uplift arrives later than the model." },
+      { slug: "transformer-capacity", why: "Its lead time can decide when a stated uplift actually arrives." },
     ],
     path: [
       { kind: "density_screen", why: "One asset: a defensible read of what binds it and which inputs the seller has not evidenced." },

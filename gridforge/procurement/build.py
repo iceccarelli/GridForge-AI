@@ -247,8 +247,8 @@ def _cdu(ctx: EnvelopeContext, racks: int) -> list[Requirement]:
                        f"{plant.design_return_C.render()}."),
             value=plant.design_supply_C, unit="degC", derived_from="cdu_capacity",
             basis=("Rating a CDU at a 5 K approach and installing it on a site with a far "
-                   "wider approach is the single most common way a liquid retrofit "
-                   "under-delivers."),
+                   "wider approach is a way a liquid retrofit "
+                   "can under-deliver."),
             verification="Selection output at these exact conditions."),
         Requirement(
             id="T-03", clause="Technology loop flow",

@@ -100,7 +100,7 @@ ENGAGEMENTS: dict[str, Engagement] = {
             "limit, rather than supplying equipment somebody liked the look of.",
             "Duties quoted at YOUR site conditions, not at a manufacturer's reference "
             "condition. A CDU rated at a 5 K approach and installed on a 24 K site is the "
-            "commonest way a liquid retrofit under-delivers.",
+            "way a liquid retrofit can under-deliver.",
             "An evaluation matrix weighted for programme as well as price: the item exists to "
             "unlock compute on a date, and the cheaper, slower bid is the expensive one.",
             "Bid comparison against the capacity model — what each response does to the "
@@ -147,7 +147,7 @@ class ApiPlan:
     """Metered access to the engine, sold to software rather than to people.
 
     Deliberately priced well under the engagements, and deliberately not the same
-    product. An engagement is a document a senior engineer has reviewed and released,
+    product. An engagement is a document a named engineer has reviewed and released,
     in screening mode and not as an issued engineering opinion: the engagement scope
     excludes any deliverable requiring a professional signature. The API returns
     modelled output in screening mode with no engineer's review behind it — it is for triage, ranking

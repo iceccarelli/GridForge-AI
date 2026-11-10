@@ -62,7 +62,8 @@ export function StickyMobileCTA() {
   if (atFinalCta) return null;
 
   return (
-    <div
+    <aside
+      aria-label="Quick actions"
       className="lg:hidden fixed inset-x-0 bottom-0 z-40 border-t border-line bg-ink/95 backdrop-blur px-3 pt-2.5 flex items-center gap-2"
       style={{ paddingBottom: "calc(env(safe-area-inset-bottom, 0px) + 10px)" }}
     >
@@ -75,6 +76,6 @@ export function StickyMobileCTA() {
       >
         {SCREEN.name} — {eurFromCents(SCREEN.amountCents)}
       </button>
-    </div>
+    </aside>
   );
 }

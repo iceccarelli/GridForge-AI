@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import Link from "next/link";
+import { FileAwareLink } from "@/components/FileAwareLink";
 import { notFound } from "next/navigation";
 import { CommissionScreen } from "@/components/CommissionScreen";
 import { breadcrumbJsonLd, engagementOfferJsonLd } from "@/lib/jsonld";
@@ -90,13 +91,13 @@ export default async function ProductPageRoute({ params }: { params: Promise<{ s
           <div className="[&_button]:w-full sm:[&_button]:w-auto">
             <CommissionScreen productId={p.id} label={`Commission the ${p.name}`} context={`product-page:${slug}`} />
           </div>
-          <Link
+          <FileAwareLink
             href={page.sample?.href ?? "/reference"}
             className="inline-flex min-h-11 items-center justify-center rounded-xl border border-power/50 px-5 py-2.5 text-sm font-semibold text-power hover:bg-power/10"
           >
             {/* Only a product with its own sample says "the sample deliverable"; the others point at the set, and the block below says none is published for them. */}
             {page.sample ? "See the sample deliverable" : "See the sample deliverables"}
-          </Link>
+          </FileAwareLink>
           <Link
             href={QUALIFY_LINK.href}
             className="inline-flex min-h-11 items-center justify-center px-1 text-sm text-power underline"
@@ -118,9 +119,9 @@ export default async function ProductPageRoute({ params }: { params: Promise<{ s
                   {row.link ? (
                     <>
                       {row.text ? " " : null}
-                      <Link href={row.link.href} className="text-power underline">
+                      <FileAwareLink href={row.link.href} className="text-power underline">
                         {row.link.label}
-                      </Link>
+                      </FileAwareLink>
                     </>
                   ) : null}
                   {row.items ? <List items={row.items} /> : null}

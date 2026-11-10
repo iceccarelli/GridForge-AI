@@ -241,7 +241,7 @@ export function LoadSimulator() {
               {mode === "live" ? (streaming ? `LIVE · ${nowMs ? fmtClock(nowMs) : "--:--:--"}` : "PAUSED") : "24-HOUR VIEW"}
             </span>
           </span>
-          <span className="pill pill-progress">{mode === "live" ? "REAL-TIME SIM · MODELED WAVEFORM" : "MODELED LOAD · LIVE PRICE"}</span>
+          <span className="pill pill-progress">{mode === "live" ? "SIMULATED LOAD · MODELED WAVEFORM" : "MODELED LOAD · DAY-AHEAD PRICE"}</span>
         </div>
       </div>
 
@@ -254,7 +254,7 @@ export function LoadSimulator() {
               onClick={() => setMode(mItem)}
               className={`px-3 py-1.5 text-[12px] font-semibold transition ${mode === mItem ? "bg-power/15 text-power" : "text-mute hover:text-ghost"}`}
             >
-              {mItem === "live" ? "Live · 1m" : "Day · 24h"}
+              {mItem === "live" ? "Minute view · 1m" : "Day · 24h"}
             </button>
           ))}
         </div>
@@ -354,7 +354,7 @@ export function LoadSimulator() {
           <Slider label="On-site renewables" value={renewPct} unit="%" min={0} max={60} step={5} onChange={setRenewPct} />
           {live.renew != null && (
             <button onClick={() => setRenewPct(Math.round(live.renew! / 5) * 5)} className="data text-[10px] text-faint hover:text-power transition mt-1.5">
-              ↳ German grid is {live.renew.toFixed(0)}% renewable right now — match it
+              ↳ German grid is {live.renew.toFixed(0)}% renewable in the latest interval — match it
             </button>
           )}
         </div>
@@ -365,14 +365,14 @@ export function LoadSimulator() {
         <Metric value={`${metrics.bessPeakMW.toFixed(1)} MW`} label="Peak transient the battery absorbs" accent="power" />
         <Metric value={`${metrics.firmAvoidedPct.toFixed(0)}%`} label="Firm capacity not sized for" accent="verified" />
         <Metric value="<1s vs ~12s" label="BESS response vs fuel-cell ramp" accent="mute" />
-        <Metric value={costPerHr != null ? `${fmtEuro(costPerHr)}/hr` : "—"} label={live.price != null ? `Energy at live price · ${live.price.toFixed(0)} €/MWh` : "fetching live price…"} accent="queue" />
+        <Metric value={costPerHr != null ? `${fmtEuro(costPerHr)}/hr` : "—"} label={live.price != null ? `Energy at day-ahead price · ${live.price.toFixed(0)} €/MWh` : "fetching the day-ahead price…"} accent="queue" />
       </div>
 
       <div className="mt-5 pt-5 border-t border-line flex flex-wrap items-center justify-between gap-3">
         <p className="text-xs text-faint max-w-xl leading-relaxed">
-          The clock and the EPEX price are live; the load waveform is a model — no
-          operator publishes live GPU telemetry, so on a real deployment this monitor
-          streams your cluster&apos;s actual data instead.
+          The clock is live; the price is the EPEX day-ahead price for this hour; the load
+          waveform is a model — no operator publishes live GPU telemetry, so on a real
+          deployment this monitor would need your cluster&apos;s actual data.
         </p>
         <button
           onClick={() =>

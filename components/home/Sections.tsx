@@ -168,8 +168,8 @@ export function Developers() {
           <p className="mt-4 text-[15px] leading-relaxed text-mute">
             {PAYG.freeAllowanceUnits} units a month with an email address and no card. Past that you choose: pay as you go under a monthly cap you
             set, or a plan once the volume warrants one.{" "}
-            <Link href="/developers#rates" className="text-power underline">See what it costs</Link>. Screening output only; an engagement is produced
-            and reviewed by a senior engineer, in screening mode and not as an issued engineering opinion.
+            <Link href="/developers#rates" className="text-power underline">See what it costs</Link>. Screening output only; an engagement document is drafted
+            by the engine, then reviewed and released by a named engineer, in screening mode and not as an issued engineering opinion.
           </p>
         </div>
         <FreeAllowanceForm compact heading="Get the free allowance" />

@@ -100,7 +100,7 @@ describe("the first screen answers the buyer's questions, in reading order, from
     expect(FIRST_SCREEN.whatYouReceive).toMatch(/evidence behind every figure/);
     expect(FIRST_SCREEN.difference).toMatch(/sell no equipment/);
     expect(FIRST_SCREEN.buyNow).toContain(eurFromCents(PRODUCTS.density_screen.amountCents));
-    expect(FIRST_SCREEN.buyNow).toContain(`${PRODUCTS.density_screen.turnaroundDays} days`);
+    expect(FIRST_SCREEN.buyNow).toContain(`${PRODUCTS.density_screen.turnaroundDays} working days`);
     expect(new Set(Object.values(FIRST_SCREEN)).size).toBe(Object.keys(FIRST_SCREEN).length); // no two questions share one answer
   });
 
@@ -119,7 +119,7 @@ describe("the first screen answers the buyer's questions, in reading order, from
   it("the paid offer's price and turnaround are the catalogue's, never typed", async () => {
     const { PAID_LABEL } = await import("@/components/home/Hero");
     expect(PAID_LABEL).toContain(eurFromCents(PRODUCTS.density_screen.amountCents));
-    expect(PAID_LABEL).toContain(`${PRODUCTS.density_screen.turnaroundDays} days`);
+    expect(PAID_LABEL).toContain(`${PRODUCTS.density_screen.turnaroundDays} working days`);
     expect(homeSource()).not.toMatch(/[€]\s?\d|\bEUR\s?\d/);
   });
 

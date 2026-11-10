@@ -121,7 +121,7 @@ export default async function CommissionedPage({
             This engagement is scoped with you directly — there is no intake form to fill in first. A
             member of the team will contact you at the email you paid with to agree what is being
             studied and what we need from you. After that we open your intake and email you a private
-            link to supply the numbers; a senior engineer reviews the result before you receive it.
+            link to supply the numbers; a named engineer reviews the result before you receive it.
           </p>
           {product ? (
             <p>
@@ -209,13 +209,15 @@ export default async function CommissionedPage({
           asked for; the rest it will assume and tell you it assumed.
         </p>
         <p>
-          Anything you cannot supply is filled from a library default and named as an assumption in
-          the document. Nothing is invented silently, and the list of assumptions is part of what
-          you receive — it is the data request to hand your own engineers.
+          For a Density Screen, anything you cannot supply is filled from a library default and named
+          as an assumption in the document. Nothing is invented silently, and the list of
+          assumptions is part of what you receive — it is the data request to hand your own
+          engineers. The Procurement Specification is the exception: its intake asks for every
+          field, and the document is not generated from a partial one.
         </p>
         <p>
-          Once submitted, the document is generated and reviewed by a senior engineer before it is
-          released to you. We do not publish an engineering opinion nobody has read.
+          Once submitted, the document is generated and reviewed by a named engineer before it is
+          released to you. We do not release a document nobody has read.
         </p>
         {intakeToken ? null : (
           <p className="text-faint text-sm">

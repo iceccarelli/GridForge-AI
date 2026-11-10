@@ -40,8 +40,7 @@ export async function GET() {
         "not yet been reconciled against instrumented sites, and the engine reports that " +
         "on every response.",
       licence:
-        "Quote freely with attribution. The numbers are published so they can be checked, " +
-        "not so they can be repackaged without their evidence class.",
+        "No licence has been chosen for this data. Cite the page and carry the evidence class with the number.",
     },
     { headers: { "Cache-Control": "public, max-age=3600, s-maxage=86400" } }
   );

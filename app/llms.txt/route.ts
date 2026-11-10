@@ -316,8 +316,8 @@ there is no separate machine price list.
   the private \`/dashboard\` page (signed in, not indexed) lists every engagement against the email a purchase was made
   with, behind a passwordless email sign-in.
 - Status and delivery of a document: \`awaiting_intake\` → \`generating\` → \`draft\`
-  (with a senior engineer, unreleased) → \`released\` (the document is live at its
-  private link). No engineering opinion is released unread.
+  (with a named engineer, unreleased) → \`released\` (the document is live at its
+  private link). No document is released unread.
 - From a saved comparison: a project's owner can create a read-only buyer link (\`/p/<secret>\` on this site, private and not indexed). Its
   holder can start the same checkout with \`{"product": "<id>", "project_share_token": "<secret>"}\`, limited to the ids
   that can be commissioned for a project: ${PROJECT_PRODUCTS}. The price is the catalogue price; the purchase attaches to the

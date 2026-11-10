@@ -9,7 +9,7 @@ export const COMMERCE = {
     amountCents: 500_000, // €5,000
     label: "Engagement reservation deposit",
     description:
-      "Reserves senior power-systems engineering capacity for your site. " +
+      "Reserves power-systems engineering capacity for your site. " +
       "Fully credited against your engagement. Refundable if we decline the project.",
   },
   // Founding Partner promotion — scarcity-driven first-mover credit.

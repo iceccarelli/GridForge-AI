@@ -87,7 +87,8 @@ async function mintOrRotate(req: Request): Promise<Response> {
   }
   let body: Record<string, unknown> = {};
   try {
-    body = await req.json();
+    const parsedBody: unknown = await req.json();
+    if (parsedBody && typeof parsedBody === "object" && !Array.isArray(parsedBody)) body = parsedBody as Record<string, unknown>;
   } catch {
     /* empty body means "issue if I have none" */
   }

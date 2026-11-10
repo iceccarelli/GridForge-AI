@@ -85,7 +85,7 @@ describe("what a deposit states", () => {
   });
 
   it("the Study's terms say a paid Density Screen is credited once; the Portfolio Screen's say nothing of the kind", () => {
-    expect(depositTerms("envelope_study_deposit")!.credit).toMatch(/Density Screen.*credited against the same fee, once/);
+    expect(depositTerms("envelope_study_deposit")!.credit).toMatch(/Density Screen.*credited once against the same fee, after we confirm it is the same buyer/);
     expect(depositTerms("portfolio_screen_deposit")!.credit).not.toMatch(/Density Screen/);
   });
 
