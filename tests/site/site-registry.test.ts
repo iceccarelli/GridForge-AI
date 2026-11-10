@@ -209,12 +209,12 @@ describe("the allowance", () => {
       const created = await postOrg(who, "10.8.8.8", { name: "Counted" });
       const org = (await created.json()).org.id as string;
       const post = (path: string, body: unknown, mod: () => Promise<any>, ctx?: unknown) => async () => (await mod()).POST(new Request(siteUrl(path), { method: "POST", headers: { ...bearerFor(who), "x-forwarded-for": "10.8.8.8", "content-type": "application/json" }, body: JSON.stringify(body) }), ctx);
-      expect(await countFor(post("/api/sites", { orgId: org, name: "S", dataOrigin: "test" }, () => import("@/app/api/sites/route")))).toBeLessThanOrEqual(2);          // the allowance and the write
+      expect(await countFor(post("/api/sites", { orgId: org, name: "S", dataOrigin: "test" }, () => import("@/app/api/sites/route")))).toBe(5);           // EXACT: the Auth-lookup hit, its refund (a read and a delete: the user is valid), the allowance hit and the write. A double charge adds one.
       const get = (path: string, mod: () => Promise<any>, ctx?: unknown) => async () => (await mod()).GET(new Request(siteUrl(path), { headers: { ...bearerFor(who), "x-forwarded-for": "10.8.8.8" } }), ctx);
       const sites = await (await get("/api/sites", () => import("@/app/api/sites/route"))()).json();
       expect(sites.sites[0].halls).toEqual([]);                                   // halls travel inside the site list
-      expect(await countFor(get("/api/sites", () => import("@/app/api/sites/route")))).toBeLessThanOrEqual(3);                // the allowance, the list, the membership check
-      expect(await countFor(get("/api/orgs", () => import("@/app/api/orgs/route")))).toBeLessThanOrEqual(2);
+      expect(await countFor(get("/api/sites", () => import("@/app/api/sites/route")))).toBe(6);                 // EXACT: the same three for the lookup, the allowance, the list, the membership check
+      expect(await countFor(get("/api/orgs", () => import("@/app/api/orgs/route")))).toBe(5);                 // EXACT: the lookup hit and its refund (3), the allowance, the membership read
     } finally {
       restore();
     }

@@ -80,6 +80,30 @@ export class PostgrestFake {
     for (const t of tableNames) this.tables.set(t, []);
     this.installRateLimit();
     this.installFounding();
+    this.installAdminRevocation();
+  }
+
+  /**
+   * Migration 0055 as applied: the admin-session denylist and its two functions. Present by default because every admin route consults it
+   * (lib/admin.ts verifyAdminCookie); a test of the "migration not applied" path removes the rpcs.
+   * SUPPLEMENTAL: the real functions, their privileges and the retention are proven against PostgreSQL (tests/site/admin-session-revocation.realdb.test.ts).
+   */
+  installAdminRevocation(): void {
+    this.createTable("admin_session_revocations");
+    this.rpcs.set("gf_admin_session_revoke", ({ p_nonce_hash, p_expires_at }) => {
+      if (typeof p_nonce_hash !== "string" || !/^[0-9a-f]{64}$/.test(p_nonce_hash) || !p_expires_at) throw new PgError("22023", "bad revocation arguments", 400);
+      const rows = this.rows("admin_session_revocations");
+      const now = Date.now();
+      for (let i = rows.length - 1; i >= 0; i--) if (new Date(rows[i].expires_at as string).getTime() < now - 3_600_000) rows.splice(i, 1);
+      if (!rows.some((r) => r.nonce_hash === p_nonce_hash)) {
+        this.insertRow("admin_session_revocations", { nonce_hash: p_nonce_hash, expires_at: new Date(Math.min(new Date(p_expires_at).getTime(), now + 86_400_000)).toISOString() });
+      }
+      return null;
+    });
+    this.rpcs.set("gf_admin_session_revoked", ({ p_nonce_hash }) => {
+      if (typeof p_nonce_hash !== "string" || !/^[0-9a-f]{64}$/.test(p_nonce_hash)) throw new PgError("22023", "bad nonce hash", 400);
+      return this.rows("admin_session_revocations").some((r) => r.nonce_hash === p_nonce_hash);
+    });
   }
 
   /**

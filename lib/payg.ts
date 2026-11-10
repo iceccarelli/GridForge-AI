@@ -83,6 +83,87 @@ export function freeAccountsMax(env: NodeJS.ProcessEnv = process.env): number {
   return PAYG.freeAccountsMaxPerMonth;
 }
 
+/**
+ * Common free-mail providers. A free account from one of these is NOT subject to the per-domain cap below: one provider hosts millions of unrelated people,
+ * so "this domain already has N accounts" says nothing about abuse. Every other domain (a company, a university, or a catch-all domain an attacker bought for
+ * the purpose) is a domain whose mailboxes a single party can mint without limit, which is what the cap exists for. Not exhaustive and not a claim about any
+ * provider: a free-mail domain missing here is simply capped like any other, and a disposable-mail domain is capped as its own domain. Lower-case, exact match
+ * (a sub-domain of a listed name is NOT exempt: x@y.fastmail.com is capped like any other domain, because anyone who owns a sub-domain
+ * of a provider's name is not that provider's user base).
+ *
+ * THIS IS A TRADE-OFF, NOT THE PUBLIC SUFFIX LIST. The list is hand-kept and entries are exact. A free-mail provider that is not on it (a country
+ * variant, a small provider) is capped like a company domain, so up to FREE_ACCOUNTS_MAX_PER_DOMAIN_DEFAULT of its users a month can get a free
+ * account and the rest are told the domain's limit is reached (they can wait, or use pay as you go); that is the price of not letting a catch-all
+ * domain take the whole ceiling. Add a provider here when real users are turned away; raise GRIDFORGE_FREE_ACCOUNTS_MAX_PER_DOMAIN for a time if needed.
+ */
+export const FREE_MAIL_DOMAINS: ReadonlySet<string> = new Set([
+  "gmail.com", "googlemail.com", "outlook.com", "hotmail.com", "live.com", "msn.com", "yahoo.com", "ymail.com", "rocketmail.com", "icloud.com", "me.com", "mac.com",
+  "aol.com", "proton.me", "protonmail.com", "pm.me", "gmx.com", "gmx.net", "gmx.de", "gmx.at", "gmx.ch", "web.de", "mail.com", "zoho.com", "fastmail.com", "hey.com",
+  "tutanota.com", "tuta.io", "t-online.de", "freenet.de", "yandex.com", "yandex.ru", "mail.ru", "bk.ru", "inbox.ru", "list.ru", "qq.com", "163.com", "126.com",
+  "sina.com", "naver.com", "daum.net", "hanmail.net", "orange.fr", "free.fr", "laposte.net", "wanadoo.fr", "sfr.fr", "libero.it", "virgilio.it", "tiscali.it",
+  "btinternet.com", "sky.com", "talktalk.net", "yahoo.co.uk", "yahoo.fr", "yahoo.de", "yahoo.es", "yahoo.it", "yahoo.co.jp", "yahoo.com.br", "yahoo.ca",
+  "hotmail.co.uk", "hotmail.fr", "hotmail.de", "hotmail.es", "hotmail.it", "outlook.fr", "outlook.de", "outlook.es", "outlook.it", "live.co.uk", "live.fr",
+  "live.nl", "ziggo.nl", "hetnet.nl", "kpnmail.nl", "telenet.be", "skynet.be", "bluewin.ch", "seznam.cz", "centrum.cz", "wp.pl", "o2.pl", "onet.pl", "interia.pl",
+  "rediffmail.com", "bigpond.com", "optusnet.com.au", "shaw.ca", "rogers.com", "sympatico.ca", "comcast.net", "verizon.net", "att.net", "sbcglobal.net",
+  "bellsouth.net", "cox.net", "charter.net",
+  // Country variants of the large providers (exact names only, no wildcards).
+  "yahoo.in", "yahoo.co.in", "yahoo.com.au", "yahoo.com.mx", "yahoo.com.ar", "yahoo.com.sg", "yahoo.com.ph", "yahoo.com.tr", "yahoo.co.id", "yahoo.co.nz",
+  "yahoo.co.za", "yahoo.ie", "yahoo.se", "yahoo.nl", "yahoo.gr", "yahoo.pl", "yahoo.com.hk", "yahoo.com.tw", "yahoo.com.vn", "yahoo.com.my",
+  "ymail.co.uk", "rocketmail.co.uk",
+  "outlook.com.br", "outlook.com.au", "outlook.co.uk", "outlook.in", "outlook.jp", "outlook.kr", "outlook.nl", "outlook.be", "outlook.at", "outlook.ie",
+  "outlook.pt", "outlook.pl", "outlook.cz", "outlook.sg", "outlook.co.nz", "outlook.co.za", "outlook.com.ar", "outlook.cl", "outlook.sa", "outlook.dk", "outlook.hu",
+  "hotmail.com.br", "hotmail.com.au", "hotmail.com.ar", "hotmail.com.mx", "hotmail.co.jp", "hotmail.co.nz", "hotmail.co.za", "hotmail.nl", "hotmail.be",
+  "hotmail.ch", "hotmail.at", "hotmail.se", "hotmail.no", "hotmail.dk", "hotmail.ie", "hotmail.gr", "hotmail.com.tr", "hotmail.co.in", "hotmail.pt",
+  "live.com.au", "live.ca", "live.it", "live.de", "live.nl", "live.be", "live.ie", "live.se", "live.no", "live.dk", "live.com.mx", "live.com.ar", "live.co.za",
+  "live.com.pt", "live.cl", "live.in", "live.jp", "live.hk",
+  "msn.co.uk", "msn.fr", "msn.de", "msn.it", "msn.es",
+  "gmx.co.uk", "gmx.fr", "gmx.es", "gmx.it", "gmx.us", "gmx.eu", "gmx.org", "gmx.info", "gmx.at", "gmx.ch", "gmx.li",
+  "protonmail.ch", "proton.ch", "mailbox.org", "posteo.de", "posteo.net", "runbox.com", "mailfence.com", "kolabnow.com",
+  "zoho.eu", "zoho.in", "zoho.com.au", "zohomail.com", "zohomail.eu", "zohomail.in",
+  "icloud.com.cn", "me.com", "mac.com",
+  "yandex.by", "yandex.kz", "yandex.ua", "ya.ru", "mail.ua", "rambler.ru", "bk.ru", "internet.ru", "mail.ru", "inbox.ru", "list.ru",
+  "qq.com.cn", "vip.qq.com", "foxmail.com", "vip.163.com", "vip.126.com", "yeah.net", "188.com", "sohu.com", "tom.com", "aliyun.com",
+]);
+
+/** The default cap on VERIFIED free accounts per non-free-mail domain per UTC month: 25 (a company or university team fits, and an unlisted free-mail provider locks out its later users less quickly; see FREE_MAIL_DOMAINS). Well under the site-wide ceiling (PAYG.freeAccountsMaxPerMonth): no one domain can be the whole allowance. */
+export const FREE_ACCOUNTS_MAX_PER_DOMAIN_DEFAULT = 25;
+
+/** The per-domain monthly cap: GRIDFORGE_FREE_ACCOUNTS_MAX_PER_DOMAIN when it is an integer from 1 to 100000, else the default. (There is no "0" or "off": use a large number.) */
+export function freeAccountsMaxPerDomain(env: NodeJS.ProcessEnv = process.env): number {
+  const raw = env.GRIDFORGE_FREE_ACCOUNTS_MAX_PER_DOMAIN?.trim();
+  if (raw && /^\d{1,6}$/.test(raw)) {
+    const n = Number(raw);
+    if (n >= 1 && n <= 100000) return n;
+  }
+  return FREE_ACCOUNTS_MAX_PER_DOMAIN_DEFAULT;
+}
+
+// Second-level labels under a two-letter country code that make a name like evil.co.uk or evil.com.au (three labels, not two).
+const TWO_PART_SUFFIX_LABELS = new Set(["co", "com", "org", "net", "gov", "edu", "ac", "or", "ne", "go", "gob", "ltd", "plc", "sch", "nom"]);
+
+/**
+ * The name a domain's accounts are grouped under: its last two labels, or its last three under a short list of two-part suffixes (co.uk, com.au, ...), so that
+ * a wildcard catch-all (anything.evil.example) is ONE domain, not a fresh one per sub-domain. A heuristic, not the Public Suffix List: an unusual suffix
+ * groups too broadly or too narrowly; the site-wide ceiling still bounds the total.
+ */
+export function freeDomainKey(domain: string): string {
+  const labels = domain.toLowerCase().split(".").filter(Boolean);
+  if (labels.length <= 2) return labels.join(".");
+  const tld = labels[labels.length - 1];
+  const sld = labels[labels.length - 2];
+  return labels.slice(tld.length === 2 && TWO_PART_SUFFIX_LABELS.has(sld) ? -3 : -2).join(".");
+}
+
+/** What the per-domain cap is for this address: null when it is exempt (free-mail) or has no usable domain, else the domain key to count under and the cap. */
+export function freeDomainCap(rawEmail: unknown, env: NodeJS.ProcessEnv = process.env): { key: string; max: number } | null {
+  const norm = normaliseFreeEmail(rawEmail);
+  if (!norm) return null;
+  const domain = norm.slice(norm.lastIndexOf("@") + 1);
+  const key = freeDomainKey(domain);
+  if (FREE_MAIL_DOMAINS.has(domain)) return null; // the exact normalised domain only: a SUB-domain of a listed provider is capped (its key is the provider's name)
+  return { key, max: freeAccountsMaxPerDomain(env) };
+}
+
 /** The scope the engine sees, by plan. */
 export function scopeForPlan(plan: string): "trial" | "payg" | "machine" {
   return plan === "api_free" ? "trial" : plan === "api_payg" ? "payg" : "machine";

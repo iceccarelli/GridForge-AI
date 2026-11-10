@@ -14,7 +14,7 @@
 // empty success for an unreachable store.
 
 import { NextResponse } from "next/server";
-import { identify } from "@/lib/portal";
+import { identify, identityRefusal } from "@/lib/portal";
 import { rpc } from "@/lib/pgrest";
 import { ensureNotification } from "@/lib/notifications";
 import { inviteToken, hashInviteToken, isInviteToken } from "@/lib/team-token";
@@ -98,7 +98,7 @@ const deny = (status: number, error: string): { ok: false; response: NextRespons
  */
 export async function ownerContext(req: Request): Promise<OwnerContext> {
   const who = await identify(req);
-  if (!who.ok) return deny(who.status, who.error);
+  if (!who.ok) return { ok: false, response: identityRefusal(who) };
   if (!who.verified) return deny(403, "Confirm your email address by signing in with the emailed link, then try again.");
   if (!subscriptionsConfigured()) return deny(503, "Team membership is unavailable just now.");
   const found = await lookupEntitlement(who.email);

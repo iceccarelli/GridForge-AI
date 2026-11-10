@@ -16,7 +16,7 @@ export async function PATCH(req: Request) {
   const xs = refuseCrossSiteWrite(req);
   if (xs) return xs;
   const store = await cookies();
-  if (!verifyAdminCookie(store.get(ADMIN_COOKIE)?.value)) {
+  if (!(await verifyAdminCookie(store.get(ADMIN_COOKIE)?.value))) {
     return NextResponse.json({ ok: false, error: "Unauthorized" }, { status: 401 });
   }
 

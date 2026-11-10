@@ -25,7 +25,7 @@ export const dynamic = "force-dynamic";
 // scripts/capability-audit.mjs (run by tests/site/capability-registry-fields.test.ts).
 export async function GET() {
   const store = await cookies();
-  if (!verifyAdminCookie(store.get(ADMIN_COOKIE)?.value)) {
+  if (!(await verifyAdminCookie(store.get(ADMIN_COOKIE)?.value))) {
     return NextResponse.json({ ok: false, error: "Unauthorized" }, { status: 401 });
   }
 

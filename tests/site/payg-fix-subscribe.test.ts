@@ -14,7 +14,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import Stripe from "stripe";
 import { siteUrl } from "@/lib/site";
 import { PostgrestFake } from "./postgrest-fake";
-import { bearerFor, installWithAuth, unconfirmedBearerFor } from "./auth-fake";
+import { bearerFor, installWithAuth, junkJwt, unconfirmedBearerFor } from "./auth-fake";
 import { paidSession } from "./checkout-fixture";
 
 const sessions: Record<string, any>[] = [];
@@ -150,6 +150,53 @@ describe("/api/subscribe never takes the email from the request", () => {
     await subscribe({ plan: "developer" }, unconfirmedBearerFor("me@mine.example"));
     expect(sessions[0]).not.toHaveProperty("customer_email");
     await subscribe({ plan: "developer" }, { authorization: "Bearer forged" });
+    expect(sessions[1]).not.toHaveProperty("customer_email");
+  });
+});
+
+describe("/api/subscribe: a session that could not be CHECKED is not downgraded to an anonymous checkout", () => {
+  const subscribe = async (body: unknown, headers: Record<string, string> = {}) =>
+    (await import("@/app/api/subscribe/route")).POST(new Request(siteUrl("/api/subscribe"), { method: "POST", headers: { "content-type": "application/json", "x-forwarded-for": "203.0.113.200", ...headers }, body: JSON.stringify(body) }));
+
+  it("Authorization present and the caller over its lookup budget: 429 with Retry-After, NO Stripe session (no new Stripe customer)", async () => {
+    const { identify } = await import("@/lib/portal");
+    const { RATE_POLICIES } = await import("@/lib/rate-limit");
+    for (let i = 0; i < RATE_POLICIES.auth_lookup.limit; i++) await identify(new Request(siteUrl("/x"), { headers: { "x-forwarded-for": "203.0.113.200", authorization: `Bearer ${junkJwt(i)}` } }));
+    const res = await subscribe({ plan: "developer" }, bearerFor("me@mine.example"));
+    expect(res.status).toBe(429);
+    expect(Number(res.headers.get("retry-after"))).toBeGreaterThanOrEqual(1);
+    expect(await res.json()).toMatchObject({ ok: false, retry_after_seconds: expect.any(Number) });
+    expect(sessions).toHaveLength(0);
+  });
+
+  it("Authorization present and ONLY the lookup counter unreadable (the checkout guard still works): 503, NO Stripe session", async () => {
+    const real = db.rpcs.get("gf_rate_limit_hit")!;
+    db.rpcs.set("gf_rate_limit_hit", (a: any, d: PostgrestFake) => {
+      if (a.p_bucket === "auth_lookup") throw new Error("counter down");
+      return real(a, d);
+    });
+    const res = await subscribe({ plan: "developer" }, bearerFor("me@mine.example"));
+    expect(res.status).toBe(503);
+    expect(sessions).toHaveLength(0);
+  });
+
+  it("Supabase Auth itself failing (5xx) for a request that carried a bearer: 503, no anonymous checkout", async () => {
+    const inner = globalThis.fetch;
+    globalThis.fetch = (async (i: RequestInfo | URL, init?: RequestInit) => (String(i).includes("/auth/v1/user") ? new Response("boom", { status: 500 }) : inner(i as RequestInfo, init))) as typeof fetch;
+    try {
+      const res = await subscribe({ plan: "developer" }, bearerFor("me@mine.example"));
+      expect(res.status).toBe(503);
+      expect(sessions).toHaveLength(0);
+    } finally {
+      globalThis.fetch = inner;
+    }
+  });
+
+  it("NO Authorization header behaves exactly as before (anonymous checkout), and so does a bearer Supabase rejects (401)", async () => {
+    expect((await subscribe({ plan: "developer" })).status).toBe(200);
+    expect(sessions[0]).not.toHaveProperty("customer_email");
+    expect((await subscribe({ plan: "developer" }, { authorization: `Bearer ${junkJwt("rejected")}` })).status).toBe(200);
+    expect(sessions).toHaveLength(2);
     expect(sessions[1]).not.toHaveProperty("customer_email");
   });
 });

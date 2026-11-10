@@ -211,6 +211,29 @@ export function installPaygRpcs(db: PostgrestFake): void {
     return { by_scope: by, accounts: new Set(rows.map((e) => e.account)).size };
   });
 
+  // Migration 0055's gf_free_account_verify_capped: the site-wide ceiling, then the per-domain cap (accounts whose normalised email is on the domain or a sub-domain of it).
+  db.rpcs.set("gf_free_account_verify_capped", ({ p_token, p_max, p_domain_key, p_domain_max }: { p_token: string; p_max: number; p_domain_key: string | null; p_domain_max: number | null }) => {
+    if (!p_token || p_max == null || p_max < 0) throw new PgError("22023", "free account verification arguments out of range", 400);
+    const capped = p_domain_key != null || p_domain_max != null;
+    if (capped && (!p_domain_key || !/^[a-z0-9]([a-z0-9.-]*[a-z0-9])?$/.test(p_domain_key) || !(p_domain_max! >= 1))) throw new PgError("22023", "domain cap arguments out of range", 400);
+    const accts = db.rows("api_accounts");
+    const row = accts.find((r) => r.token === p_token && r.plan === "api_free");
+    if (!row) return { ok: false, reason: "unknown" };
+    if (row.free_verified_at) return { ok: true, already: true };
+    const start = new Date(Date.UTC(new Date().getUTCFullYear(), new Date().getUTCMonth(), 1)).toISOString();
+    const verified = accts.filter((r) => r.free_verified_at && (r.free_verified_at as string) >= start);
+    if (verified.length >= p_max) return { ok: false, reason: "capacity" };
+    let domainCount: number | undefined;
+    if (capped) {
+      const domainOf = (r: Row) => String(r.free_email_norm ?? "").split("@").pop() ?? "";
+      const inDomain = verified.filter((r) => domainOf(r) === p_domain_key || domainOf(r).endsWith(`.${p_domain_key}`)).length;
+      if (inDomain >= p_domain_max!) return { ok: false, reason: "domain_capacity" };
+      domainCount = inDomain + 1;
+    }
+    row.free_verified_at = new Date().toISOString();
+    return { ok: true, already: false, ...(domainCount !== undefined ? { domain_count: domainCount } : {}) };
+  });
+
   db.rpcs.set("gf_free_account_verify", ({ p_token, p_max }: { p_token: string; p_max: number }) => {
     if (!p_token || p_max < 0) throw new PgError("22023", "free account verification arguments out of range", 400);
     const accts = db.rows("api_accounts");

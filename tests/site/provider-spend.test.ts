@@ -452,6 +452,9 @@ describe("POST /api/siting-analysis (verified subscriber, paid model)", () => {
     db.rows("subscriptions")[0].status = "cancelled";
     expect((await r.POST(ask({ brief: "40 MW" }))).status).toBe(402);
     expect(anthropic).toBe(0);
+    // (Review finding 2) Every Supabase Auth lookup is counted in the caller's `auth_lookup` budget before the outbound call (lib/portal.ts), and a lookup that
+    // turns out to be a VALID signed-in user is given back, so these two signed-in requests leave nothing there. What this test is about: no REQUEST or PROVIDER
+    // counter (siting, siting_account, anthropic_*) is used by a request that is refused with 402.
     expect(rl()).toHaveLength(0);
   });
 

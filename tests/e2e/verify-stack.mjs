@@ -35,6 +35,7 @@ import crypto from "node:crypto";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { startStandIns } from "./stand-ins.mjs";
+import { jwtFor } from "./fake-jwt.mjs";
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "..");
 const PG_PORT = Number(process.env.E2E_PG_PORT || 54329);
@@ -816,6 +817,13 @@ async function main() {
        body: JSON.stringify({ responses }),
      })).status === 409);
 
+  // --- the founder signs out: the session is revoked on the SERVER (migration 0055), not just forgotten by the browser -------------------------
+  head("Admin sign-out revokes the session server-side");
+  ok("the session still works before sign-out", (await fetch(`${SITE}/api/admin/economics`, { headers: { cookie } })).status !== 401);
+  const logout = await fetch(`${SITE}/api/admin/login`, { method: "DELETE", headers: { cookie } });
+  ok("sign-out answers revoked: true", logout.status === 200 && (await logout.json()).revoked === true);
+  ok("a copy of the cookie is refused after sign-out", (await fetch(`${SITE}/api/admin/economics`, { headers: { cookie } })).status === 401);
+
   // --- the recurring products ------------------------------------------------
   head("Hall Watch — the subscription has to keep delivering, and stop when it ends");
   await hook(checkout("hall_watch", { id: "cs_hall_watch", metadata: { kind: "hall_watch", company: "North Hall" } }));
@@ -869,7 +877,7 @@ async function main() {
     data: { object: { object: "checkout_session", payment_status: "paid", customer_email: "director@northhall.example",
       customer: "cus_int", subscription: "sub_int", amount_total: 199900,
       metadata: { kind: "intelligence_subscription", plan: "team" }, ...over } } });
-  const bearer = { authorization: "Bearer tok:director@northhall.example" };
+  const bearer = { authorization: `Bearer ${jwtFor("director@northhall.example")}` };
   const status = async () =>
     (await (await fetch(`${SITE}/api/subscription-status`, { method: "POST",
       headers: { "content-type": "application/json", ...bearer }, body: "{}" })).json());
@@ -881,7 +889,7 @@ async function main() {
   await sub({ id: "cs_int_1" });
   ok("entitled after paying", (await status()).active === true);
   const unconfirmed = await (await fetch(`${SITE}/api/subscription-status`, { method: "POST",
-    headers: { "content-type": "application/json", authorization: "Bearer unconfirmed:director@northhall.example" }, body: "{}" })).json();
+    headers: { "content-type": "application/json", authorization: `Bearer ${jwtFor("director@northhall.example", false)}` }, body: "{}" })).json();
   ok("a session whose email was never confirmed is not shown the subscription", unconfirmed.active === false && unconfirmed.verified === false);
   await sub({ id: "cs_int_1" });
   ok("a redelivered event does not double-issue",
@@ -923,7 +931,7 @@ async function main() {
        await hook({ id: "evt_int_unpaid", type: "checkout.session.completed", data: { object: { id: "cs_int_unpaid", object: "checkout_session",
          payment_status: "unpaid", customer_email: email, customer: "cus_iu", subscription: "sub_iu", amount_total: 199900,
          metadata: { kind: "intelligence_subscription", plan: "team" } } } });
-       const st = await (await fetch(`${SITE}/api/subscription-status`, { method: "POST", headers: { "content-type": "application/json", authorization: `Bearer tok:${email}` }, body: "{}" })).json();
+       const st = await (await fetch(`${SITE}/api/subscription-status`, { method: "POST", headers: { "content-type": "application/json", authorization: `Bearer ${jwtFor(email)}` }, body: "{}" })).json();
        return (await countRows(`subscriptions?email=eq.${encodeURIComponent(email)}`)) === 0 && st.active === false;
      })());
   // ...and when the delayed payment does settle, THEN it is fulfilled, once.

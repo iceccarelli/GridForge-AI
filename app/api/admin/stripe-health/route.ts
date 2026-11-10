@@ -15,7 +15,7 @@ export const dynamic = "force-dynamic";
 // public. Never assume this is healthy — ask Stripe directly, every time.
 export async function GET() {
   const store = await cookies();
-  if (!verifyAdminCookie(store.get(ADMIN_COOKIE)?.value)) {
+  if (!(await verifyAdminCookie(store.get(ADMIN_COOKIE)?.value))) {
     return NextResponse.json({ ok: false, error: "Unauthorized" }, { status: 401 });
   }
 

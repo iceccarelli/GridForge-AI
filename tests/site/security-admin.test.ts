@@ -3,6 +3,9 @@
  * (so two serverless instances count together, and an unreadable counter refuses), and a cross-site write riding the
  * admin cookie is refused on every state-changing admin route.
  */
+// NOTE (review finding 3): verifyAdminCookie is now async (it also reads the server-side denylist of logged-out sessions, migration 0055), so every
+// call below is awaited. No expectation was changed; revocation itself is covered in tests/site/admin-session-revocation.test.ts.
+
 import crypto from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
@@ -63,7 +66,7 @@ afterEach(() => {
 describe("finding 1: production refuses a session key that is not distinct and strong", () => {
   const forge = (secret: string) => {
     const payload = `${Date.now() + 60_000}.deadbeefdeadbeef`;
-    return `${payload}.${crypto.createHmac("sha256", secret).update(payload).digest("hex")}`;
+    return `${payload}.${crypto.createHmac("sha256", secret).update(`v2.${payload}`).digest("hex") /* the MAC is versioned (lib/admin.ts MAC_VERSION): this is the CURRENT format */}`;
   };
 
   it("EXPLOIT (before the fix): the derived key is a pure function of the password, so anyone who learns or guesses the password offline can forge a session without ever hitting the login throttle", async () => {
@@ -71,7 +74,7 @@ describe("finding 1: production refuses a session key that is not distinct and s
     const { verifyAdminCookie } = await freshAdmin();
     vi.spyOn(console, "warn").mockImplementation(() => {});
     const derived = crypto.createHmac("sha256", PASSWORD).update("gf-admin-session-key-v1").digest("hex");
-    expect(verifyAdminCookie(forge(derived))).toBe(true);
+    expect(await verifyAdminCookie(forge(derived))).toBe(true);
   });
 
   for (const [label, secret] of [
@@ -89,9 +92,9 @@ describe("finding 1: production refuses a session key that is not distinct and s
       expect(adminToken()).toBeNull();
       expect(adminSessionReady()).toBe(false);
       const derived = crypto.createHmac("sha256", PASSWORD).update("gf-admin-session-key-v1").digest("hex");
-      expect(verifyAdminCookie(forge(derived))).toBe(false);
-      expect(verifyAdminCookie(forge(PASSWORD))).toBe(false);
-      if (secret) expect(verifyAdminCookie(forge(secret))).toBe(false);
+      expect(await verifyAdminCookie(forge(derived))).toBe(false);
+      expect(await verifyAdminCookie(forge(PASSWORD))).toBe(false);
+      if (secret) expect(await verifyAdminCookie(forge(secret))).toBe(false);
       expect(err).toHaveBeenCalledTimes(1);
       const text = String(err.mock.calls[0].join(" "));
       expect(text).toContain("ADMIN_SESSION_SECRET");
@@ -102,12 +105,23 @@ describe("finding 1: production refuses a session key that is not distinct and s
   it("production with a distinct 32+ character secret signs and verifies, and the password plays no part", async () => {
     vi.stubEnv("NODE_ENV", "production");
     process.env.ADMIN_SESSION_SECRET = STRONG;
-    const { adminToken, verifyAdminCookie, adminSessionReady } = await freshAdmin();
-    const t = adminToken()!;
-    expect(adminSessionReady()).toBe(true);
-    expect(verifyAdminCookie(t)).toBe(true);
-    expect(verifyAdminCookie(forge(STRONG))).toBe(true);
-    expect(verifyAdminCookie(forge(PASSWORD))).toBe(false);
+    // INTENTIONAL CHANGE (review finding 3): production now also needs a readable session denylist (migration 0055) before it accepts any admin cookie
+    // (fail closed; see tests/site/admin-session-revocation.test.ts). This test is about the signing key, so it is given a store that can be read.
+    process.env.SUPABASE_URL = "https://stub.supabase.co";
+    process.env.SUPABASE_SERVICE_ROLE_KEY = "sb_secret_test";
+    const restoreStore = new PostgrestFake().install();
+    try {
+      const { adminToken, verifyAdminCookie, adminSessionReady } = await freshAdmin();
+      const t = adminToken()!;
+      expect(adminSessionReady()).toBe(true);
+      expect(await verifyAdminCookie(t)).toBe(true);
+      expect(await verifyAdminCookie(forge(STRONG))).toBe(true);
+      expect(await verifyAdminCookie(forge(PASSWORD))).toBe(false);
+    } finally {
+      restoreStore();
+      delete process.env.SUPABASE_URL;
+      delete process.env.SUPABASE_SERVICE_ROLE_KEY;
+    }
   });
 
   it("the production login route answers 503 naming the variable (and sets no cookie) when the secret is missing", async () => {
@@ -123,7 +137,7 @@ describe("finding 1: production refuses a session key that is not distinct and s
   it("development keeps the explicit convenience: derived key with a warning, nothing refused", async () => {
     const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
     const { adminToken, verifyAdminCookie } = await freshAdmin();
-    expect(verifyAdminCookie(adminToken()!)).toBe(true);
+    expect(await verifyAdminCookie(adminToken()!)).toBe(true);
     expect(warn).toHaveBeenCalledTimes(1);
   });
 });

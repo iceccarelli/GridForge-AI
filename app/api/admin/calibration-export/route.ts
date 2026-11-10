@@ -19,7 +19,7 @@ export const dynamic = "force-dynamic";
 // self-typed under one shared password, and the permission record is an assertion of a document the system never opens.
 export async function GET() {
   const store = await cookies();
-  if (!verifyAdminCookie(store.get(ADMIN_COOKIE)?.value)) {
+  if (!(await verifyAdminCookie(store.get(ADMIN_COOKIE)?.value))) {
     return NextResponse.json({ ok: false, error: "Unauthorized" }, { status: 401 });
   }
   const r = await calibrationExport();

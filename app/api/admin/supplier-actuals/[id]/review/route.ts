@@ -12,7 +12,7 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
   const xs = refuseCrossSiteWrite(req);
   if (xs) return xs;
   const store = await cookies();
-  if (!verifyAdminCookie(store.get(ADMIN_COOKIE)?.value)) {
+  if (!(await verifyAdminCookie(store.get(ADMIN_COOKIE)?.value))) {
     return NextResponse.json({ ok: false, error: "Unauthorized" }, { status: 401 });
   }
   const { id } = await ctx.params;

@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { readBoundedJson } from "@/lib/http-body";
-import { identify } from "@/lib/portal";
+import { identify, identityRefusal } from "@/lib/portal";
 import { guardRequest } from "@/lib/rate-limit";
 import { subscriptionsConfigured } from "@/lib/subscribers";
 import { redeemInvitation, type RedeemAction } from "@/lib/team";
@@ -17,7 +17,7 @@ const ACTIONS: ReadonlySet<string> = new Set(["preview", "accept", "decline"]);
 // token's invitation against the verified identity and answers a mismatch like an unknown secret.
 export async function POST(req: Request) {
   const who = await identify(req);
-  if (!who.ok) return NextResponse.json({ ok: false, error: who.error }, { status: who.status });
+  if (!who.ok) return identityRefusal(who);
   if (!who.verified) {
     return NextResponse.json({ ok: false, error: "Confirm your email address by signing in with the emailed link, then try again." }, { status: 403 });
   }

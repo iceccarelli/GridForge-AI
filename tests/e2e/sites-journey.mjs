@@ -13,7 +13,7 @@
  * above the field-by-field diff, its cost line before the click, no request until the click, the missing-figures answer with its "Record this figure" jump, a full run on a
  * synthetic reference hall (axe, keyboard, overflow) and the import preview's "Run the engine on this preview" (nothing written).
  * What it does NOT prove: Supabase Auth itself (the session is a stand-in:
- * the bearer `tok:<email>` verifies as that address, `unv:<email>` as an unconfirmed one), or a deployment.
+ * a JWT-shaped bearer from tests/e2e/fake-jwt.mjs verifies as the address in its payload (confirmed: false = an unconfirmed one)), or a deployment.
  *
  *   # 1. a fresh database and PostgREST (a PostgreSQL superuser in PG*; see scripts/realdb-up.sh)
  *   bash scripts/realdb-up.sh && . /tmp/gf-realdb/realdb.env
@@ -31,6 +31,7 @@ import http from "node:http";
 import { createRequire } from "node:module";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { jwtFor, readJwt } from "./fake-jwt.mjs";
 
 const require = createRequire(import.meta.url);
 let chromium;
@@ -58,9 +59,9 @@ const gateway = http.createServer(async (req, res) => {
   const url = req.url || "";
   const send = (code, body) => { res.writeHead(code, { "content-type": "application/json" }); res.end(JSON.stringify(body)); };
   if (url.startsWith("/auth/v1/user")) {
-    const m = /^Bearer (tok|unv):(.+)$/.exec(req.headers.authorization || "");
-    if (!m) return send(401, {});
-    return send(200, { email: m[2], ...(m[1] === "tok" ? { email_confirmed_at: "2026-01-01T00:00:00Z" } : {}) });
+    const who = readJwt(/^Bearer (.+)$/.exec(req.headers.authorization || "")?.[1] ?? "");
+    if (!who) return send(401, {});
+    return send(200, { email: who.email, ...(who.confirmed ? { email_confirmed_at: "2026-01-01T00:00:00Z" } : {}) });
   }
   if (!url.startsWith("/rest/v1/")) return send(404, {});
   const headers = {};
@@ -111,7 +112,7 @@ try {
       await ctx.addInitScript(([key, value]) => { try { localStorage.setItem(key, value); } catch { /* blocked */ } }, [
         "sb-127-auth-token",
         JSON.stringify({ access_token: token, refresh_token: "r", token_type: "bearer", expires_in: 3600, expires_at: Math.floor(Date.now() / 1000) + 3600,
-          user: { id: crypto.randomUUID(), email: token.replace(/^[a-z]+:/, ""), aud: "authenticated", role: "authenticated", app_metadata: {}, user_metadata: {}, created_at: "2026-01-01T00:00:00Z" } }),
+          user: { id: crypto.randomUUID(), email: readJwt(token)?.email, aud: "authenticated", role: "authenticated", app_metadata: {}, user_metadata: {}, created_at: "2026-01-01T00:00:00Z" } }),
       ]);
     }
     const page = await ctx.newPage();
@@ -138,7 +139,7 @@ try {
     await s.page.waitForURL(/\/account\/login/, { timeout: 15000 }).catch(() => {});
     check("signed out: /account/sites sends the visitor to sign in", /\/account\/login/.test(s.page.url()), s.page.url());
     await s.ctx.close();
-    const u = await session(1440, 900, `unv:unconfirmed-${uid()}@journey.example`, "unconfirmed");
+    const u = await session(1440, 900, jwtFor(`unconfirmed-${uid()}@journey.example`, false), "unconfirmed");
     await u.page.goto(SITE + "/account/sites");
     const confirm = u.page.locator("[role=alert]", { hasText: "Confirm your email" });
     await confirm.waitFor({ timeout: 15000 }).catch(() => {});
@@ -149,7 +150,7 @@ try {
   // ---- the journey, at both widths
   for (const [width, height] of [[1440, 900], [390, 844]]) {
     const me = `editor-${uid()}@journey.example`;
-    const { ctx, page, errors } = await session(width, height, `tok:${me}`, `${width}px`);
+    const { ctx, page, errors } = await session(width, height, jwtFor(me), `${width}px`);
     const at = (s) => `${width}px: ${s}`;
     await page.goto(SITE + "/account/sites");
     await page.getByRole("heading", { name: "What is recorded about your halls" }).waitFor({ timeout: 20000 });
@@ -625,10 +626,10 @@ try {
   // ---- a person who was ADDED to an organisation is told by whom and can leave
   {
     const boss = `boss-${uid()}@journey.example`, guest = `guest-${uid()}@journey.example`;
-    const site = async (who, path, method = "GET", body) => (await fetch(SITE + path, { method, headers: { Authorization: `Bearer tok:${who}`, "x-forwarded-for": "198.51.100.77", ...(body ? { "content-type": "application/json" } : {}) }, body: body ? JSON.stringify(body) : undefined })).json();
+    const site = async (who, path, method = "GET", body) => (await fetch(SITE + path, { method, headers: { Authorization: `Bearer ${jwtFor(who)}`, "x-forwarded-for": "198.51.100.77", ...(body ? { "content-type": "application/json" } : {}) }, body: body ? JSON.stringify(body) : undefined })).json();
     const org = (await site(boss, "/api/orgs", "POST", { name: `Boss org ${uid()}` })).org.id;
     await site(boss, `/api/orgs/${org}/members`, "POST", { email: guest, role: "viewer" });
-    const g = await session(1440, 900, `tok:${guest}`, "guest");
+    const g = await session(1440, 900, jwtFor(guest), "guest");
     g.page.on("dialog", (d) => d.accept());
     await g.page.goto(SITE + "/account/sites");
     const note = g.page.getByRole("group", { name: /You were added to/ });

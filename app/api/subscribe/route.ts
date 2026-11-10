@@ -2,7 +2,7 @@ import { checkoutOrigin, siteUrl } from "@/lib/site";
 import { NextResponse } from "next/server";
 import { boundedStripeClient } from "@/lib/stripe-client";
 import { PLANS } from "@/lib/subscriptions";
-import { identify } from "@/lib/portal";
+import { identify, identityRefusal } from "@/lib/portal";
 import { activeSubscription } from "@/lib/subscribers";
 import { guardRequest } from "@/lib/rate-limit";
 
@@ -49,6 +49,10 @@ export async function POST(req: Request) {
   let customerParams: { customer: string } | { customer_email: string } | Record<string, never> = {};
   if (req.headers.get("authorization")) {
     const who = await identify(req);
+    // An Authorization header WAS sent but the session could not be checked (the caller is over its lookup budget, or Supabase Auth could not be asked): say
+    // so. Falling through would create an ANONYMOUS checkout, a brand-new Stripe customer, for someone who meant to upgrade their own account.
+    // A 401 (the session is invalid or expired) still falls through as before, and so does a request with no Authorization header at all.
+    if (!who.ok && (who.status === 429 || who.status === 503)) return identityRefusal(who);
     if (who.ok && who.verified) {
       const current = await activeSubscription(who.email);
       customerParams = current?.stripe_customer_id ? { customer: current.stripe_customer_id } : { customer_email: who.email };

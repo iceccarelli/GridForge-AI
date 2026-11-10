@@ -73,7 +73,11 @@ describe("GET /api/admin/subscriptions", () => {
       { plan: "team", status: "active", rows: 2 },
     ]);
     expect(raw).not.toMatch(/@|cus_|email/);
-    expect(calls[0]).toContain("select=plan,status,created_at");
+    // INTENTIONAL CHANGE (review finding 3): the first store request is now the admin-session denylist read (migration 0055, lib/admin.ts verifyAdminCookie);
+    // the subscriptions query is the next one. What this asserts -- that the query selects only plan, status and created_at -- is unchanged.
+    const queries = calls.filter((c) => !c.includes("/rpc/gf_admin_session_revoked"));
+    expect(queries).toHaveLength(1);
+    expect(queries[0]).toContain("select=plan,status,created_at");
   });
 
   it("answers 503, not an empty list, when the store cannot be read", async () => {

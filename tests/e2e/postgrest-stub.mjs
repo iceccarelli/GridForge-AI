@@ -16,6 +16,7 @@ import http from "node:http";
 import fs from "node:fs";
 import path from "node:path";
 import crypto from "node:crypto";
+import { readJwt } from "./fake-jwt.mjs";
 
 const MIGRATIONS = process.argv[2];
 const PORT = Number(process.argv[3] || 54321);
@@ -105,6 +106,8 @@ const violates = (table, row, store) => uniques.find((u) => u.table === table
 // (default: every) matching request answer `status` WITHOUT touching the table; DELETE /__faults clears them. A real outage of
 // the store looks exactly like this to the site: a 5xx from PostgREST.
 const faults = [];
+// The admin-session denylist (gf_admin_session_revoke / gf_admin_session_revoked): nonce hash -> when that session would have expired.
+const adminRevoked = new Map();
 
 const send = (res, code, body) => {
   res.writeHead(code, { "content-type": "application/json" });
@@ -138,12 +141,11 @@ http.createServer((req, res) => {
   req.on("end", () => {
     const u = new URL(req.url, "http://localhost");
     if (u.pathname === "/auth/v1/user") {
-      // Stand-in for GoTrue: a bearer of the form `tok:<email>` verifies as that email, anything else is a 401.
-      // `unconfirmed:<email>` is a session whose address was never confirmed: GoTrue omits email_confirmed_at for it.
-      const t = /^Bearer tok:(.+)$/.exec(req.headers.authorization || "");
-      const u2 = /^Bearer unconfirmed:(.+)$/.exec(req.headers.authorization || "");
-      if (u2) return send(res, 200, { email: u2[1] });
-      return t ? send(res, 200, { email: t[1], email_confirmed_at: "2026-01-01T00:00:00Z" }) : send(res, 401, {});
+      // Stand-in for GoTrue: a JWT-shaped bearer minted by tests/e2e/fake-jwt.mjs verifies as the email in its payload, anything else is a 401.
+      // A session whose payload says confirmed:false is one whose address was never confirmed: GoTrue omits email_confirmed_at for it.
+      const who = readJwt(/^Bearer (.+)$/.exec(req.headers.authorization || "")?.[1] ?? "");
+      if (!who) return send(res, 401, {});
+      return send(res, 200, who.confirmed ? { email: who.email, email_confirmed_at: "2026-01-01T00:00:00Z" } : { email: who.email });
     }
     // The few server-side functions the verified journeys call. These restate what the SQL does (supabase/migrations/0024 and
     // 0025) just far enough to drive the site; that the SQL itself is atomic and race-free is proven against PostgreSQL by
@@ -179,6 +181,43 @@ http.createServer((req, res) => {
         const r = t("project_shares").find((x) => x.project_id === a.p_project && !x.revoked_at);
         if (r) { r.revoked_at = new Date().toISOString(); event(a.p_project, a.p_event, { share_id: r.id }); }
         return send(res, 200, { revoked: !!r });
+      }
+      // Migration 0055 (A): the admin-session denylist. A PRODUCTION build reads it on every admin request and refuses every session while it answers
+      // anything but true/false (lib/admin.ts), so the founder's sign-in below needs these. In-memory; same argument checks and return shapes as the SQL.
+      if (rpc[1] === "gf_admin_session_revoke") {
+        if (typeof a.p_nonce_hash !== "string" || !/^[0-9a-f]{64}$/.test(a.p_nonce_hash)) return send(res, 400, { code: "22023", message: "p_nonce_hash must be 64 lowercase hex characters" });
+        if (!a.p_expires_at) return send(res, 400, { code: "22023", message: "p_expires_at is required" });
+        const now = Date.now();
+        for (const [h, exp] of adminRevoked) if (exp < now - 3_600_000) adminRevoked.delete(h);
+        if (!adminRevoked.has(a.p_nonce_hash)) adminRevoked.set(a.p_nonce_hash, Math.min(new Date(a.p_expires_at).getTime(), now + 86_400_000));
+        return send(res, 200); // returns void: PostgREST answers an empty body
+      }
+      if (rpc[1] === "gf_admin_session_revoked") {
+        if (typeof a.p_nonce_hash !== "string" || !/^[0-9a-f]{64}$/.test(a.p_nonce_hash)) return send(res, 400, { code: "22023", message: "p_nonce_hash must be 64 lowercase hex characters" });
+        return send(res, 200, adminRevoked.has(a.p_nonce_hash));
+      }
+      // Migration 0055 (B): gf_free_account_verify_capped, restated just far enough for a free-key mint (site-wide ceiling, then the per-domain cap).
+      if (rpc[1] === "gf_free_account_verify_capped") {
+        if (!a.p_token || a.p_max == null || a.p_max < 0) return send(res, 400, { code: "22023", message: "free account verification arguments out of range" });
+        if ((a.p_domain_key == null) !== (a.p_domain_max == null)) return send(res, 400, { code: "22023", message: "p_domain_key and p_domain_max are given together or not at all" });
+        if (a.p_domain_key != null && (!/^[a-z0-9]([a-z0-9.-]*[a-z0-9])?$/.test(a.p_domain_key) || !(a.p_domain_max >= 1))) return send(res, 400, { code: "22023", message: "domain cap arguments out of range" });
+        const accts = t("api_accounts");
+        const acct = accts.find((r) => r.token === a.p_token && r.plan === "api_free");
+        if (!acct) return send(res, 200, { ok: false, reason: "unknown" });
+        if (acct.free_verified_at) return send(res, 200, { ok: true, already: true });
+        const d = new Date();
+        const start = new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), 1)).toISOString();
+        const verified = accts.filter((r) => r.free_verified_at && r.free_verified_at >= start);
+        if (verified.length >= a.p_max) return send(res, 200, { ok: false, reason: "capacity" });
+        let domainCount;
+        if (a.p_domain_key != null) {
+          const dom = (r) => String(r.free_email_norm ?? "").split("@").pop();
+          const inDomain = verified.filter((r) => dom(r) === a.p_domain_key || dom(r).endsWith(`.${a.p_domain_key}`)).length;
+          if (inDomain >= a.p_domain_max) return send(res, 200, { ok: false, reason: "domain_capacity" });
+          domainCount = inDomain + 1;
+        }
+        acct.free_verified_at = new Date().toISOString();
+        return send(res, 200, domainCount === undefined ? { ok: true, already: false } : { ok: true, already: false, domain_count: domainCount });
       }
       console.log(`[pgrest] 404 rpc ${rpc[1]} — not restated in this stand-in`);
       return send(res, 404, { code: "PGRST202", message: `Could not find the function public.${rpc[1]}` });
