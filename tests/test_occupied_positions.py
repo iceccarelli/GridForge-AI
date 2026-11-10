@@ -107,7 +107,7 @@ def test_the_field_is_an_optional_gap_outside_the_completeness_ratio_and_listed_
     intake = load_document(_doc())
     gap = next(g for g in intake.report.gaps if g.path == PATH)
     assert not gap.required and gap.unit == "positions" and gap.why_it_binds and gap.how_to_get_it
-    assert "assumption, E0" in gap.fallback_description
+    assert gap.fallback_description.startswith("no occupied count") and "E0" not in gap.fallback_description and "not supplied" not in gap.fallback_description
     assert intake.report.gaps[-1].path == PATH                           # after every long-standing row (the deck slide shows the first eight)
     assert PATH not in [g.path for g in intake.report.required_gaps]
     assert not FIELD_BY_PATH[PATH].required and not FIELD_BY_PATH[PATH].counts_toward_completeness
@@ -140,10 +140,25 @@ def test_a_supplied_count_replaces_the_derived_one_in_the_busway_check():
     assert "give hall.occupied_positions" not in w                       # it was given: no request for it
 
 
-def test_supplied_without_the_total_does_not_invent_a_contradiction_with_the_default_total():
-    intake = load_document(_doc(rack_positions=None, positions_available=180, occupied_positions=600))
-    assert intake.context.hall.rack_positions == 780                     # the default total holds both figures: 600 + 180
-    assert intake.context.hall.occupied_positions.value == 600
+def test_a_defaulted_total_is_never_a_figure_to_refuse_the_clients_own_numbers_against():
+    """The harness-review defect: occupied 380 with BOTH rack_positions and positions_available removed was refused as 'occupied 380 and
+    positions_available 100: together 480 more than rack_positions 400' - where 100 and 400 are library defaults, nobody's figures."""
+    d = _doc(rack_positions=None, positions_available=None, occupied_positions=380)
+    intake = load_document(d)                                              # fails (IntakeError) on the engine with the folded default
+    assert intake.context.hall.occupied_positions.value == 380
+    assert intake.context.hall.rack_positions == 400 and intake.context.hall.positions_available == 100     # the defaults, exactly as before
+    d = _doc(rack_positions=None, positions_available=180, occupied_positions=600)       # free positions given, total defaulted: not refused either
+    intake = load_document(d)
+    assert intake.context.hall.rack_positions == 400                      # the default total is NOT grown to hold the occupied count
+
+
+def test_the_total_is_not_folded_to_hold_the_occupied_count_so_no_constraint_basis_quotes_a_figure_nobody_gave():
+    base = load_document(_doc(rack_positions=None, positions_available=180))
+    with_occ = load_document(_doc(rack_positions=None, positions_available=180, occupied_positions=215))
+    assert with_occ.context.hall.rack_positions == base.context.hall.rack_positions == 400
+    bases = {r.spec.id: [c.basis for c in r.envelope.sorted_constraints()] for r in run_all(base.context, base.scenarios)}
+    withs = {r.spec.id: [c.basis for c in r.envelope.sorted_constraints()] for r in run_all(with_occ.context, with_occ.scenarios)}
+    assert bases == withs
 
 
 def test_supplied_is_read_as_customer_data_e5_and_never_higher():
@@ -188,6 +203,8 @@ def test_occupied_plus_free_beyond_the_total_is_refused_naming_all_three_fields(
     assert "hall.occupied_positions is 400" in msg and "hall.positions_available is 180" in msg and "hall.rack_positions (560)" in msg
     assert "cannot be both free and occupied" in msg
     load_document(_doc(occupied_positions=380))                          # 380 + 180 = 560: exactly the total is consistent
+    with pytest.raises(IntakeError, match="hall.occupied_positions"):    # a total the client DID give: also when only the free positions were omitted
+        load_document(_doc(positions_available=None, occupied_positions=500))     # 500 + the default 100 free = 600 > 560
 
 
 def test_null_and_empty_are_absent_not_zero():
@@ -321,3 +338,26 @@ def test_over_http_the_free_qualifier_never_states_a_derived_count_as_a_fact(bas
     assert "the 220 occupied positions" not in text and "library default total of 400 positions" in text
     golden = json.loads((ROOT / "tests" / "golden_qualify_plain_002fa59.json").read_text(encoding="utf-8"))["cases"][0]
     assert golden["name"] == "reference_example" and body["intake"]["completeness"] == golden["response"]["intake"]["completeness"]
+
+
+# --- no deliverable shows the gap text twice over ------------------------------------------------------------------------------------
+def test_no_rendered_deliverable_or_committed_reference_file_says_assumed_not_supplied_or_repeats_the_class():
+    """gridforge/reporting/spec.py prefixes every fallback with 'not supplied: assumed '; a fallback that itself began 'not supplied:' and carried
+    '(an assumption, E0)' rendered 'not supplied: assumed not supplied: ... (E0)' in the sold specification."""
+    bad = "assumed not supplied"
+    for fmt in ("md", "html"):
+        for route in (handle_study, handle_screen):
+            assert bad not in route({**copy.deepcopy(REFERENCE), "format": fmt}, Tier.CLIENT)["document"]
+    from gridforge.api.server import handle_proposal, handle_spec
+    for route, body in ((handle_proposal, {"intake": copy.deepcopy(REFERENCE)}), (handle_spec, {"intake": copy.deepcopy(REFERENCE)})):
+        try:
+            out = route(body, Tier.CLIENT)
+        except Exception:                                                  # a route that needs more than an intake is covered by the files below
+            continue
+        assert bad not in json.dumps(out)
+    ref = ROOT / "public" / "reference"
+    for f in ref.rglob("*"):
+        if f.suffix in (".md", ".html", ".csv", ".json"):
+            assert bad not in f.read_text(encoding="utf-8", errors="replace"), f
+    spec = (ref / "specification.md").read_text(encoding="utf-8")
+    assert "Rack positions occupied (hall.occupied_positions; positions): not supplied: assumed no occupied count; every position not free" in spec

@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { engineUnavailableMessage } from "./unavailable-message";
-import { assumedEngineFields, callEngine, engineConfigured, headline, newQualificationToken, qualifySchema } from "@/lib/qualify";
+import { ENGINE_BUSY_MESSAGE, assumedEngineFields, callEngine, engineConfigured, headline, newQualificationToken, qualifySchema } from "@/lib/qualify";
 import { QUALIFY_ASSUMABLE, assumedRecordMatches, type QualifyAssumable } from "@/lib/qualify-assumed";
 import { QUALIFY_ASSUMED_FIELDS_FLAG, engineHas } from "@/lib/engine-capabilities";
 import { guardRequest, spendRefused } from "@/lib/rate-limit";
@@ -82,6 +82,15 @@ export async function POST(req: Request) {
     const templateDerived = assumed.length > 0;
 
     const outcome = await callEngine(input);
+
+    if (!outcome.ok && outcome.reason === "busy") {
+      // The engine shed this request. A 503 with the engine's Retry-After and one short sentence: nothing was run, nothing is stored, and the
+      // engine's own text (which says how it works inside) is not shown to a visitor.
+      return NextResponse.json(
+        { ok: false, error: ENGINE_BUSY_MESSAGE, saved: false, reason: "busy", retryAfterSeconds: outcome.retryAfterSeconds },
+        { status: 503, headers: { "Retry-After": String(outcome.retryAfterSeconds) } }
+      );
+    }
 
     if (!outcome.ok) {
       // Never invent a number when the engine is unavailable. Capture the enquiry

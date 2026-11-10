@@ -28,15 +28,23 @@ primary_region = "ams"
 [env]
   GRIDFORGE_RATE_LIMIT = "60"
   # IPv6 callers are counted on TWO buckets: their /64 (the 60 above) and their enclosing /48, which allows GRIDFORGE_RATE_LIMIT_IPV6_48_MULTIPLE
-  # times that (default 8, so 480 a minute per /48). One ordinary caller sits in one /64 and is stopped by the 60 first, never by the /48; a holder
-  # of a /48 can no longer mint a fresh allowance per /64. The 8 is a placeholder, not a measurement of any subscriber population; IPv4 is one
-  # bucket per address as before. Nothing to set here; override only with a reason.
-  # GRIDFORGE_RATE_LIMIT_IPV6_48_MULTIPLE = "8"
-  # At most GRIDFORGE_MAX_CONCURRENT_SOLVES solves (any route that runs the model, /mcp tool calls included) at the same instant, engine-wide
-  # (default 16; 0 = no cap). The next request is answered 503 with a Retry-After header and a JSON body at once, never queued, and is not
-  # charged. 16 is a placeholder bound for this single shared-cpu-1x / 512 MB machine, not a measured capacity: a few callers at the rate limit
-  # above never overlap that many solves. Nothing to set here.
+  # times that (default 32, so 1,920 a minute per /48). One ordinary caller sits in one /64 and is stopped by the 60 first, never by the /48; a
+  # holder of a /48 can no longer mint a fresh allowance per /64. A /48 may hold UNRELATED users (residential prefixes are often a /56 or a /60),
+  # so the multiple is generous; it is a placeholder, not a measurement of any subscriber population. A /32 holder still gets one /48 allowance
+  # per /48 it spreads over. IPv4 is one bucket per address as before. Nothing to set here; override only with a reason.
+  # GRIDFORGE_RATE_LIMIT_IPV6_48_MULTIPLE = "32"
+  # Solves in flight (any route that runs the model, /mcp tool calls included) are bounded three ways, all engine-wide and all shed rather than
+  # queued: GRIDFORGE_MAX_CONCURRENT_SOLVES in all (default 16), GRIDFORGE_MAX_CONCURRENT_SOLVES_PER_CALLER for one KEYLESS caller identity, the same
+  # one the rate limiter uses, i.e. the IPv4 address or the IPv6 /64 (default 2; keyed callers are not capped per identity: the website's own qualifier
+  # and API customers' backends call from few addresses with many requests in flight), and at most half of the total (at least one) for keyless callers,
+  # so a keyed caller, the website included, always has headroom. 0 turns a bound off; a negative or unreadable value is the DEFAULT, never "off".
+  # A request that would exceed a bound gets 503 + Retry-After: 2 and a JSON body, is not charged, and is not queued.
+  # WHAT THIS DOES NOT BOUND: how long one solve takes (there is no wall-clock limit on a single solve, and solves share one interpreter, so more
+  # at once means each is slower), nor memory. The numbers are placeholders for this single shared-cpu-1x / 512 MB machine, not a measured
+  # capacity, and a determined caller using many addresses can still fill the keyless share and be shed itself: keyed callers stay served.
+  # Nothing to set here.
   # GRIDFORGE_MAX_CONCURRENT_SOLVES = "16"
+  # GRIDFORGE_MAX_CONCURRENT_SOLVES_PER_CALLER = "2"
   # Caller identity for the rate limiter: on Fly (FLY_APP_NAME is set by the platform) the engine trusts the Fly-Client-IP header and counts
   # one X-Forwarded-For hop; anywhere else a forwarding header is ignored unless GRIDFORGE_TRUSTED_PROXY_HOPS / GRIDFORGE_TRUSTED_IP_HEADER
   # say a proxy of ours wrote it. Nothing to set here.

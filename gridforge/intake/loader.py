@@ -901,10 +901,10 @@ def _load_document(doc: dict) -> Intake:
         # An undeclared total never contradicts the free positions that WERE declared: the default total is the library's 400, or the
         # free positions when there are more than that (a hall cannot have more free positions than positions). Without this a hall with
         # 401+ free positions, run through the qualifier that asks only for the free positions, was refused over a figure nobody gave.
-        # With an occupied count declared the default total also holds it (clamped to the ceiling, so a contradiction is refused by
-        # the occupied figure's own check below rather than as a total nobody gave).
-        rack_positions=_int_max(r.raw("hall.rack_positions", min(max(400, _declared_positions(r) + _declared_positions(r, "hall.occupied_positions")),
-                                                                  PLAUSIBLE_MAX.get("hall.rack_positions", math.inf))),
+        # An undeclared total is the library default as it always was (400, or the free positions when there are more), clamped to the ceiling so a
+        # free-positions figure above it is refused by its own field. It does NOT grow to hold an occupied count: a total nobody gave is not a figure
+        # to refuse a client's own numbers against (see the consistency check below, which runs only on a total the client gave).
+        rack_positions=_int_max(r.raw("hall.rack_positions", min(max(400, _declared_positions(r)), PLAUSIBLE_MAX.get("hall.rack_positions", math.inf))),
                                 "hall.rack_positions", "hall.rack_positions"),
         positions_available=_int_max(r.raw("hall.positions_available", 100), "hall.positions_available", "hall.positions_available"),
         design_density_kW_per_rack=r.q(
@@ -1253,7 +1253,8 @@ def _load_document(doc: dict) -> Intake:
     if hall.positions_available > hall.rack_positions:
         raise IntakeError(f"hall.positions_available is {hall.positions_available}, more than hall.rack_positions "
                           f"({hall.rack_positions}): free positions cannot exceed the positions that exist")
-    if hall.occupied_positions is not None and hall.occupied_positions.value + hall.positions_available > hall.rack_positions:
+    if (hall.occupied_positions is not None and _rack_total_supplied(doc)
+            and hall.occupied_positions.value + hall.positions_available > hall.rack_positions):
         occ = int(hall.occupied_positions.value)
         raise IntakeError(f"hall.occupied_positions is {occ} and hall.positions_available is {hall.positions_available}: together "
                           f"{occ + hall.positions_available} positions, more than hall.rack_positions ({hall.rack_positions}). A position cannot be both "
@@ -1291,8 +1292,7 @@ def _load_document(doc: dict) -> Intake:
         # Named as an OPTIONAL gap (never required, outside the completeness ratio) and LAST, after the busway-load row, for the same reason.
         occ_path = "hall.occupied_positions"
         r._gap(occ_path, FIELD_BY_PATH[occ_path], None,
-               "not supplied: no occupied count is known; every position that is not free is read as occupied for the busway check only (an "
-               "assumption, E0), and nothing else uses it")
+               "no occupied count; every position not free is read as occupied for the busway check only")
     scenarios = _scenario_set(doc.get("scenarios"))
     return Intake(project=project, context=ctx, scenarios=scenarios,
                   report=report, document=doc)

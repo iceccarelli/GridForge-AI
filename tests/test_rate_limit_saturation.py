@@ -4,8 +4,12 @@ Defects (harness oracle review):
   1. An IPv6 caller was counted on its /64 only. A holder of a /48 (65,536 /64s) or a /32 got a fresh allowance for every /64 it used.
      Now the caller is limited by BOTH its /64 and its enclosing /48 (the /48 allows GRIDFORGE_RATE_LIMIT_IPV6_48_MULTIPLE x the /64 limit,
      default 8); IPv4 is unchanged. A /32 holder still gets one /48 allowance per /48 it spreads over: not covered here, and not claimed.
-  2. Nothing bounded how many solves ran at once: ThreadingHTTPServer starts a thread per connection. Now a bounded semaphore
-     (GRIDFORGE_MAX_CONCURRENT_SOLVES, default 16) sheds the excess with 503 + Retry-After + a JSON body, at once, never queued.
+  2. Nothing bounded how many solves ran at once: ThreadingHTTPServer starts a thread per connection. Now a gate sheds the excess with
+     503 + Retry-After + a JSON body, at once, never queued. Three bounds: 16 in all (GRIDFORGE_MAX_CONCURRENT_SOLVES), 2 per caller identity
+     (..._PER_CALLER) and half of the total for keyless callers. The first version had the global bound only, and the reviewer showed one
+     anonymous caller on three identities holding every slot so that a light legitimate caller saw 28% 503s where before it was only slow:
+     the per-caller bound and the keyless share are the fix, and test_a_heavy_anonymous_caller_cannot_starve_a_light_one proves it.
+     None of this bounds how LONG one solve takes.
 
 Local servers on port 0 and real HTTP, as the other API tests do. The slow solve is a handler that waits on an Event, so no test sleeps to
 "let a race happen".
@@ -186,15 +190,19 @@ def test_the_gate_is_bounded_a_double_release_is_an_error_not_a_free_slot():
         g.leave()
 
 
-def test_default_cap_is_high_and_configurable(monkeypatch):
-    assert S.MAX_CONCURRENT_SOLVES_DEFAULT >= 8
-    monkeypatch.setenv("GRIDFORGE_MAX_CONCURRENT_SOLVES", "3")
-    assert S._env_int("GRIDFORGE_MAX_CONCURRENT_SOLVES", S.MAX_CONCURRENT_SOLVES_DEFAULT) == 3
-    for bad in ("x", "", "1.5"):
-        monkeypatch.setenv("GRIDFORGE_MAX_CONCURRENT_SOLVES", bad)
-        assert S._env_int("GRIDFORGE_MAX_CONCURRENT_SOLVES", S.MAX_CONCURRENT_SOLVES_DEFAULT) == S.MAX_CONCURRENT_SOLVES_DEFAULT
-    monkeypatch.setenv("GRIDFORGE_MAX_CONCURRENT_SOLVES", "0")
-    assert S._env_int("GRIDFORGE_MAX_CONCURRENT_SOLVES", S.MAX_CONCURRENT_SOLVES_DEFAULT) == 0        # 0 = no cap
+def test_default_caps_are_high_and_configurable_and_a_bad_value_is_the_default_never_off(monkeypatch):
+    assert S.MAX_CONCURRENT_SOLVES_DEFAULT >= 8 and S.MAX_CONCURRENT_SOLVES_PER_CALLER_DEFAULT == 2
+    for name, default in (("GRIDFORGE_MAX_CONCURRENT_SOLVES", S.MAX_CONCURRENT_SOLVES_DEFAULT),
+                          ("GRIDFORGE_MAX_CONCURRENT_SOLVES_PER_CALLER", S.MAX_CONCURRENT_SOLVES_PER_CALLER_DEFAULT)):
+        monkeypatch.setenv(name, "3")
+        assert S._env_cap(name, default) == 3
+        for bad in ("x", "", "1.5", "-1", "-100"):
+            monkeypatch.setenv(name, bad)
+            assert S._env_cap(name, default) == default, (name, bad)           # a typo or a negative never switches the protection off
+        monkeypatch.setenv(name, "0")
+        assert S._env_cap(name, default) == 0                                 # 0 is the explicit "off"
+        monkeypatch.delenv(name)
+        assert S._env_cap(name, default) == default
 
 
 def test_every_route_is_either_a_solving_route_or_one_of_the_two_that_do_not_solve():
@@ -258,7 +266,8 @@ def test_a_second_solve_while_the_only_slot_is_busy_gets_503_retry_after_and_jso
         assert status == 503 and elapsed < 5                                           # answered at once while the first is still running
         assert headers["Retry-After"] == str(S.SOLVE_RETRY_AFTER_SECONDS)
         assert headers["Content-Type"].startswith("application/json")
-        assert body["retryable"] is True and body["retry_after_seconds"] == S.SOLVE_RETRY_AFTER_SECONDS and body["max_concurrent_solves"] == 1
+        assert body["retryable"] is True and body["retry_after_seconds"] == S.SOLVE_RETRY_AFTER_SECONDS
+        assert "max_concurrent_solves" not in body and "1" not in body["error"]            # says busy and retry; discloses no capacity
         assert "refused, not queued" in body["fix"] and "nothing was charged" in body["error"]
         # what does not solve is not shed
         assert req(port, "GET", "/health")[0] == 200
@@ -289,7 +298,8 @@ def test_a_busy_engine_answers_mcp_tool_calls_with_a_jsonrpc_error_but_still_lis
     port = httpd.server_address[1]
     try:
         call = {"jsonrpc": "2.0", "id": 1, "method": "tools/call", "params": {"name": "gridforge_qualify", "arguments": GOOD}}
-        status, _, body = req(port, "POST", "/mcp", call)
+        status, headers, body = req(port, "POST", "/mcp", call)
+        assert headers["Retry-After"] == str(S.SOLVE_RETRY_AFTER_SECONDS)          # the HTTP response carries it too, not only the JSON-RPC data
         assert status == 200 and body["error"]["code"] == -32003
         assert body["error"]["data"]["status"] == 503 and body["error"]["data"]["retry_after_seconds"] == S.SOLVE_RETRY_AFTER_SECONDS
         assert "result" in req(port, "POST", "/mcp", {"jsonrpc": "2.0", "id": 2, "method": "tools/list"})[2]
@@ -307,5 +317,188 @@ def _serve_once() -> int:
 
 
 def test_the_default_gate_is_the_configured_default_and_a_normal_burst_never_meets_it():
-    assert S.SOLVE_GATE.limit == S._env_int("GRIDFORGE_MAX_CONCURRENT_SOLVES", S.MAX_CONCURRENT_SOLVES_DEFAULT)
+    assert S.SOLVE_GATE.limit == S._env_cap("GRIDFORGE_MAX_CONCURRENT_SOLVES", S.MAX_CONCURRENT_SOLVES_DEFAULT)
     assert S.SOLVE_GATE.limit == 0 or S.SOLVE_GATE.limit >= 8
+    assert S.SOLVE_GATE.per_caller == S._env_cap("GRIDFORGE_MAX_CONCURRENT_SOLVES_PER_CALLER", S.MAX_CONCURRENT_SOLVES_PER_CALLER_DEFAULT)
+    assert S.SOLVE_GATE.public_limit == max(1, S.SOLVE_GATE.limit // 2)
+
+
+# --- the gate's three bounds, directly ------------------------------------------------------------------------------------------------
+def test_one_caller_identity_holds_at_most_its_share_and_others_are_untouched():
+    g = S._SolveGate(16, per_caller=2)
+    assert g.enter("a", True) and g.enter("a", True) and not g.enter("a", True) and g.full("a", True)
+    assert g.enter("b", True) and not g.full("b", True)
+    g.leave("a", True)
+    assert g.enter("a", True)                                                          # its own slot came back
+    g2 = S._SolveGate(16, per_caller=0)                                                # 0 = off
+    assert all(g2.enter("a", True) for _ in range(8))
+
+
+def test_a_keyed_caller_is_not_capped_per_identity():
+    """The website's own qualifier and an API customer's backend call from a few addresses with many requests in flight (tests/test_payg_http.py
+    sends six concurrent keyed requests from one address): only keyless identities are capped one by one."""
+    g = S._SolveGate(16, per_caller=2)
+    assert all(g.enter("website", False) for _ in range(6)) and g._callers == {}
+    for _ in range(6):
+        g.leave("website", False)
+
+
+def test_keyless_callers_hold_at_most_half_the_slots_and_a_keyed_caller_always_has_headroom():
+    g = S._SolveGate(8, per_caller=0)
+    assert g.public_limit == 4
+    assert [g.enter(f"p{i}", True) for i in range(6)] == [True] * 4 + [False] * 2     # the fifth keyless solve is refused...
+    assert g.enter("k", False) and g.enter("k2", False) and g.enter("k3", False) and g.enter("k4", False)    # ...while keyed callers fill the rest
+    assert not g.enter("k5", False)                                                    # and the global bound still holds
+    assert S._SolveGate(1).public_limit == 1 and S._SolveGate(3).public_limit == 1 and S._SolveGate(0).public_limit == 0
+
+
+def test_a_look_takes_nothing_and_cannot_hide_a_free_slot():
+    g = S._SolveGate(1, per_caller=1)
+    for _ in range(1000):
+        assert not g.full("a", False)
+    assert (g._active, g._public, dict(g._callers)) == (0, 0, {})                      # no slot was taken to look
+    assert g.enter("a", False) and g.full("a", False) and g.full("b", False)
+    g.leave("a", False)
+    assert g._callers == {} and not g.full("b", False)
+
+
+def test_leave_must_match_an_enter():
+    g = S._SolveGate(4, per_caller=2)
+    assert g.enter("a", True)
+    with pytest.raises(ValueError):
+        g.leave("b", True)                                                             # nobody named b holds one
+    g.leave("a", True)
+
+
+# --- the reviewer's scenario: a heavy anonymous caller must not starve a light one ----------------------------------------------------
+def _scenario(monkeypatch, gate, attackers_per_identity=4, identities=3):
+    """Real HTTP. A 'heavy' /v1/qualify solve blocks on an Event (it stands for a solve that takes seconds); every attacker request comes from one
+    of `identities` keyless callers. Once the attackers' holds have settled, a light legitimate keyless caller from another address makes 10
+    requests. Returns (attacker statuses while blocked, legit statuses, how many heavy solves were running at once)."""
+    monkeypatch.setattr(S, "SOLVE_GATE", gate)
+    monkeypatch.setattr(S.Handler, "limiter", S._RateLimiter(0))
+    monkeypatch.setattr(S.Handler, "discovery_limiter", S._RateLimiter(0))
+    monkeypatch.setenv("GRIDFORGE_TRUSTED_PROXY_HOPS", "1")
+    real = S.ROUTES["/v1/qualify"][0]
+    release, lock = threading.Event(), threading.Lock()
+    running = {"now": 0, "max": 0}
+
+    def handler(body, tier):
+        if body.get("positions_available") != 50000:
+            return real(body, tier)
+        with lock:
+            running["now"] += 1
+            running["max"] = max(running["max"], running["now"])
+        try:
+            assert release.wait(60)
+        finally:
+            with lock:
+                running["now"] -= 1
+        return {"heavy": True}
+    monkeypatch.setitem(S.ROUTES, "/v1/qualify", (handler, Tier.PUBLIC))
+    httpd = S.make_server("127.0.0.1", 0)
+    threading.Thread(target=httpd.serve_forever, daemon=True).start()
+    port = httpd.server_address[1]
+    heavy = {"contracted_MW": 400, "positions_available": 50000, "busway_ampacity_A": 10000}
+    out: list = []
+    threads = [threading.Thread(target=lambda ip=f"10.0.0.{i % identities + 1}": out.append(req(port, "POST", "/v1/qualify", heavy, {"X-Forwarded-For": ip})[0]))
+               for i in range(identities * attackers_per_identity)]
+    for t in threads:
+        t.start()
+    try:
+        cap = gate.per_caller * identities if gate.per_caller else gate.public_limit
+        deadline = time.monotonic() + 30
+        while time.monotonic() < deadline and not (running["now"] >= min(cap, gate.public_limit or cap) and len(out) >= len(threads) - running["now"]):
+            time.sleep(0.02)
+        legit = [req(port, "POST", "/v1/qualify", GOOD, {"X-Forwarded-For": f"192.0.2.{k}"})[0] for k in range(1, 11)]
+        shed = sorted(out)
+    finally:
+        release.set()
+        for t in threads:
+            t.join(60)
+        httpd.shutdown()
+        httpd.server_close()
+    return shed, legit, running["max"]
+
+
+def test_a_heavy_anonymous_caller_cannot_starve_a_light_one(monkeypatch):
+    shed, legit, most = _scenario(monkeypatch, S._SolveGate(16, per_caller=2))
+    assert legit == [200] * 10                                                         # the light caller is served every time
+    assert most == 6                                                                   # three identities x 2: the attacker is capped at its share
+    assert shed == [503] * 6                                                           # and its other six requests were shed at once, not queued
+
+
+def test_removing_the_per_caller_cap_starves_the_light_caller_which_is_what_the_test_above_catches(monkeypatch):
+    """Mutation-style proof: the same scenario with the per-caller bound off (the first version of the gate): the attacker takes every keyless
+    slot and the light caller is shed, so `legit == [200] * 10` above fails against that mutation."""
+    shed, legit, most = _scenario(monkeypatch, S._SolveGate(16, per_caller=0))
+    assert most == 8 and 503 in legit
+    assert legit != [200] * 10
+
+
+def test_a_keyed_caller_is_served_while_keyless_callers_hold_their_whole_share(monkeypatch):
+    key = "headroom-test-key-0123456789abcdef"
+    monkeypatch.setenv("GRIDFORGE_API_KEYS", key)
+    gate = S._SolveGate(4, per_caller=0)                                               # keyless share: 2
+    assert gate.enter("x", True) and gate.enter("y", True)
+    monkeypatch.setattr(S, "SOLVE_GATE", gate)
+    monkeypatch.setattr(S.Handler, "limiter", S._RateLimiter(0))
+    monkeypatch.setattr(S.Handler, "discovery_limiter", S._RateLimiter(0))
+    httpd = S.make_server("127.0.0.1", 0)
+    threading.Thread(target=httpd.serve_forever, daemon=True).start()
+    port = httpd.server_address[1]
+    try:
+        assert req(port, "POST", "/v1/qualify", GOOD)[0] == 503                        # a third keyless solve: shed
+        assert req(port, "POST", "/v1/qualify", GOOD, {"X-API-Key": key})[0] == 200    # the same request with the engine key: served
+    finally:
+        httpd.shutdown()
+        httpd.server_close()
+
+
+def test_a_burst_of_simultaneous_connections_is_answered_never_reset(monkeypatch):
+    """The listening backlog was 5: a burst of a couple of dozen connects was reset before the engine could answer (no 503, no Retry-After)."""
+    assert S.make_server("127.0.0.1", 0).request_queue_size == 64
+    monkeypatch.setattr(S.Handler, "limiter", S._RateLimiter(0))
+    httpd = S.make_server("127.0.0.1", 0)
+    threading.Thread(target=httpd.serve_forever, daemon=True).start()
+    port = httpd.server_address[1]
+    results: list = []
+    start = threading.Barrier(40)
+
+    def one():
+        start.wait()
+        try:
+            results.append(req(port, "GET", "/v1/platforms")[0])
+        except Exception as exc:                                                       # a reset or a refusal would land here
+            results.append(type(exc).__name__)
+    try:
+        ts = [threading.Thread(target=one) for _ in range(40)]
+        [t.start() for t in ts]
+        [t.join(60) for t in ts]
+    finally:
+        httpd.shutdown()
+        httpd.server_close()
+    assert results == [200] * 40
+
+
+# --- the limiter's table is bounded -----------------------------------------------------------------------------------------------------
+def test_the_rate_table_is_bounded_and_not_scanned_on_every_request():
+    lim = S._RateLimiter(60)
+    t0 = time.monotonic()
+    for i in range(3 * S.RATE_TABLE_MAX_KEYS):
+        lim.allow(f"2001:db8:{i >> 16:x}:{i & 0xffff:x}::/64", f"2001:db8:{i >> 16:x}::/48")
+        assert len(lim._hits) <= S.RATE_TABLE_MAX_KEYS + 2
+    assert time.monotonic() - t0 < 20
+    assert lim.sweeps <= 3                                                             # swept at most once a second, not once per request
+    assert lim.allow("203.0.113.1")                                                    # and it still answers
+
+
+def test_eviction_forgets_the_oldest_first_and_never_refuses_anyone(monkeypatch):
+    monkeypatch.setattr(S, "RATE_TABLE_MAX_KEYS", 100)
+    monkeypatch.setattr(S, "RATE_TABLE_SOFT_KEYS", 50)
+    lim = S._RateLimiter(2)
+    assert lim.allow("first") and lim.allow("first") and not lim.allow("first")
+    for i in range(200):
+        lim.allow(f"k{i}")
+    assert len(lim._hits) <= 101 and "first" not in lim._hits                          # the oldest-inserted went; the newest are kept
+    assert "k199" in lim._hits
