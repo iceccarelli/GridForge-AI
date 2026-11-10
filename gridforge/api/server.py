@@ -2382,7 +2382,7 @@ def serve(host: str = "0.0.0.0", port: int = 8080) -> None:  # pragma: no cover 
         print(f"gridforge: WARNING: {line}" + (" Refusing to start (GRIDFORGE_ENFORCE_SECRET_STRENGTH=1)." if refuse else ""), file=sys.stderr)
     if refuse:
         raise SystemExit(2)          # before anything is bound
-    httpd = _Server((host, port), Handler)
+    httpd = _listening_server(host, port)
     keys = _api_keys()
     print(f"gridforge {VERSION} listening on http://{host}:{port}")
     print(f"  public : POST /v1/qualify")
@@ -2397,12 +2397,25 @@ def serve(host: str = "0.0.0.0", port: int = 8080) -> None:  # pragma: no cover 
         graceful_stop(httpd)
 
 
-class _Server(ThreadingHTTPServer):
-    #: The listening backlog. The default of 5 reset connections in a burst of a couple of dozen simultaneous connects before the engine could
-    #: answer any of them, which defeats shedding load with a 503 (a reset carries no Retry-After).
-    request_queue_size = 64
+#: The listening backlog. The default of 5 reset connections in a burst of a couple of dozen simultaneous connects before the engine could answer
+#: any of them, which defeats shedding load with a 503 (a reset carries no Retry-After).
+LISTEN_BACKLOG = 64
+
+
+def _listening_server(host: str, port: int) -> ThreadingHTTPServer:
+    """A ThreadingHTTPServer on host:port with the larger backlog. Built unbound so the backlog is set on the instance before it listens (the
+    stdlib class is left as it is for anything else in the process)."""
+    httpd = ThreadingHTTPServer((host, port), Handler, bind_and_activate=False)
+    httpd.request_queue_size = LISTEN_BACKLOG
+    try:
+        httpd.server_bind()
+        httpd.server_activate()
+    except BaseException:
+        httpd.server_close()
+        raise
+    return httpd
 
 
 def make_server(host: str = "127.0.0.1", port: int = 0) -> ThreadingHTTPServer:
     """Used by the tests, and by anyone embedding the engine in their own process."""
-    return _Server((host, port), Handler)
+    return _listening_server(host, port)
