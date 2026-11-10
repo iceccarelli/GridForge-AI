@@ -33,6 +33,9 @@ NO_NETWORK = (
     "sys.exit(main())\n"
 )
 
+# The distribution is gridforge-engine (pyproject.toml); wheel and sdist file names normalise the hyphen to an underscore.
+WHEEL_PREFIX = "gridforge_engine"
+
 
 def _have_build() -> bool:
     return importlib.util.find_spec("build") is not None
@@ -60,7 +63,7 @@ def built(tmp_path_factory):
 
 
 def test_the_wheel_ships_the_engine_and_no_tests(built):
-    wheels = list(built.glob("gridforge-*.whl"))
+    wheels = list(built.glob(f"{WHEEL_PREFIX}-*.whl"))
     assert len(wheels) == 1, wheels
     names = zipfile.ZipFile(wheels[0]).namelist()
     assert "gridforge/cli.py" in names and "gridforge/data/cost_library.json" in names
@@ -72,7 +75,7 @@ def test_the_wheel_ships_the_engine_and_no_tests(built):
 
 @pytest.mark.skipif(not _have_build(), reason="the sdist needs the `build` package")
 def test_the_sdist_carries_no_tests_or_site(built):
-    sdists = list(built.glob("gridforge-*.tar.gz"))
+    sdists = list(built.glob(f"{WHEEL_PREFIX}-*.tar.gz"))
     assert len(sdists) == 1, sdists
     with tarfile.open(sdists[0]) as t:
         names = t.getnames()
@@ -87,7 +90,7 @@ def test_the_installed_wheel_runs_init_and_screen_with_no_network(built, tmp_pat
     venv = tmp_path / "venv"
     subprocess.run([sys.executable, "-m", "venv", str(venv)], check=True, timeout=300)
     py = venv / "bin" / "python"
-    wheel = next(built.glob("gridforge-*.whl"))
+    wheel = next(built.glob(f"{WHEEL_PREFIX}-*.whl"))
     r = subprocess.run([str(py), "-m", "pip", "install", "--quiet", "--no-index", "--no-deps", "--disable-pip-version-check", str(wheel)], capture_output=True, text=True, timeout=300)
     assert r.returncode == 0, r.stderr[-500:]
 
