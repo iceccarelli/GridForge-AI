@@ -24,9 +24,8 @@ CONVERSION_COST_KEY = "conversion.per_rack"
 def conversion_capex_per_rack():
     return cost(CONVERSION_COST_KEY, 55_000, "EUR/rack",
                 "in-hall conversion per rack (manifolds, QDs, rack fit-out, commissioning)",
-                note="Excludes IT hardware, migration and lost tenancy revenue. Public retrofit "
-                     "benchmarks span 2-12 MEUR per MW; this default is neither a quotation nor a "
-                     "benchmark.")
+                note="Excludes IT hardware, migration and lost tenancy revenue. This default is "
+                     "neither a quotation nor a benchmark.")
 
 ELECTRICITY_EUR_PER_MWH = V(140, "EUR/MWh", "all-in electricity price", ASSUMED, band=(90, 220),
                             assumptions=["Placeholder. Replace with the site's actual contracted tariff."])
