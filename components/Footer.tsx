@@ -33,7 +33,7 @@ const socials = [
 export function Footer() {
   const showPaid = paidCtaAllowed(usePathname());
   return (
-    <footer className="bg-[#060912] border-t border-line pt-16 pb-10">
+    <footer className="bg-[#060912] border-t border-line pt-16 pb-28 lg:pb-24">
       <div className="max-w-7xl mx-auto px-6">
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-12 gap-x-8 gap-y-12">
           <div className="lg:col-span-4">

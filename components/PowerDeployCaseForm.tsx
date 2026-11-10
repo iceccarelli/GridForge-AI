@@ -32,6 +32,8 @@ export function PowerDeployCaseForm() {
 
   async function submit(e: React.FormEvent) {
     e.preventDefault();
+    // aria-disabled (not `disabled`) while a request runs: `disabled` would drop keyboard focus to <body>.
+    if (state === "busy") return;
     setState("busy");
     setError(null);
     try {
@@ -130,13 +132,13 @@ export function PowerDeployCaseForm() {
       </p>
       <button
         type="submit"
-        disabled={state === "busy"}
-        className="inline-flex min-h-11 w-fit max-w-full items-center gap-2 rounded bg-power px-5 py-2.5 text-sm font-semibold text-ink disabled:cursor-not-allowed disabled:opacity-60"
+        aria-disabled={state === "busy"}
+        className="inline-flex min-h-11 w-fit max-w-full items-center gap-2 rounded bg-power px-5 py-2.5 text-sm font-semibold text-ink aria-disabled:cursor-not-allowed aria-disabled:opacity-60"
       >
         {state === "busy" ? <Loader2 className="h-4 w-4 animate-spin" /> : <Zap className="h-4 w-4" />}
         Run the assessment
       </button>
-      {error ? <p className="text-[12px] text-flag">{error}</p> : null}
+      {error ? <p role="alert" className="text-[12px] text-flag">{error}</p> : null}
     </form>
   );
 }

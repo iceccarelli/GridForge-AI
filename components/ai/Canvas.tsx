@@ -32,9 +32,9 @@ export function Canvas({
     return (
       <div className="h-full flex flex-col items-center justify-center px-6 py-10 text-center">
         <div className="eyebrow mb-3">GRIDFORGE ENGINEERING CANVAS</div>
-        <h1 className="text-2xl sm:text-3xl font-semibold tracking-tight text-ghost max-w-xl">
+        <h2 className="text-2xl sm:text-3xl font-semibold tracking-tight text-ghost max-w-xl">
           What are you trying to power?
-        </h1>
+        </h2>
         <p className="text-sm text-mute mt-3 max-w-md leading-relaxed">
           Describe an existing AI hall. Every number that shows up here comes from a
           real GridForge engine call — never invented — and carries its evidence class.

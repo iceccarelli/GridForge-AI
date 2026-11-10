@@ -7,7 +7,7 @@
 // missing inputs and the reason for any date it could not give. The example is labelled synthetic and is only ever
 // loaded by a button press; nothing is shown before a calculation has been run.
 
-import { useId, useMemo, useState } from "react";
+import { useEffect, useId, useMemo, useRef, useState } from "react";
 import { CircleAlert, Download, Loader2 } from "lucide-react";
 import {
   BTM_KINDS,
@@ -167,6 +167,8 @@ export function TtpCompare({ initialTemplateId = null }: { initialTemplateId?: s
 
   async function run(e: React.FormEvent) {
     e.preventDefault();
+    // aria-disabled (not `disabled`) while a request runs: `disabled` would drop keyboard focus to <body>. A second press does nothing.
+    if (busy) return;
     setError(null);
     if (missing.length) {
       setError({ message: "These are needed before the engine can solve the hall:", fields: missing });
@@ -396,7 +398,7 @@ export function TtpCompare({ initialTemplateId = null }: { initialTemplateId?: s
               {OBJECTIVES.map((o) => (<option key={o} value={o}>{OBJECTIVE_LABEL[o]}</option>))}
             </select>
           </div>
-          <button type="submit" disabled={busy} className="btn-primary inline-flex items-center gap-2 px-5 py-2.5 disabled:opacity-60">
+          <button type="submit" aria-disabled={busy} className="btn-primary inline-flex items-center gap-2 px-5 py-2.5 aria-disabled:opacity-60">
             {busy ? <Loader2 className="h-4 w-4 animate-spin" aria-hidden /> : null}
             {busy ? "Solving the hall…" : "Compare scenarios"}
           </button>
@@ -441,8 +443,13 @@ export function TtpCompare({ initialTemplateId = null }: { initialTemplateId?: s
 export function ComparisonResults({ out, cli, copied, onCopy }: { out: { result: CompareResult; request: Record<string, unknown>; synthetic: boolean; template?: TemplateUsed }; cli: string; copied: boolean; onCopy: () => void }) {
   const r = out.result;
   const byId = Object.fromEntries(r.scenarios.map((s) => [s.id, s]));
+  // The result appears below the form that produced it: move focus to it so a screen reader announces it and a keyboard user is not left behind.
+  const ref = useRef<HTMLElement>(null);
+  useEffect(() => {
+    ref.current?.focus();
+  }, [out]);
   return (
-    <section aria-label="Comparison result" className="flex flex-col gap-6">
+    <section ref={ref} tabIndex={-1} aria-label="Comparison result" className="flex flex-col gap-6 outline-none focus-visible:ring-2 focus-visible:ring-power/60">
       {out.template ? (
         <div role="note" className="rounded border border-queue/40 bg-queue/10 p-3 text-sm text-ghost">
           <p><strong>{PRESET_DISCLOSURE}.</strong></p>

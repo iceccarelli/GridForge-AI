@@ -135,7 +135,7 @@
     },
     "/observatory": {
       "lastmod": "2026-11-10",
-      "hash": "5b621a3eb72097c7846c432b72550444002b8b1f9a7662b3c3c306750de5a8fd"
+      "hash": "075cb591d9a756873f72efdd471c22de82e0710184d0bdecb6f18467be97a5ff"
     },
     "/platforms": {
       "lastmod": "2026-11-08",
@@ -195,27 +195,27 @@
     },
     "/reference/board_summary.html": {
       "lastmod": "2026-11-10",
-      "hash": "16d230992097df3ab47068b2d6e7eb4d565313ab47da3ee82c6bde86b9a0a595"
+      "hash": "a38a8e37caceb621f83177fcd358f804b98e8bbdbabef00182ec53185b241447"
     },
     "/reference/density_screen.html": {
       "lastmod": "2026-11-10",
-      "hash": "f2bd8906f4d9966601fe8ea6ab81b34bd11b6fa2b7728579ec921e1befb79386"
+      "hash": "0b7dda7e86f6d91469f9a790e2fc57547cc4ca139ce40cb41cf4edba53e2387c"
     },
     "/reference/envelope_study.html": {
       "lastmod": "2026-11-10",
-      "hash": "186d96f11c303b29bb71adbbacb70ec696154f125fb03a2c3b2313a405ae8af5"
+      "hash": "db6871c864eb7adbac5f2392c3b8e454ade36a774e4d7ef8e5edbe8054c48d51"
     },
     "/reference/proposal.html": {
       "lastmod": "2026-11-10",
-      "hash": "5c0f3be1770f34ac858811e6644f97d1987ddbbd25f0f6eec1eafe6d08719b1f"
+      "hash": "114d105daa0ffe35b1bd552d83b4e4463381deea597fbd7ce485c828723a7ff1"
     },
     "/reference/specification.html": {
-      "lastmod": "2026-11-07",
-      "hash": "80b0340c3b3e7a086d8f6a6d95f4283b7f80e614804e287a43adc7951185184e"
+      "lastmod": "2026-11-10",
+      "hash": "5e38336ff82fcdd13e87d122d5e1111098352d145628e964cdfa1c4b1fe7aa46"
     },
     "/reference/walkthrough.html": {
       "lastmod": "2026-11-10",
-      "hash": "f77b1be3e12dc2dfc8028893479a7b3a8ca9b9503c8c8e9388169728ffb6f6e6"
+      "hash": "fddcc07b6534b0d9bb39ffd411af4be3c43dab214fd809361dd5dd8bc90b52ce"
     }
   }
 }

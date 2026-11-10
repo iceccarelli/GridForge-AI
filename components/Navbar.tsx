@@ -99,6 +99,17 @@ export function Navbar() {
     return () => window.removeEventListener("keydown", onKey);
   }, [isOpen]);
 
+  // While the menu is open the page behind it must not scroll: the menu is taller than a short viewport (a phone in landscape, a 640 px
+  // high window) and scrolls inside itself, so a wheel or touch drag reaches the lower items instead of moving the page.
+  useEffect(() => {
+    if (!isOpen) return;
+    const previous = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    return () => {
+      document.body.style.overflow = previous;
+    };
+  }, [isOpen]);
+
   const scrollTo = (href: string) => {
     setIsOpen(false);
     if (href.startsWith("/")) {
@@ -119,6 +130,7 @@ export function Navbar() {
 
   return (
     <>
+      <header>
       <nav
         aria-label="Primary"
         className={`fixed top-0 inset-x-0 z-50 transition-shadow ${
@@ -193,7 +205,7 @@ export function Navbar() {
         </div>
 
         {isOpen && (
-          <div id="mobile-nav" className="mobile-nav-drop xl:hidden border-t border-line bg-ink overflow-hidden">
+          <div id="mobile-nav" className="mobile-nav-drop xl:hidden border-t border-line bg-ink max-h-[calc(100dvh-5rem)] overflow-y-auto overscroll-contain">
             <div className="px-6 py-7 flex flex-col gap-5 text-lg">
               {NAV_LINKS.map((link) =>
                 link.hash ? (
@@ -262,6 +274,7 @@ export function Navbar() {
           </div>
         )}
       </nav>
+      </header>
 
     </>
   );

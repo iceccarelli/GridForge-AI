@@ -138,6 +138,7 @@ export function CapacityQualifier({ presetsAvailable = false, initialTemplateId 
   const [raw, setRaw] = useState<Raw>(() => ({ ...EMPTY_RAW, ...(start ? qualifyTemplateState(start).raw : {}) }));
   const [fieldErrors, setFieldErrors] = useState<FieldErrors>({});
   const alertRef = useRef<HTMLDivElement>(null);
+  const headlineRef = useRef<HTMLParagraphElement>(null);
   const [platform, setPlatform] = useState<string>(start ? qualifyTemplateState(start).platform : "gb300_nvl72");
   const [siteName, setSiteName] = useState("");
   const [metro, setMetro] = useState("");
@@ -204,12 +205,20 @@ export function CapacityQualifier({ presetsAvailable = false, initialTemplateId 
     if (alertTick > 0) alertRef.current?.focus();
   }, [alertTick]);
 
+  // A result appears below the form: move focus to its headline (a screen reader reads it, and a keyboard user is not left on a button that
+  // has just changed meaning).
+  useEffect(() => {
+    if (result) headlineRef.current?.focus();
+  }, [result]);
+
   function focusField(key: string) {
     document.getElementById(`qualify-${key}`)?.focus();
   }
 
   async function submit(e: React.FormEvent) {
     e.preventDefault();
+    // The button is aria-disabled while a request runs (not `disabled`, which would drop keyboard focus to <body>): a second press does nothing.
+    if (busy) return;
     const problems: FieldErrors = {};
     for (const f of FIELDS) {
       const p = fieldProblem(f, raw[f.key]);
@@ -434,9 +443,9 @@ export function CapacityQualifier({ presetsAvailable = false, initialTemplateId 
         <div className="flex flex-wrap items-center gap-3">
           <button
             type="submit"
-            disabled={busy}
+            aria-disabled={busy}
             className="inline-flex min-h-11 items-center gap-2 rounded bg-power px-5 py-2.5 font-semibold text-ink
-                       disabled:opacity-60 disabled:cursor-not-allowed"
+                       aria-disabled:opacity-60 aria-disabled:cursor-not-allowed"
           >
             {busy ? <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" /> : null}
             {busy ? "Solving" : "Find the binding constraint"}
@@ -463,6 +472,7 @@ export function CapacityQualifier({ presetsAvailable = false, initialTemplateId 
         <QualifyReadout
           result={result}
           headline={headline}
+          headlineRef={headlineRef}
           share={share}
           qualificationId={qualificationId}
           qualificationToken={qualificationToken}
@@ -477,6 +487,7 @@ export function CapacityQualifier({ presetsAvailable = false, initialTemplateId 
 export function QualifyReadout({
   result,
   headline,
+  headlineRef,
   share,
   qualificationId,
   qualificationToken,
@@ -484,6 +495,7 @@ export function QualifyReadout({
 }: {
   result: QualifyResult;
   headline: string;
+  headlineRef?: React.Ref<HTMLParagraphElement>;
   share: string | null;
   qualificationId: string | null;
   qualificationToken: string | null;
@@ -493,7 +505,9 @@ export function QualifyReadout({
   return (
     <div className="mt-8 animate-slide-up">
       {template ? <TemplateNotice template={template} recorded={result.inputs_declared_assumed ?? []} /> : null}
-      <p className="text-lg text-ghost leading-snug max-w-3xl">{headline}</p>
+      <p ref={headlineRef} tabIndex={-1} className="text-lg text-ghost leading-snug max-w-3xl outline-none focus-visible:ring-2 focus-visible:ring-power/60">
+        {headline}
+      </p>
       {share ? <ShareLink href={share} /> : null}
 
       <div className="mt-5 grid gap-3 sm:grid-cols-3">
