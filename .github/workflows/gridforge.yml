@@ -783,6 +783,8 @@ jobs:
         run: bash scripts/realdb-run.sh npx vitest run tests/site/project-quotation-claims.realdb.test.ts
       - name: Admin session revocation (0055) - denylist written at logout and read on every admin request, fail-closed in production, closed privileges, bounded retention, through the real login and logout routes on real PostgREST + PostgreSQL (fails, never skips)
         run: bash scripts/realdb-run.sh npx vitest run tests/site/admin-session-revocation.realdb.test.ts
+      - name: Free-account per-domain cap (0055) - the cap and the site-wide ceiling in one serialised call, 24 concurrent first mints from one catch-all domain, look-alike domains, argument refusals and closed privileges through the real client on real PostgREST + PostgreSQL (fails, never skips)
+        run: bash scripts/realdb-run.sh npx vitest run tests/site/free-domain-cap.realdb.test.ts
       - name: Site and hall registry - organisations, sites, halls, hall inputs, attach/detach and timeline through the real routes, real PostgREST + PostgreSQL (fails, never skips)
         run: bash scripts/realdb-run.sh npx vitest run tests/site/site-registry.realdb.test.ts
       - name: Integrity hardening - production default ACLs (API roles hold nothing), truncate guards, deposit credit invariants, release reviewer, package/project keys, purchase session reference on real PostgreSQL (fails, never skips)

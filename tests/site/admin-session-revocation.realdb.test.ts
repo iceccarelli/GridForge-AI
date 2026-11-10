@@ -172,7 +172,7 @@ describe.skipIf(!enabled)("admin session revocation on real PostgreSQL", () => {
   it("a replay of the migration changes no row and is harmless (idempotent); it is also what re-establishes the table's own privileges, which the rig widens after the migrations", async () => {
     sql("insert into public.admin_session_revocations (nonce_hash, expires_at) values ('" + hex(64, "9") + "', now() + interval '1 hour') on conflict do nothing");
     const before = sql("select count(*) from public.admin_session_revocations");
-    const file = (await import("node:fs")).readFileSync("supabase/migrations/0055_admin_session_revocation.sql", "utf8");
+    const file = (await import("node:fs")).readFileSync("supabase/migrations/0055_admin_session_revocation_and_free_domain_cap.sql", "utf8");
     const r = spawnSync("psql", ["-X", "-q", "-d", process.env.GF_PG_DB ?? "gf", "-v", "ON_ERROR_STOP=1"], { input: file, encoding: "utf8" });
     expect(r.status, String(r.stderr)).toBe(0);
     expect(sql("select count(*) from public.admin_session_revocations")).toBe(before);

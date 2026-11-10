@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { getApiAccount, keyEntitlement, keyLife, mintChecked, signingConfigured } from "@/lib/api-access";
 import { recordFunnelEvent } from "@/lib/funnel";
-import { accountRef, freeAccountsMax } from "@/lib/payg";
+import { accountRef, freeAccountsMax, freeDomainCap } from "@/lib/payg";
 import { verifyFreeAccount } from "@/lib/payg-accounts";
 import { guardRequest } from "@/lib/rate-limit";
 import { meteredUnavailable } from "@/lib/api-readiness";
@@ -177,7 +177,21 @@ async function mintOrRotate(req: Request): Promise<Response> {
   // A free allowance counts against the month's ceiling of VERIFIED accounts the first time the owner opens the emailed link and mints a
   // key (idempotent afterwards). Checked atomically in the database; nothing is minted if the month's allowance is used up.
   if (row.plan === "api_free" && !row.free_verified_at) {
-    const v = await verifyFreeAccount(row.token, freeAccountsMax());
+    // Also a per-DOMAIN cap for any domain that is not a common free-mail provider (lib/payg.ts): one party owning a catch-all domain owns unlimited inboxes and
+    // could otherwise verify the whole site-wide ceiling. Counted in the same atomic call (migration 0055).
+    const domain = freeDomainCap(row.email);
+    const v = await verifyFreeAccount(row.token, freeAccountsMax(), domain);
+    if (v === "domain_capacity" && domain) {
+      // Names the limit that applies (the email domain's), and nothing about who else holds an account there.
+      return NextResponse.json(
+        {
+          ok: false,
+          reason: "domain_capacity",
+          error: `This email domain has reached its limit of ${domain.max} new free accounts for this month (a per-domain limit, so that no single domain can use up the free allowance for everyone). It reopens at the start of next month (UTC); nothing was created for you and nothing is charged. Pay as you go needs no free allowance.`,
+        },
+        { status: 429, headers: { "Cache-Control": "no-store" } }
+      );
+    }
     if (v === "capacity") {
       return NextResponse.json(
         { ok: false, reason: "capacity", error: "The free allowance has reached its limit of new accounts for this month. It reopens at the start of next month (UTC); nothing was created for you and nothing is charged." },
