@@ -11,7 +11,7 @@ export const dynamic = "force-dynamic";
 // that says so, never an empty list (an empty list would read as "no subscribers").
 export async function GET() {
   const store = await cookies();
-  if (!verifyAdminCookie(store.get(ADMIN_COOKIE)?.value)) {
+  if (!(await verifyAdminCookie(store.get(ADMIN_COOKIE)?.value))) {
     return NextResponse.json({ ok: false, error: "Unauthorized" }, { status: 401 });
   }
   const overview = await subscriptionOverview();

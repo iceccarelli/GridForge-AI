@@ -48,7 +48,7 @@ export default async function AdminPage() {
   }
 
   const store = await cookies();
-  if (!verifyAdminCookie(store.get(ADMIN_COOKIE)?.value)) {
+  if (!(await verifyAdminCookie(store.get(ADMIN_COOKIE)?.value))) {
     redirect("/admin/login");
   }
 

@@ -11,6 +11,8 @@ import {
   ADMIN_COOKIE,
   ADMIN_SESSION_SECONDS,
   refuseCrossSiteWrite,
+  revokeAdminSession,
+  adminRevocationStoreReadable,
 } from "@/lib/admin";
 
 export const runtime = "nodejs";
@@ -65,6 +67,16 @@ export async function POST(req: Request) {
     return NextResponse.json({ ok: false, error: "Incorrect password." }, { status: 401 });
   }
 
+  // Sessions are checked against a server-side denylist (migration 0055) and production refuses every session while it cannot be read. Say so
+  // here instead of issuing a cookie that the very next request would reject.
+  if (!(await adminRevocationStoreReadable())) {
+    console.error("[GridForge] admin: login refused: the session revocation store is not readable (migration 0055 applied? Supabase reachable?)");
+    return NextResponse.json(
+      { ok: false, error: "Admin sessions are unavailable: the session revocation store cannot be read (apply migration 0055, or check the database connection). Nothing was signed in." },
+      { status: 503, headers: { "Retry-After": "60", "Cache-Control": "no-store" } }
+    );
+  }
+
   const token = adminToken();
   if (!token) {
     return NextResponse.json({ ok: false, error: "Admin not configured." }, { status: 503 });
@@ -81,11 +93,15 @@ export async function POST(req: Request) {
   return NextResponse.json({ ok: true });
 }
 
-// DELETE -> log out.
+// DELETE -> log out: the session is revoked on the SERVER (its nonce goes on the denylist, migration 0055) as well as forgotten by the browser, so a
+// copy of the cookie stops working. If the denylist cannot be written the browser still forgets the cookie, and the answer says `revoked: false`:
+// the session then stays valid until it expires (4 hours at most) or ADMIN_SESSION_SECRET is rotated.
 export async function DELETE(req: Request) {
   const xs = refuseCrossSiteWrite(req);
   if (xs) return xs;
   const store = await cookies();
+  const outcome = await revokeAdminSession(store.get(ADMIN_COOKIE)?.value);
   store.delete(ADMIN_COOKIE);
-  return NextResponse.json({ ok: true });
+  if (outcome === "failed") console.error("[GridForge] admin: logout: the session could not be revoked on the server; it stays valid until it expires");
+  return NextResponse.json({ ok: true, revoked: outcome === "revoked" });
 }

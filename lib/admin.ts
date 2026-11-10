@@ -1,13 +1,15 @@
 // Server-only helpers for the founder admin dashboard: a lightweight password
 // gate (single founder, internal use) and the Supabase read/update data layer.
 //
-// Auth model: an HMAC-signed, expiring session token (12h) in an httpOnly cookie,
-// compared in constant time. This
+// Auth model: an HMAC-signed, expiring session token (4h) in an httpOnly cookie,
+// compared in constant time, plus a server-side DENYLIST of logged-out sessions (migration 0055) that
+// verifyAdminCookie reads on every check and fails closed on in production. This
 // is a deliberate, honest "simple gate" for one operator — swap for Supabase
 // Auth / Clerk when real *clients* get portal logins. Never import this file
 // from a client component.
 
 import { storeFault } from "@/lib/safe-log";
+import { creds, rpc } from "@/lib/pgrest";
 import { reviewHash } from "@/lib/deliverables";
 import { RATE_POLICIES, callerIdentity, resetMemoryLimiter, countHit, countCoarseHit, isProduction, subjectOf } from "@/lib/rate-limit";
 import crypto from "node:crypto";
@@ -20,8 +22,14 @@ export function adminConfigured(): boolean {
   return !!process.env.ADMIN_PASSWORD;
 }
 
-/** Session lifetime. The cookie's maxAge in the login route matches it. */
-export const ADMIN_SESSION_SECONDS = 60 * 60 * 12;
+/**
+ * Session lifetime. The cookie's maxAge in the login route matches it. 4 hours (it was 12): a cookie that leaks is worth that long at most,
+ * and logging out revokes it at once (see `revokeAdminSession`). A correctly signed cookie that claims MORE than this (one minted under the old
+ * 12 hour rule) is refused too, so shortening the lifetime takes effect for sessions already issued.
+ */
+export const ADMIN_SESSION_SECONDS = 60 * 60 * 4;
+/** Clock difference between serverless instances that a cookie's claimed expiry is allowed before it counts as "longer than the lifetime". */
+const SESSION_SKEW_MS = 60_000;
 
 /**
  * Secret the session tokens are signed with.
@@ -211,16 +219,113 @@ export function refuseCrossSiteWrite(req: Request): Response | null {
   return bad ? NextResponse.json({ ok: false, error: "Cross-site request refused." }, { status: 403 }) : null;
 }
 
-/** Request check: is this cookie a validly signed, unexpired admin session? */
-export function verifyAdminCookie(value: string | undefined, now = Date.now()): boolean {
+/** The nonce and expiry of a cookie whose MAC is valid under the session secret, or null. No clock check: see `parseSession`. */
+function parseSigned(value: string | undefined): { expiry: number; nonce: string } | null {
   const secret = sessionSecret();
-  if (!secret || !value) return false;
+  if (!secret || !value) return null;
   const parts = value.split(".");
-  if (parts.length !== 3) return false;
+  if (parts.length !== 3) return null;
   const [expiry, nonce, mac] = parts;
-  if (!/^\d{1,15}$/.test(expiry) || !nonce) return false;
-  if (!safeEqual(mac, sign(`${expiry}.${nonce}`, secret))) return false;
-  return Number(expiry) > now;
+  if (!/^\d{1,15}$/.test(expiry) || !nonce) return null;
+  if (!safeEqual(mac, sign(`${expiry}.${nonce}`, secret))) return null;
+  return { expiry: Number(expiry), nonce };
+}
+
+/** A validly signed cookie that has not expired and does not claim longer than the lifetime. */
+function parseSession(value: string | undefined, now: number): { expiry: number; nonce: string } | null {
+  const s = parseSigned(value);
+  if (!s || s.expiry <= now) return null;
+  if (s.expiry - now > ADMIN_SESSION_SECONDS * 1000 + SESSION_SKEW_MS) return null; // minted under the old, longer rule
+  return s;
+}
+
+// --- Server-side revocation (migration 0055) ---------------------------------
+//
+// The cookie is stateless, so logging out used to mean only "ask the browser to forget it". Logout now writes the session's nonce to a denylist
+// in the shared store, and `verifyAdminCookie` reads it. What is stored is a KEYED hash of the nonce (HMAC under the session secret): never the
+// nonce, the MAC or the cookie, and none of them is ever logged. Rows are only needed until the cookie would have expired anyway and the store
+// function prunes them an hour after that, so the table is bounded by the logouts of the last few hours. Only a validly signed cookie can add a row.
+//
+// FAIL CLOSED: in production a store that cannot be read (not configured, migration 0055 not applied, unreachable, an answer in an unexpected
+// form) means NO admin session is accepted, because "cannot tell whether this session was logged out" must not read as "it was not". That is
+// a lock-out until the store is back, by design; the login route says so instead of handing out a cookie that would be refused. Outside production a
+// missing store falls back to an in-memory denylist (development and tests only) and an unreadable one does not lock the developer out.
+//
+// LIMIT: revocation is per session. It does not log out a session that was never logged out, and the in-memory fallback is per process.
+
+const memoryRevoked = new Map<string, number>(); // keyed hash -> cookie expiry (ms). Development and tests only.
+
+/** Test seam: forget every in-memory revocation. Never called in a request path. */
+export function resetAdminRevocations(): void {
+  memoryRevoked.clear();
+  reportedNoStore = false;
+}
+
+let reportedNoStore = false;
+
+function nonceHash(nonce: string, secret: string): string {
+  return crypto.createHmac("sha256", secret).update(`gf-admin-session-revocation-v1:${nonce}`).digest("hex");
+}
+
+type RevocationState = "revoked" | "active" | "unknown";
+
+async function revocationState(hash: string): Promise<RevocationState> {
+  if (!creds()) {
+    if (isProduction()) {
+      if (!reportedNoStore) {
+        reportedNoStore = true;
+        console.error("[GridForge] admin: REFUSING admin sessions on a production build: the session store (Supabase) is not configured, so a logged-out session cannot be told from a live one.");
+      }
+      return "unknown";
+    }
+    const until = memoryRevoked.get(hash);
+    if (until !== undefined && until <= Date.now() - 3_600_000) memoryRevoked.delete(hash);
+    return memoryRevoked.has(hash) ? "revoked" : "active";
+  }
+  const r = await rpc<unknown>("gf_admin_session_revoked", { p_nonce_hash: hash }); // a failure is logged by the store client, by path and status only
+  if (!r.ok || typeof r.data !== "boolean") return "unknown";
+  return r.data ? "revoked" : "active";
+}
+
+/**
+ * Request check: is this cookie a validly signed, unexpired admin session that has not been logged out? Async because the denylist is a store read.
+ * In production an unreadable denylist answers false (see above). The store is not asked about a cookie that fails the signature or time checks.
+ */
+export async function verifyAdminCookie(value: string | undefined, now = Date.now()): Promise<boolean> {
+  const s = parseSession(value, now);
+  const secret = sessionSecret();
+  if (!s || !secret) return false;
+  const state = await revocationState(nonceHash(s.nonce, secret));
+  if (state === "unknown") {
+    if (isProduction()) return false;
+    return true; // development and tests only: an unreadable store does not lock a developer out
+  }
+  return state === "active";
+}
+
+/**
+ * Log a session out on the server: deny its nonce until it would have expired anyway. Only a validly signed, unexpired cookie is revoked (so the
+ * table cannot be filled by a stranger). "not_a_session" = nothing to revoke (no cookie, garbage, forged, expired); "failed" = the denylist could not
+ * be written, so the session stays valid until it expires or the secret is rotated.
+ */
+export async function revokeAdminSession(value: string | undefined, now = Date.now()): Promise<"revoked" | "not_a_session" | "failed"> {
+  const s = parseSigned(value);
+  const secret = sessionSecret();
+  if (!s || !secret || s.expiry <= now) return "not_a_session";
+  const hash = nonceHash(s.nonce, secret);
+  if (!creds()) {
+    if (isProduction()) return "failed";
+    memoryRevoked.set(hash, s.expiry);
+    return "revoked";
+  }
+  const r = await rpc<unknown>("gf_admin_session_revoke", { p_nonce_hash: hash, p_expires_at: new Date(s.expiry).toISOString() });
+  return r.ok ? "revoked" : "failed";
+}
+
+/** True when the denylist can be read (always outside production). The login route asks before issuing a cookie that production would refuse. */
+export async function adminRevocationStoreReadable(): Promise<boolean> {
+  if (!isProduction()) return true;
+  return (await revocationState(crypto.randomBytes(32).toString("hex"))) !== "unknown";
 }
 
 // --- Supabase data layer (service-role; server-only) -------------------------

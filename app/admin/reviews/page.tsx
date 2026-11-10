@@ -33,7 +33,7 @@ export default async function EvidenceReviewPage() {
     );
   }
   const store = await cookies();
-  if (!verifyAdminCookie(store.get(ADMIN_COOKIE)?.value)) redirect("/admin/login");
+  if (!(await verifyAdminCookie(store.get(ADMIN_COOKIE)?.value))) redirect("/admin/login");
 
   const q = await reviewQueue();
   // Supplier quotations attached to uploaded files (migration 0054). Until it is applied the queue says so; nothing else changes.

@@ -44,7 +44,7 @@ export default async function PipelinePage() {
   }
 
   const store = await cookies();
-  if (!verifyAdminCookie(store.get(ADMIN_COOKIE)?.value)) {
+  if (!(await verifyAdminCookie(store.get(ADMIN_COOKIE)?.value))) {
     redirect("/admin/login");
   }
 

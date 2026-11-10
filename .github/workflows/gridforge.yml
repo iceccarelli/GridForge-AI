@@ -781,6 +781,8 @@ jobs:
         run: python -m pytest tests/test_project_quotation_claims_migration.py tests/test_project_quotation_final_gate.py -q
       - name: Project supplier quotations - claims through the real routes, real PostgREST + PostgreSQL (UTF-8 cluster, because the hostile-text cases need it) (fails, never skips)
         run: bash scripts/realdb-run.sh npx vitest run tests/site/project-quotation-claims.realdb.test.ts
+      - name: Admin session revocation (0055) - denylist written at logout and read on every admin request, fail-closed in production, closed privileges, bounded retention, through the real login and logout routes on real PostgREST + PostgreSQL (fails, never skips)
+        run: bash scripts/realdb-run.sh npx vitest run tests/site/admin-session-revocation.realdb.test.ts
       - name: Site and hall registry - organisations, sites, halls, hall inputs, attach/detach and timeline through the real routes, real PostgREST + PostgreSQL (fails, never skips)
         run: bash scripts/realdb-run.sh npx vitest run tests/site/site-registry.realdb.test.ts
       - name: Integrity hardening - production default ACLs (API roles hold nothing), truncate guards, deposit credit invariants, release reviewer, package/project keys, purchase session reference on real PostgreSQL (fails, never skips)

@@ -13,7 +13,7 @@ export const dynamic = "force-dynamic";
 // response here can carry an email, a token, a site input or free text.
 export async function GET(req: Request) {
   const store = await cookies();
-  if (!verifyAdminCookie(store.get(ADMIN_COOKIE)?.value)) {
+  if (!(await verifyAdminCookie(store.get(ADMIN_COOKIE)?.value))) {
     return NextResponse.json({ ok: false, error: "Unauthorized" }, { status: 401, headers: { "Cache-Control": "no-store" } });
   }
   const raw = new URL(req.url).searchParams.get("days");

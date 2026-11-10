@@ -7,6 +7,9 @@
  *   F12  /api/engagements handed out document/intake/watch tokens, and /api/subscription-status the plan and the seat
  *        owner, to any Supabase session that merely claimed an email address
  */
+// NOTE (review finding 3): verifyAdminCookie is now async (it also reads the server-side denylist of logged-out sessions, migration 0055), so every
+// call below is awaited. No expectation was changed; revocation itself is covered in tests/site/admin-session-revocation.test.ts.
+
 import crypto from "node:crypto";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { siteUrl } from "@/lib/site";
@@ -136,8 +139,8 @@ describe("F11: admin login throttle identity and session key", () => {
     vi.spyOn(console, "warn").mockImplementation(() => {});
     const token = adminToken();
     expect(token).toBeTruthy();
-    expect(verifyAdminCookie(token!)).toBe(true); // keeps working
-    expect(verifyAdminCookie(forge(PASSWORD))).toBe(false);
+    expect(await verifyAdminCookie(token!)).toBe(true); // keeps working
+    expect(await verifyAdminCookie(forge(PASSWORD))).toBe(false);
   });
 
   it("warns once per process that the key is derived, and never prints the password", async () => {
@@ -145,7 +148,7 @@ describe("F11: admin login throttle identity and session key", () => {
     const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
     adminToken();
     adminToken();
-    verifyAdminCookie("1.2.3");
+    await verifyAdminCookie("1.2.3");
     expect(warn).toHaveBeenCalledTimes(1);
     const text = String(warn.mock.calls[0].join(" "));
     expect(text).toContain("ADMIN_SESSION_SECRET");
@@ -158,11 +161,11 @@ describe("F11: admin login throttle identity and session key", () => {
     const { adminToken, verifyAdminCookie } = await admin();
     const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
     const token = adminToken()!;
-    expect(verifyAdminCookie(token)).toBe(true);
-    expect(verifyAdminCookie(forge(SECRET))).toBe(true);
-    expect(verifyAdminCookie(forge(PASSWORD))).toBe(false);
+    expect(await verifyAdminCookie(token)).toBe(true);
+    expect(await verifyAdminCookie(forge(SECRET))).toBe(true);
+    expect(await verifyAdminCookie(forge(PASSWORD))).toBe(false);
     process.env.ADMIN_PASSWORD = "a-different-password-entirely";
-    expect(verifyAdminCookie(token)).toBe(true); // rotating the password no longer logs the session out
+    expect(await verifyAdminCookie(token)).toBe(true); // rotating the password no longer logs the session out
     expect(warn).not.toHaveBeenCalled();
   });
 });

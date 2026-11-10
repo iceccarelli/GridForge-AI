@@ -16,36 +16,39 @@ describe("admin session token", () => {
   it("accepts a fresh signed token and is not the bare password hash", async () => {
     const { adminToken, verifyAdminCookie } = await import("@/lib/admin");
     const t = adminToken()!;
-    expect(verifyAdminCookie(t)).toBe(true);
+    expect(await verifyAdminCookie(t)).toBe(true);
     const { createHash } = await import("node:crypto");
     expect(t).not.toBe(createHash("sha256").update(process.env.ADMIN_PASSWORD!).digest("hex"));
-    expect(verifyAdminCookie(createHash("sha256").update(process.env.ADMIN_PASSWORD!).digest("hex"))).toBe(false);
+    expect(await verifyAdminCookie(createHash("sha256").update(process.env.ADMIN_PASSWORD!).digest("hex"))).toBe(false);
   });
 
-  it("expires after 12 hours", async () => {
+  // INTENTIONAL CHANGE (review finding 3): the session lifetime is now 4 hours (it was 12), and verifyAdminCookie is async because it also reads the
+  // server-side denylist of logged-out sessions (migration 0055). The assertions are the same ones, moved to the new lifetime and awaited; the
+  // revocation behaviour itself is in tests/site/admin-session-revocation.test.ts.
+  it("expires after 4 hours", async () => {
     const { adminToken, verifyAdminCookie, ADMIN_SESSION_SECONDS } = await import("@/lib/admin");
     const t = adminToken()!;
-    expect(ADMIN_SESSION_SECONDS).toBe(12 * 3600);
-    expect(verifyAdminCookie(t, Date.now() + 11 * 3600_000)).toBe(true);
-    expect(verifyAdminCookie(t, Date.now() + 13 * 3600_000)).toBe(false);
+    expect(ADMIN_SESSION_SECONDS).toBe(4 * 3600);
+    expect(await verifyAdminCookie(t, Date.now() + 3 * 3600_000)).toBe(true);
+    expect(await verifyAdminCookie(t, Date.now() + 5 * 3600_000)).toBe(false);
   });
 
   it("rejects a tampered expiry or signature", async () => {
     const { adminToken, verifyAdminCookie } = await import("@/lib/admin");
     const [exp, nonce, mac] = adminToken()!.split(".");
-    expect(verifyAdminCookie(`${Number(exp) + 999999999}.${nonce}.${mac}`)).toBe(false);
-    expect(verifyAdminCookie(`${exp}.${nonce}.${"0".repeat(mac.length)}`)).toBe(false);
-    expect(verifyAdminCookie(undefined)).toBe(false);
-    expect(verifyAdminCookie("garbage")).toBe(false);
+    expect(await verifyAdminCookie(`${Number(exp) + 999999999}.${nonce}.${mac}`)).toBe(false);
+    expect(await verifyAdminCookie(`${exp}.${nonce}.${"0".repeat(mac.length)}`)).toBe(false);
+    expect(await verifyAdminCookie(undefined)).toBe(false);
+    expect(await verifyAdminCookie("garbage")).toBe(false);
   });
 
   it("can be invalidated by rotating ADMIN_SESSION_SECRET", async () => {
     const { adminToken, verifyAdminCookie } = await import("@/lib/admin");
     process.env.ADMIN_SESSION_SECRET = "first-secret";
     const t = adminToken()!;
-    expect(verifyAdminCookie(t)).toBe(true);
+    expect(await verifyAdminCookie(t)).toBe(true);
     process.env.ADMIN_SESSION_SECRET = "second-secret";
-    expect(verifyAdminCookie(t)).toBe(false);
+    expect(await verifyAdminCookie(t)).toBe(false);
   });
 });
 
