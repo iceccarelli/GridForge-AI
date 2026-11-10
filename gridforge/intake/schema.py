@@ -67,6 +67,14 @@ INTAKE_FIELDS: tuple[FieldSpec, ...] = (
     FieldSpec("hall.positions_available", "Rack positions available", "positions", True,
               why_it_binds="Caps deployment regardless of power and cooling.",
               how_to_get_it="Floor plan plus the tenancy schedule."),
+    FieldSpec("hall.occupied_positions", "Rack positions occupied", "positions", False,
+              counts_toward_completeness=False,
+              why_it_binds=("Only the busway check against the load already in the hall reads it: the racks already installed are counted from this "
+                            "figure at the hall's design density. When absent the engine does not know how many positions are occupied; it "
+                            "reads every position that is not free (hall.rack_positions less hall.positions_available) as occupied, an "
+                            "assumption (E0) that is only as good as the total, and says so. Zero is a statement (nothing is occupied) and is "
+                            "asked for when free positions equal the total. It changes no rack count, cost or date."),
+              how_to_get_it="The tenancy schedule or the floor plan's rack register: racks physically installed, which is not the same as positions sold."),
     FieldSpec("thermal.plant.chilled_water_capacity_kW", "Chilled-water plant capacity", "kW", True,
               why_it_binds="Carries the residual air load, and the liquid load in a hybrid scheme.",
               how_to_get_it="Chiller schedule; derate to the actual condensing conditions."),

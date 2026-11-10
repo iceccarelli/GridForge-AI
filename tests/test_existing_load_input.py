@@ -258,10 +258,11 @@ GAPS_BASE = json.loads((ROOT / "tests" / "golden_gaps_b649b3e.json").read_text(e
 def test_the_first_eight_gaps_of_every_example_are_the_base_ones_and_the_new_row_is_last(name):
     intake = load(ROOT / "examples" / "intake" / f"{name}.json")
     got = [[g.label, g.fallback_description, g.how_to_get_it] for g in intake.report.gaps]
-    assert got[:8] == (GAPS_BASE[name] + [got[-1]])[:8]               # what the slide shows: every base gap keeps its place; a short list gains the row
+    assert got[:8] == (GAPS_BASE[name] + got[-2:])[:8]                # what the slide shows: every base gap keeps its place; a short list gains the rows
     assert all(g in got[:8] for g in GAPS_BASE[name][:8])
-    assert got[:-1] == GAPS_BASE[name]                                # and nothing else moved: the base list, then the new row
-    assert intake.report.gaps[-1].path == PATH
+    assert got[:-2] == GAPS_BASE[name]                                # and nothing else moved: the base list, then the two optional rows
+    # The rows, in order: this input, then hall.occupied_positions (tests/test_occupied_positions.py), the newest optional input, last.
+    assert [g.path for g in intake.report.gaps[-2:]] == [PATH, "hall.occupied_positions"]
 
 
 def test_the_deck_slide_lists_the_same_first_eight_inputs_as_base():

@@ -25,6 +25,9 @@ class HallSpec:
     design_density_kW_per_rack: Quantity
     containment: str = "cold_aisle"
     notes: str = ""
+    #: Occupied rack positions as the CLIENT declared them (class E5 at most), or None when they did not: the engine then derives no
+    #: occupied count as a fact. Optional and read only by the busway check against the load already in the hall; it moves no rack count.
+    occupied_positions: Quantity | None = None
 
     @property
     def deployable_positions(self) -> int:

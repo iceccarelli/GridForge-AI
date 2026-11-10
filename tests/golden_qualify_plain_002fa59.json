@@ -266,12 +266,21 @@
        "required": false,
        "unit": "kW",
        "why_it_binds": "The busway result is the installed capacity as declared; the load already drawing from it is not subtracted, so the racks it can still feed are overstated by that share. When this is given the engine subtracts it (never below zero); when absent nothing is subtracted."
+      },
+      {
+       "assumed": "not supplied: no occupied count is known; every position that is not free is read as occupied for the busway check only (an assumption, E0), and nothing else uses it",
+       "how_to_get_it": "The tenancy schedule or the floor plan's rack register: racks physically installed, which is not the same as positions sold.",
+       "input": "Rack positions occupied",
+       "path": "hall.occupied_positions",
+       "required": false,
+       "unit": "positions",
+       "why_it_binds": "Only the busway check against the load already in the hall reads it: the racks already installed are counted from this figure at the hall's design density. When absent the engine does not know how many positions are occupied; it reads every position that is not free (hall.rack_positions less hall.positions_available) as occupied, an assumption (E0) that is only as good as the total, and says so. Zero is a statement (nothing is occupied) and is asked for when free positions equal the total. It changes no rack count, cost or date."
       }
      ],
      "recommended_engagement": "Intake too thin for a full study. Sell the Density Screen instead: it produces the binding constraint and the data-request list, and its fee credits against the study when the data arrives.",
      "required_inputs_missing": 4,
      "warnings": [
-      "Busway: the 220 occupied positions at their 8 kW design density would draw 1,760 kW, more than the 1,290 kW the declared busway can carry. busway_ampacity_A is read as the installed total and existing load is not subtracted, so check whether the figure you gave is the whole hall's busway.",
+      "Busway: neither hall.occupied_positions nor hall.rack_positions was supplied, so the occupied count is an assumption (E0) from the library default total of 400 positions, not a count of anything in your hall. Reading that total less your 180 free positions as occupied (220 positions), at their 8 kW design density, would draw 1,760 kW, more than the 1,290 kW the declared busway can carry. busway_ampacity_A is read as the installed total and existing load is not subtracted, so check whether the figure you gave is the whole hall's busway, and give hall.occupied_positions and hall.rack_positions (a full intake takes both) so this check runs on counts rather than an assumption.",
       "No transformer schedule supplied: transformer capacity is not evaluated and may be the true binding constraint.",
       "No UPS schedule supplied: the load is treated as unprotected.",
       "No behind-the-meter options declared: where the grid binds, the study can only report that it binds."
@@ -561,12 +570,21 @@
        "required": false,
        "unit": "kW",
        "why_it_binds": "The busway result is the installed capacity as declared; the load already drawing from it is not subtracted, so the racks it can still feed are overstated by that share. When this is given the engine subtracts it (never below zero); when absent nothing is subtracted."
+      },
+      {
+       "assumed": "not supplied: no occupied count is known; every position that is not free is read as occupied for the busway check only (an assumption, E0), and nothing else uses it",
+       "how_to_get_it": "The tenancy schedule or the floor plan's rack register: racks physically installed, which is not the same as positions sold.",
+       "input": "Rack positions occupied",
+       "path": "hall.occupied_positions",
+       "required": false,
+       "unit": "positions",
+       "why_it_binds": "Only the busway check against the load already in the hall reads it: the racks already installed are counted from this figure at the hall's design density. When absent the engine does not know how many positions are occupied; it reads every position that is not free (hall.rack_positions less hall.positions_available) as occupied, an assumption (E0) that is only as good as the total, and says so. Zero is a statement (nothing is occupied) and is asked for when free positions equal the total. It changes no rack count, cost or date."
       }
      ],
      "recommended_engagement": "Intake too thin for a full study. Sell the Density Screen instead: it produces the binding constraint and the data-request list, and its fee credits against the study when the data arrives.",
      "required_inputs_missing": 4,
      "warnings": [
-      "Busway: the 220 occupied positions at their 8 kW design density would draw 1,760 kW, more than the 1,290 kW the declared busway can carry. busway_ampacity_A is read as the installed total and existing load is not subtracted, so check whether the figure you gave is the whole hall's busway.",
+      "Busway: neither hall.occupied_positions nor hall.rack_positions was supplied, so the occupied count is an assumption (E0) from the library default total of 400 positions, not a count of anything in your hall. Reading that total less your 180 free positions as occupied (220 positions), at their 8 kW design density, would draw 1,760 kW, more than the 1,290 kW the declared busway can carry. busway_ampacity_A is read as the installed total and existing load is not subtracted, so check whether the figure you gave is the whole hall's busway, and give hall.occupied_positions and hall.rack_positions (a full intake takes both) so this check runs on counts rather than an assumption.",
       "No transformer schedule supplied: transformer capacity is not evaluated and may be the true binding constraint.",
       "No UPS schedule supplied: the load is treated as unprotected.",
       "No behind-the-meter options declared: where the grid binds, the study can only report that it binds."
@@ -862,6 +880,15 @@
        "required": false,
        "unit": "kW",
        "why_it_binds": "The busway result is the installed capacity as declared; the load already drawing from it is not subtracted, so the racks it can still feed are overstated by that share. When this is given the engine subtracts it (never below zero); when absent nothing is subtracted."
+      },
+      {
+       "assumed": "not supplied: no occupied count is known; every position that is not free is read as occupied for the busway check only (an assumption, E0), and nothing else uses it",
+       "how_to_get_it": "The tenancy schedule or the floor plan's rack register: racks physically installed, which is not the same as positions sold.",
+       "input": "Rack positions occupied",
+       "path": "hall.occupied_positions",
+       "required": false,
+       "unit": "positions",
+       "why_it_binds": "Only the busway check against the load already in the hall reads it: the racks already installed are counted from this figure at the hall's design density. When absent the engine does not know how many positions are occupied; it reads every position that is not free (hall.rack_positions less hall.positions_available) as occupied, an assumption (E0) that is only as good as the total, and says so. Zero is a statement (nothing is occupied) and is asked for when free positions equal the total. It changes no rack count, cost or date."
       }
      ],
      "recommended_engagement": "Intake too thin for a full study. Sell the Density Screen instead: it produces the binding constraint and the data-request list, and its fee credits against the study when the data arrives.",
@@ -1157,6 +1184,15 @@
        "required": false,
        "unit": "kW",
        "why_it_binds": "The busway result is the installed capacity as declared; the load already drawing from it is not subtracted, so the racks it can still feed are overstated by that share. When this is given the engine subtracts it (never below zero); when absent nothing is subtracted."
+      },
+      {
+       "assumed": "not supplied: no occupied count is known; every position that is not free is read as occupied for the busway check only (an assumption, E0), and nothing else uses it",
+       "how_to_get_it": "The tenancy schedule or the floor plan's rack register: racks physically installed, which is not the same as positions sold.",
+       "input": "Rack positions occupied",
+       "path": "hall.occupied_positions",
+       "required": false,
+       "unit": "positions",
+       "why_it_binds": "Only the busway check against the load already in the hall reads it: the racks already installed are counted from this figure at the hall's design density. When absent the engine does not know how many positions are occupied; it reads every position that is not free (hall.rack_positions less hall.positions_available) as occupied, an assumption (E0) that is only as good as the total, and says so. Zero is a statement (nothing is occupied) and is asked for when free positions equal the total. It changes no rack count, cost or date."
       }
      ],
      "recommended_engagement": "Intake too thin for a full study. Sell the Density Screen instead: it produces the binding constraint and the data-request list, and its fee credits against the study when the data arrives.",
@@ -1476,12 +1512,21 @@
        "required": false,
        "unit": "kW",
        "why_it_binds": "The busway result is the installed capacity as declared; the load already drawing from it is not subtracted, so the racks it can still feed are overstated by that share. When this is given the engine subtracts it (never below zero); when absent nothing is subtracted."
+      },
+      {
+       "assumed": "not supplied: no occupied count is known; every position that is not free is read as occupied for the busway check only (an assumption, E0), and nothing else uses it",
+       "how_to_get_it": "The tenancy schedule or the floor plan's rack register: racks physically installed, which is not the same as positions sold.",
+       "input": "Rack positions occupied",
+       "path": "hall.occupied_positions",
+       "required": false,
+       "unit": "positions",
+       "why_it_binds": "Only the busway check against the load already in the hall reads it: the racks already installed are counted from this figure at the hall's design density. When absent the engine does not know how many positions are occupied; it reads every position that is not free (hall.rack_positions less hall.positions_available) as occupied, an assumption (E0) that is only as good as the total, and says so. Zero is a statement (nothing is occupied) and is asked for when free positions equal the total. It changes no rack count, cost or date."
       }
      ],
      "recommended_engagement": "Intake too thin for a full study. Sell the Density Screen instead: it produces the binding constraint and the data-request list, and its fee credits against the study when the data arrives.",
      "required_inputs_missing": 7,
      "warnings": [
-      "Busway: the 300 occupied positions at their 8 kW design density would draw 2,400 kW, more than the 1,290 kW the declared busway can carry. busway_ampacity_A is read as the installed total and existing load is not subtracted, so check whether the figure you gave is the whole hall's busway.",
+      "Busway: neither hall.occupied_positions nor hall.rack_positions was supplied, so the occupied count is an assumption (E0) from the library default total of 400 positions, not a count of anything in your hall. Reading that total less your 100 free positions as occupied (300 positions), at their 8 kW design density, would draw 2,400 kW, more than the 1,290 kW the declared busway can carry. busway_ampacity_A is read as the installed total and existing load is not subtracted, so check whether the figure you gave is the whole hall's busway, and give hall.occupied_positions and hall.rack_positions (a full intake takes both) so this check runs on counts rather than an assumption.",
       "No transformer schedule supplied: transformer capacity is not evaluated and may be the true binding constraint.",
       "No UPS schedule supplied: the load is treated as unprotected.",
       "No behind-the-meter options declared: where the grid binds, the study can only report that it binds."
@@ -1506,5 +1551,5 @@
    }
   }
  ],
- "note": "POST /v1/qualify answers for requests that carry no assumed_fields, produced by the engine at commit 002fa59 BEFORE assumed_fields existed (explicit_null_assumed: HEAD ignored the unknown key, so a null is the same request). tests/test_qualify_assumed.py requires today's engine to answer them identically: a plain request must not change."
+ "note": "POST /v1/qualify answers for requests that carry no assumed_fields, produced by the engine at commit 002fa59 BEFORE assumed_fields existed (explicit_null_assumed: HEAD ignored the unknown key, so a null is the same request). tests/test_qualify_assumed.py requires today's engine to answer them identically: a plain request must not change. UPDATED at the commit that added the optional hall.occupied_positions: the only edits are (1) one appended optional gap, hall.occupied_positions, last in intake.gaps, and (2) the text of the busway warning in intake.warnings where it fires (it no longer states a derived occupied count as a fact). Every other byte is as the engine produced it at 002fa59."
 }

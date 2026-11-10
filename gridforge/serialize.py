@@ -155,6 +155,11 @@ def model_pack(intake: Intake, results: list[ScenarioResult],
                       "how_to_get_it": g.how_to_get_it} for g in intake.report.gaps],
             "warnings": intake.report.warnings,
             "engagement_recommendation": intake.report.engagement_recommendation,
+            # Present only when the client declared an occupied count: the figure and the class it was read at (E5 at most). Absent means no
+            # count is known and none is stated.
+            **({"occupied_positions": {"value": int(intake.context.hall.occupied_positions.value),
+                                       "evidence": intake.context.hall.occupied_positions.evidence.short}}
+               if intake.context.hall.occupied_positions is not None else {}),
         },
         "scenarios": [scenario_dict(r, intake.document) for r in results],
         # Which accepted supplier evidence this run used (and which it refused to use), and what it changed. Explicit

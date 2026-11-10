@@ -57,7 +57,7 @@ The rate limiter counts a caller by the socket address unless the operator says 
 `GRIDFORGE_TRUSTED_PROXY_HOPS` (proxies in front, counted from the right of `X-Forwarded-For`; unset means 1 on Fly.io, where
 `Fly-Client-IP` is also trusted, and 0 elsewhere) and `GRIDFORGE_TRUSTED_IP_HEADER` (a single-address header the proxy overwrites). Behind
 any other proxy set the hop count, or every caller shares the proxy's allowance. `GRIDFORGE_RATE_LIMIT` covers every route except
-`/health`, `/v1/version` and `/v1/tools`, which have a separate, generous bound. `GRIDFORGE_ADMIN_KEY` and `GRIDFORGE_KEY_SECRET` should
+`/health`, `/v1/version` and `/v1/tools`, which have a separate, generous bound. An IPv6 caller is counted on its /64 and on its enclosing /48 (`GRIDFORGE_RATE_LIMIT_IPV6_48_MULTIPLE` times the /64 limit, default 8), so a prefix holder cannot mint a fresh allowance per /64. `GRIDFORGE_MAX_CONCURRENT_SOLVES` (default 16, 0 = no cap) bounds solves in flight engine-wide: the next request is answered 503 with `Retry-After` and a JSON body, never queued. Both defaults are placeholders, not measurements. `GRIDFORGE_ADMIN_KEY` and `GRIDFORGE_KEY_SECRET` should
 be at least 24 characters: `serve` logs a warning with the variable and its length, and refuses to start only when
 `GRIDFORGE_ENFORCE_SECRET_STRENGTH=1`. The headroom ladder is bounded at 600 steps per scenario (`LADDER_STEP_CAP`); a hall that needs more
 (roughly above 450 MW of supply plus behind-the-meter capacity) is refused by name with a 422. The details are in the docstring of

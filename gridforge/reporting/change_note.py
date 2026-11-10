@@ -27,6 +27,7 @@ _LABELS = {
     "lv.busway_ampacity_A": "Busway ampacity",
     "lv.tapoff_max_A": "Tap-off rating",
     "hall.positions_available": "Rack positions available",
+    "hall.occupied_positions": "Rack positions occupied",
     "hall.floor_loading_kPa": "Floor loading",
     "thermal.plant.chilled_water_capacity_kW": "Chilled-water plant capacity",
     "thermal.plant.design_supply_C": "Plant supply temperature",

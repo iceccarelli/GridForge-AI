@@ -261,12 +261,21 @@
         "assumed": "0 kW, nothing subtracted (busway_ampacity_A is read as the whole installed total)",
         "why_it_binds": "The busway result is the installed capacity as declared; the load already drawing from it is not subtracted, so the racks it can still feed are overstated by that share. When this is given the engine subtracts it (never below zero); when absent nothing is subtracted.",
         "how_to_get_it": "Branch-circuit or busway monitoring (peak kW over a representative month), or the sum of the metered rack loads on the busway."
+      },
+      {
+        "path": "hall.occupied_positions",
+        "label": "Rack positions occupied",
+        "unit": "positions",
+        "required": false,
+        "assumed": "not supplied: no occupied count is known; every position that is not free is read as occupied for the busway check only (an assumption, E0), and nothing else uses it",
+        "why_it_binds": "Only the busway check against the load already in the hall reads it: the racks already installed are counted from this figure at the hall's design density. When absent the engine does not know how many positions are occupied; it reads every position that is not free (hall.rack_positions less hall.positions_available) as occupied, an assumption (E0) that is only as good as the total, and says so. Zero is a statement (nothing is occupied) and is asked for when free positions equal the total. It changes no rack count, cost or date.",
+        "how_to_get_it": "The tenancy schedule or the floor plan's rack register: racks physically installed, which is not the same as positions sold."
       }
     ],
     "warnings": [
       "BTM option BESS-2MW-8MWh: it is credited as firm capacity with NO declared energy rating. A battery is firm only for what its stored energy can sustain, and recharge is not modelled, so the racks this adds are unverified.",
       "BTM option GEN-5MW: no unit count was declared, so it is credited at nameplate x firm factor as if no unit could be out of service. A single unit under N+1 would count as zero firm capacity; the racks this adds are unverified.",
-      "Busway: the 380 occupied positions at their 8 kW design density would draw 3,040 kW, more than the 1,720 kW the declared busway can carry. busway_ampacity_A is read as the installed total and existing load is not subtracted, so check whether the figure you gave is the whole hall's busway."
+      "Busway: hall.occupied_positions was not supplied, so the occupied count is an assumption (E0), not a fact. Reading every position that is not free as occupied (560 in total less 180 free = 380 positions), at their 8 kW design density, would draw 3,040 kW, more than the 1,720 kW the declared busway can carry. busway_ampacity_A is read as the installed total and existing load is not subtracted, so check whether the figure you gave is the whole hall's busway, and give hall.occupied_positions so this check runs on a count rather than an assumption."
     ],
     "engagement_recommendation": "The intake is complete. This supports a full Capacity & Density Envelope Study with site-specific conclusions."
   },

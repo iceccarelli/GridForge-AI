@@ -203,6 +203,12 @@
         "label": "Load already on the busway",
         "unit": "kW",
         "assumed": "0 kW, nothing subtracted (busway_ampacity_A is read as the whole installed total) (E0)"
+      },
+      {
+        "path": "hall.occupied_positions",
+        "label": "Rack positions occupied",
+        "unit": "positions",
+        "assumed": "not supplied: no occupied count is known; every position that is not free is read as occupied for the busway check only (an assumption, E0), and nothing else uses it (E0)"
       }
     ]
   },

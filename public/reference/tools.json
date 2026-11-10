@@ -107,7 +107,7 @@
         "properties": {
           "intake": {
             "type": "object",
-            "description": "A GridForge intake document. GET /v1/intake/template for the blank form with every field, or supply a sparse one \u2014 anything absent is filled from library defaults and reported as an assumption.",
+            "description": "A GridForge intake document. GET /v1/intake/template for the blank form with every field, or supply a sparse one \u2014 anything absent is filled from library defaults and reported as an assumption. Optional hall.occupied_positions (a non-negative whole number, or {value, evidence, note, source}; E5 when you supply it, never higher) is the number of rack positions already occupied. Omitted, the engine does not know it: it is listed as an optional gap, and the busway check against the load already in the hall reads every position that is not free as occupied and says so as an assumption (E0). Declare 0 to confirm that nothing is occupied. It changes no rack count, cost or date.",
             "additionalProperties": true
           },
           "objective": {
@@ -220,7 +220,7 @@
         "properties": {
           "intake": {
             "type": "object",
-            "description": "A GridForge intake document. GET /v1/intake/template for the blank form with every field, or supply a sparse one \u2014 anything absent is filled from library defaults and reported as an assumption.",
+            "description": "A GridForge intake document. GET /v1/intake/template for the blank form with every field, or supply a sparse one \u2014 anything absent is filled from library defaults and reported as an assumption. Optional hall.occupied_positions (a non-negative whole number, or {value, evidence, note, source}; E5 when you supply it, never higher) is the number of rack positions already occupied. Omitted, the engine does not know it: it is listed as an optional gap, and the busway check against the load already in the hall reads every position that is not free as occupied and says so as an assumption (E0). Declare 0 to confirm that nothing is occupied. It changes no rack count, cost or date.",
             "additionalProperties": true
           },
           "objective": {
@@ -336,7 +336,7 @@
         "properties": {
           "intake": {
             "type": "object",
-            "description": "A GridForge intake document. GET /v1/intake/template for the blank form with every field, or supply a sparse one \u2014 anything absent is filled from library defaults and reported as an assumption.",
+            "description": "A GridForge intake document. GET /v1/intake/template for the blank form with every field, or supply a sparse one \u2014 anything absent is filled from library defaults and reported as an assumption. Optional hall.occupied_positions (a non-negative whole number, or {value, evidence, note, source}; E5 when you supply it, never higher) is the number of rack positions already occupied. Omitted, the engine does not know it: it is listed as an optional gap, and the busway check against the load already in the hall reads every position that is not free as occupied and says so as an assumption (E0). Declare 0 to confirm that nothing is occupied. It changes no rack count, cost or date.",
             "additionalProperties": true
           },
           "objective": {
@@ -381,7 +381,7 @@
             "type": "array",
             "items": {
               "type": "object",
-              "description": "A GridForge intake document. GET /v1/intake/template for the blank form with every field, or supply a sparse one \u2014 anything absent is filled from library defaults and reported as an assumption.",
+              "description": "A GridForge intake document. GET /v1/intake/template for the blank form with every field, or supply a sparse one \u2014 anything absent is filled from library defaults and reported as an assumption. Optional hall.occupied_positions (a non-negative whole number, or {value, evidence, note, source}; E5 when you supply it, never higher) is the number of rack positions already occupied. Omitted, the engine does not know it: it is listed as an optional gap, and the busway check against the load already in the hall reads every position that is not free as occupied and says so as an assumption (E0). Declare 0 to confirm that nothing is occupied. It changes no rack count, cost or date.",
               "additionalProperties": true
             },
             "minItems": 1
@@ -431,7 +431,7 @@
         "properties": {
           "before": {
             "type": "object",
-            "description": "A GridForge intake document. GET /v1/intake/template for the blank form with every field, or supply a sparse one \u2014 anything absent is filled from library defaults and reported as an assumption.",
+            "description": "A GridForge intake document. GET /v1/intake/template for the blank form with every field, or supply a sparse one \u2014 anything absent is filled from library defaults and reported as an assumption. Optional hall.occupied_positions (a non-negative whole number, or {value, evidence, note, source}; E5 when you supply it, never higher) is the number of rack positions already occupied. Omitted, the engine does not know it: it is listed as an optional gap, and the busway check against the load already in the hall reads every position that is not free as occupied and says so as an assumption (E0). Declare 0 to confirm that nothing is occupied. It changes no rack count, cost or date.",
             "additionalProperties": true
           },
           "previous_state": {
@@ -441,7 +441,7 @@
           },
           "after": {
             "type": "object",
-            "description": "A GridForge intake document. GET /v1/intake/template for the blank form with every field, or supply a sparse one \u2014 anything absent is filled from library defaults and reported as an assumption.",
+            "description": "A GridForge intake document. GET /v1/intake/template for the blank form with every field, or supply a sparse one \u2014 anything absent is filled from library defaults and reported as an assumption. Optional hall.occupied_positions (a non-negative whole number, or {value, evidence, note, source}; E5 when you supply it, never higher) is the number of rack positions already occupied. Omitted, the engine does not know it: it is listed as an optional gap, and the busway check against the load already in the hall reads every position that is not free as occupied and says so as an assumption (E0). Declare 0 to confirm that nothing is occupied. It changes no rack count, cost or date.",
             "additionalProperties": true
           },
           "objective": {
@@ -487,7 +487,7 @@
         "properties": {
           "intake": {
             "type": "object",
-            "description": "A GridForge intake document. GET /v1/intake/template for the blank form with every field, or supply a sparse one \u2014 anything absent is filled from library defaults and reported as an assumption.",
+            "description": "A GridForge intake document. GET /v1/intake/template for the blank form with every field, or supply a sparse one \u2014 anything absent is filled from library defaults and reported as an assumption. Optional hall.occupied_positions (a non-negative whole number, or {value, evidence, note, source}; E5 when you supply it, never higher) is the number of rack positions already occupied. Omitted, the engine does not know it: it is listed as an optional gap, and the busway check against the load already in the hall reads every position that is not free as occupied and says so as an assumption (E0). Declare 0 to confirm that nothing is occupied. It changes no rack count, cost or date.",
             "additionalProperties": true
           },
           "constraint": {
@@ -543,7 +543,7 @@
         "properties": {
           "intake": {
             "type": "object",
-            "description": "A GridForge intake document. GET /v1/intake/template for the blank form with every field, or supply a sparse one \u2014 anything absent is filled from library defaults and reported as an assumption.",
+            "description": "A GridForge intake document. GET /v1/intake/template for the blank form with every field, or supply a sparse one \u2014 anything absent is filled from library defaults and reported as an assumption. Optional hall.occupied_positions (a non-negative whole number, or {value, evidence, note, source}; E5 when you supply it, never higher) is the number of rack positions already occupied. Omitted, the engine does not know it: it is listed as an optional gap, and the busway check against the load already in the hall reads every position that is not free as occupied and says so as an assumption (E0). Declare 0 to confirm that nothing is occupied. It changes no rack count, cost or date.",
             "additionalProperties": true
           },
           "responses": {
@@ -612,7 +612,7 @@
         "properties": {
           "intake": {
             "type": "object",
-            "description": "A GridForge intake document. GET /v1/intake/template for the blank form with every field, or supply a sparse one \u2014 anything absent is filled from library defaults and reported as an assumption.",
+            "description": "A GridForge intake document. GET /v1/intake/template for the blank form with every field, or supply a sparse one \u2014 anything absent is filled from library defaults and reported as an assumption. Optional hall.occupied_positions (a non-negative whole number, or {value, evidence, note, source}; E5 when you supply it, never higher) is the number of rack positions already occupied. Omitted, the engine does not know it: it is listed as an optional gap, and the busway check against the load already in the hall reads every position that is not free as occupied and says so as an assumption (E0). Declare 0 to confirm that nothing is occupied. It changes no rack count, cost or date.",
             "additionalProperties": true
           },
           "target_racks": {
@@ -943,7 +943,7 @@
         "properties": {
           "intake": {
             "type": "object",
-            "description": "A GridForge intake document. GET /v1/intake/template for the blank form with every field, or supply a sparse one \u2014 anything absent is filled from library defaults and reported as an assumption.",
+            "description": "A GridForge intake document. GET /v1/intake/template for the blank form with every field, or supply a sparse one \u2014 anything absent is filled from library defaults and reported as an assumption. Optional hall.occupied_positions (a non-negative whole number, or {value, evidence, note, source}; E5 when you supply it, never higher) is the number of rack positions already occupied. Omitted, the engine does not know it: it is listed as an optional gap, and the busway check against the load already in the hall reads every position that is not free as occupied and says so as an assumption (E0). Declare 0 to confirm that nothing is occupied. It changes no rack count, cost or date.",
             "additionalProperties": true
           },
           "engagement": {
@@ -1078,7 +1078,7 @@
           "properties": {
             "intake": {
               "type": "object",
-              "description": "A GridForge intake document. GET /v1/intake/template for the blank form with every field, or supply a sparse one \u2014 anything absent is filled from library defaults and reported as an assumption.",
+              "description": "A GridForge intake document. GET /v1/intake/template for the blank form with every field, or supply a sparse one \u2014 anything absent is filled from library defaults and reported as an assumption. Optional hall.occupied_positions (a non-negative whole number, or {value, evidence, note, source}; E5 when you supply it, never higher) is the number of rack positions already occupied. Omitted, the engine does not know it: it is listed as an optional gap, and the busway check against the load already in the hall reads every position that is not free as occupied and says so as an assumption (E0). Declare 0 to confirm that nothing is occupied. It changes no rack count, cost or date.",
               "additionalProperties": true
             },
             "objective": {
@@ -1189,7 +1189,7 @@
           "properties": {
             "intake": {
               "type": "object",
-              "description": "A GridForge intake document. GET /v1/intake/template for the blank form with every field, or supply a sparse one \u2014 anything absent is filled from library defaults and reported as an assumption.",
+              "description": "A GridForge intake document. GET /v1/intake/template for the blank form with every field, or supply a sparse one \u2014 anything absent is filled from library defaults and reported as an assumption. Optional hall.occupied_positions (a non-negative whole number, or {value, evidence, note, source}; E5 when you supply it, never higher) is the number of rack positions already occupied. Omitted, the engine does not know it: it is listed as an optional gap, and the busway check against the load already in the hall reads every position that is not free as occupied and says so as an assumption (E0). Declare 0 to confirm that nothing is occupied. It changes no rack count, cost or date.",
               "additionalProperties": true
             },
             "objective": {
@@ -1303,7 +1303,7 @@
           "properties": {
             "intake": {
               "type": "object",
-              "description": "A GridForge intake document. GET /v1/intake/template for the blank form with every field, or supply a sparse one \u2014 anything absent is filled from library defaults and reported as an assumption.",
+              "description": "A GridForge intake document. GET /v1/intake/template for the blank form with every field, or supply a sparse one \u2014 anything absent is filled from library defaults and reported as an assumption. Optional hall.occupied_positions (a non-negative whole number, or {value, evidence, note, source}; E5 when you supply it, never higher) is the number of rack positions already occupied. Omitted, the engine does not know it: it is listed as an optional gap, and the busway check against the load already in the hall reads every position that is not free as occupied and says so as an assumption (E0). Declare 0 to confirm that nothing is occupied. It changes no rack count, cost or date.",
               "additionalProperties": true
             },
             "objective": {
@@ -1346,7 +1346,7 @@
               "type": "array",
               "items": {
                 "type": "object",
-                "description": "A GridForge intake document. GET /v1/intake/template for the blank form with every field, or supply a sparse one \u2014 anything absent is filled from library defaults and reported as an assumption.",
+                "description": "A GridForge intake document. GET /v1/intake/template for the blank form with every field, or supply a sparse one \u2014 anything absent is filled from library defaults and reported as an assumption. Optional hall.occupied_positions (a non-negative whole number, or {value, evidence, note, source}; E5 when you supply it, never higher) is the number of rack positions already occupied. Omitted, the engine does not know it: it is listed as an optional gap, and the busway check against the load already in the hall reads every position that is not free as occupied and says so as an assumption (E0). Declare 0 to confirm that nothing is occupied. It changes no rack count, cost or date.",
                 "additionalProperties": true
               },
               "minItems": 1
@@ -1394,7 +1394,7 @@
           "properties": {
             "before": {
               "type": "object",
-              "description": "A GridForge intake document. GET /v1/intake/template for the blank form with every field, or supply a sparse one \u2014 anything absent is filled from library defaults and reported as an assumption.",
+              "description": "A GridForge intake document. GET /v1/intake/template for the blank form with every field, or supply a sparse one \u2014 anything absent is filled from library defaults and reported as an assumption. Optional hall.occupied_positions (a non-negative whole number, or {value, evidence, note, source}; E5 when you supply it, never higher) is the number of rack positions already occupied. Omitted, the engine does not know it: it is listed as an optional gap, and the busway check against the load already in the hall reads every position that is not free as occupied and says so as an assumption (E0). Declare 0 to confirm that nothing is occupied. It changes no rack count, cost or date.",
               "additionalProperties": true
             },
             "previous_state": {
@@ -1404,7 +1404,7 @@
             },
             "after": {
               "type": "object",
-              "description": "A GridForge intake document. GET /v1/intake/template for the blank form with every field, or supply a sparse one \u2014 anything absent is filled from library defaults and reported as an assumption.",
+              "description": "A GridForge intake document. GET /v1/intake/template for the blank form with every field, or supply a sparse one \u2014 anything absent is filled from library defaults and reported as an assumption. Optional hall.occupied_positions (a non-negative whole number, or {value, evidence, note, source}; E5 when you supply it, never higher) is the number of rack positions already occupied. Omitted, the engine does not know it: it is listed as an optional gap, and the busway check against the load already in the hall reads every position that is not free as occupied and says so as an assumption (E0). Declare 0 to confirm that nothing is occupied. It changes no rack count, cost or date.",
               "additionalProperties": true
             },
             "objective": {
@@ -1448,7 +1448,7 @@
           "properties": {
             "intake": {
               "type": "object",
-              "description": "A GridForge intake document. GET /v1/intake/template for the blank form with every field, or supply a sparse one \u2014 anything absent is filled from library defaults and reported as an assumption.",
+              "description": "A GridForge intake document. GET /v1/intake/template for the blank form with every field, or supply a sparse one \u2014 anything absent is filled from library defaults and reported as an assumption. Optional hall.occupied_positions (a non-negative whole number, or {value, evidence, note, source}; E5 when you supply it, never higher) is the number of rack positions already occupied. Omitted, the engine does not know it: it is listed as an optional gap, and the busway check against the load already in the hall reads every position that is not free as occupied and says so as an assumption (E0). Declare 0 to confirm that nothing is occupied. It changes no rack count, cost or date.",
               "additionalProperties": true
             },
             "constraint": {
@@ -1502,7 +1502,7 @@
           "properties": {
             "intake": {
               "type": "object",
-              "description": "A GridForge intake document. GET /v1/intake/template for the blank form with every field, or supply a sparse one \u2014 anything absent is filled from library defaults and reported as an assumption.",
+              "description": "A GridForge intake document. GET /v1/intake/template for the blank form with every field, or supply a sparse one \u2014 anything absent is filled from library defaults and reported as an assumption. Optional hall.occupied_positions (a non-negative whole number, or {value, evidence, note, source}; E5 when you supply it, never higher) is the number of rack positions already occupied. Omitted, the engine does not know it: it is listed as an optional gap, and the busway check against the load already in the hall reads every position that is not free as occupied and says so as an assumption (E0). Declare 0 to confirm that nothing is occupied. It changes no rack count, cost or date.",
               "additionalProperties": true
             },
             "responses": {
@@ -1569,7 +1569,7 @@
           "properties": {
             "intake": {
               "type": "object",
-              "description": "A GridForge intake document. GET /v1/intake/template for the blank form with every field, or supply a sparse one \u2014 anything absent is filled from library defaults and reported as an assumption.",
+              "description": "A GridForge intake document. GET /v1/intake/template for the blank form with every field, or supply a sparse one \u2014 anything absent is filled from library defaults and reported as an assumption. Optional hall.occupied_positions (a non-negative whole number, or {value, evidence, note, source}; E5 when you supply it, never higher) is the number of rack positions already occupied. Omitted, the engine does not know it: it is listed as an optional gap, and the busway check against the load already in the hall reads every position that is not free as occupied and says so as an assumption (E0). Declare 0 to confirm that nothing is occupied. It changes no rack count, cost or date.",
               "additionalProperties": true
             },
             "target_racks": {
@@ -1892,7 +1892,7 @@
           "properties": {
             "intake": {
               "type": "object",
-              "description": "A GridForge intake document. GET /v1/intake/template for the blank form with every field, or supply a sparse one \u2014 anything absent is filled from library defaults and reported as an assumption.",
+              "description": "A GridForge intake document. GET /v1/intake/template for the blank form with every field, or supply a sparse one \u2014 anything absent is filled from library defaults and reported as an assumption. Optional hall.occupied_positions (a non-negative whole number, or {value, evidence, note, source}; E5 when you supply it, never higher) is the number of rack positions already occupied. Omitted, the engine does not know it: it is listed as an optional gap, and the busway check against the load already in the hall reads every position that is not free as occupied and says so as an assumption (E0). Declare 0 to confirm that nothing is occupied. It changes no rack count, cost or date.",
               "additionalProperties": true
             },
             "engagement": {
@@ -2034,7 +2034,7 @@
           "properties": {
             "intake": {
               "type": "object",
-              "description": "A GridForge intake document. GET /v1/intake/template for the blank form with every field, or supply a sparse one \u2014 anything absent is filled from library defaults and reported as an assumption.",
+              "description": "A GridForge intake document. GET /v1/intake/template for the blank form with every field, or supply a sparse one \u2014 anything absent is filled from library defaults and reported as an assumption. Optional hall.occupied_positions (a non-negative whole number, or {value, evidence, note, source}; E5 when you supply it, never higher) is the number of rack positions already occupied. Omitted, the engine does not know it: it is listed as an optional gap, and the busway check against the load already in the hall reads every position that is not free as occupied and says so as an assumption (E0). Declare 0 to confirm that nothing is occupied. It changes no rack count, cost or date.",
               "additionalProperties": true
             },
             "objective": {
@@ -2147,7 +2147,7 @@
           "properties": {
             "intake": {
               "type": "object",
-              "description": "A GridForge intake document. GET /v1/intake/template for the blank form with every field, or supply a sparse one \u2014 anything absent is filled from library defaults and reported as an assumption.",
+              "description": "A GridForge intake document. GET /v1/intake/template for the blank form with every field, or supply a sparse one \u2014 anything absent is filled from library defaults and reported as an assumption. Optional hall.occupied_positions (a non-negative whole number, or {value, evidence, note, source}; E5 when you supply it, never higher) is the number of rack positions already occupied. Omitted, the engine does not know it: it is listed as an optional gap, and the busway check against the load already in the hall reads every position that is not free as occupied and says so as an assumption (E0). Declare 0 to confirm that nothing is occupied. It changes no rack count, cost or date.",
               "additionalProperties": true
             },
             "objective": {
@@ -2263,7 +2263,7 @@
           "properties": {
             "intake": {
               "type": "object",
-              "description": "A GridForge intake document. GET /v1/intake/template for the blank form with every field, or supply a sparse one \u2014 anything absent is filled from library defaults and reported as an assumption.",
+              "description": "A GridForge intake document. GET /v1/intake/template for the blank form with every field, or supply a sparse one \u2014 anything absent is filled from library defaults and reported as an assumption. Optional hall.occupied_positions (a non-negative whole number, or {value, evidence, note, source}; E5 when you supply it, never higher) is the number of rack positions already occupied. Omitted, the engine does not know it: it is listed as an optional gap, and the busway check against the load already in the hall reads every position that is not free as occupied and says so as an assumption (E0). Declare 0 to confirm that nothing is occupied. It changes no rack count, cost or date.",
               "additionalProperties": true
             },
             "objective": {
@@ -2308,7 +2308,7 @@
               "type": "array",
               "items": {
                 "type": "object",
-                "description": "A GridForge intake document. GET /v1/intake/template for the blank form with every field, or supply a sparse one \u2014 anything absent is filled from library defaults and reported as an assumption.",
+                "description": "A GridForge intake document. GET /v1/intake/template for the blank form with every field, or supply a sparse one \u2014 anything absent is filled from library defaults and reported as an assumption. Optional hall.occupied_positions (a non-negative whole number, or {value, evidence, note, source}; E5 when you supply it, never higher) is the number of rack positions already occupied. Omitted, the engine does not know it: it is listed as an optional gap, and the busway check against the load already in the hall reads every position that is not free as occupied and says so as an assumption (E0). Declare 0 to confirm that nothing is occupied. It changes no rack count, cost or date.",
                 "additionalProperties": true
               },
               "minItems": 1
@@ -2358,7 +2358,7 @@
           "properties": {
             "before": {
               "type": "object",
-              "description": "A GridForge intake document. GET /v1/intake/template for the blank form with every field, or supply a sparse one \u2014 anything absent is filled from library defaults and reported as an assumption.",
+              "description": "A GridForge intake document. GET /v1/intake/template for the blank form with every field, or supply a sparse one \u2014 anything absent is filled from library defaults and reported as an assumption. Optional hall.occupied_positions (a non-negative whole number, or {value, evidence, note, source}; E5 when you supply it, never higher) is the number of rack positions already occupied. Omitted, the engine does not know it: it is listed as an optional gap, and the busway check against the load already in the hall reads every position that is not free as occupied and says so as an assumption (E0). Declare 0 to confirm that nothing is occupied. It changes no rack count, cost or date.",
               "additionalProperties": true
             },
             "previous_state": {
@@ -2368,7 +2368,7 @@
             },
             "after": {
               "type": "object",
-              "description": "A GridForge intake document. GET /v1/intake/template for the blank form with every field, or supply a sparse one \u2014 anything absent is filled from library defaults and reported as an assumption.",
+              "description": "A GridForge intake document. GET /v1/intake/template for the blank form with every field, or supply a sparse one \u2014 anything absent is filled from library defaults and reported as an assumption. Optional hall.occupied_positions (a non-negative whole number, or {value, evidence, note, source}; E5 when you supply it, never higher) is the number of rack positions already occupied. Omitted, the engine does not know it: it is listed as an optional gap, and the busway check against the load already in the hall reads every position that is not free as occupied and says so as an assumption (E0). Declare 0 to confirm that nothing is occupied. It changes no rack count, cost or date.",
               "additionalProperties": true
             },
             "objective": {
@@ -2414,7 +2414,7 @@
           "properties": {
             "intake": {
               "type": "object",
-              "description": "A GridForge intake document. GET /v1/intake/template for the blank form with every field, or supply a sparse one \u2014 anything absent is filled from library defaults and reported as an assumption.",
+              "description": "A GridForge intake document. GET /v1/intake/template for the blank form with every field, or supply a sparse one \u2014 anything absent is filled from library defaults and reported as an assumption. Optional hall.occupied_positions (a non-negative whole number, or {value, evidence, note, source}; E5 when you supply it, never higher) is the number of rack positions already occupied. Omitted, the engine does not know it: it is listed as an optional gap, and the busway check against the load already in the hall reads every position that is not free as occupied and says so as an assumption (E0). Declare 0 to confirm that nothing is occupied. It changes no rack count, cost or date.",
               "additionalProperties": true
             },
             "constraint": {
@@ -2470,7 +2470,7 @@
           "properties": {
             "intake": {
               "type": "object",
-              "description": "A GridForge intake document. GET /v1/intake/template for the blank form with every field, or supply a sparse one \u2014 anything absent is filled from library defaults and reported as an assumption.",
+              "description": "A GridForge intake document. GET /v1/intake/template for the blank form with every field, or supply a sparse one \u2014 anything absent is filled from library defaults and reported as an assumption. Optional hall.occupied_positions (a non-negative whole number, or {value, evidence, note, source}; E5 when you supply it, never higher) is the number of rack positions already occupied. Omitted, the engine does not know it: it is listed as an optional gap, and the busway check against the load already in the hall reads every position that is not free as occupied and says so as an assumption (E0). Declare 0 to confirm that nothing is occupied. It changes no rack count, cost or date.",
               "additionalProperties": true
             },
             "responses": {
@@ -2539,7 +2539,7 @@
           "properties": {
             "intake": {
               "type": "object",
-              "description": "A GridForge intake document. GET /v1/intake/template for the blank form with every field, or supply a sparse one \u2014 anything absent is filled from library defaults and reported as an assumption.",
+              "description": "A GridForge intake document. GET /v1/intake/template for the blank form with every field, or supply a sparse one \u2014 anything absent is filled from library defaults and reported as an assumption. Optional hall.occupied_positions (a non-negative whole number, or {value, evidence, note, source}; E5 when you supply it, never higher) is the number of rack positions already occupied. Omitted, the engine does not know it: it is listed as an optional gap, and the busway check against the load already in the hall reads every position that is not free as occupied and says so as an assumption (E0). Declare 0 to confirm that nothing is occupied. It changes no rack count, cost or date.",
               "additionalProperties": true
             },
             "target_racks": {
@@ -2870,7 +2870,7 @@
           "properties": {
             "intake": {
               "type": "object",
-              "description": "A GridForge intake document. GET /v1/intake/template for the blank form with every field, or supply a sparse one \u2014 anything absent is filled from library defaults and reported as an assumption.",
+              "description": "A GridForge intake document. GET /v1/intake/template for the blank form with every field, or supply a sparse one \u2014 anything absent is filled from library defaults and reported as an assumption. Optional hall.occupied_positions (a non-negative whole number, or {value, evidence, note, source}; E5 when you supply it, never higher) is the number of rack positions already occupied. Omitted, the engine does not know it: it is listed as an optional gap, and the busway check against the load already in the hall reads every position that is not free as occupied and says so as an assumption (E0). Declare 0 to confirm that nothing is occupied. It changes no rack count, cost or date.",
               "additionalProperties": true
             },
             "engagement": {
