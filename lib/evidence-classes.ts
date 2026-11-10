@@ -15,7 +15,7 @@ export const EVIDENCE_CLASSES: EvidenceClassDoc[] = [
   { code: "E2", name: "E2_SIMULATION", verb: "simulated", meaning: "Numerical simulation (hydraulic, thermal network, time series)." },
   { code: "E3", name: "E3_ENGINEERING_ESTIMATE", verb: "estimated", meaning: "Model plus review by a qualified engineer against practice." },
   { code: "E4", name: "E4_EXPERIMENTAL", verb: "validated against test data", meaning: "Compared against lab, rig or vendor test data." },
-  { code: "E5", name: "E5_CUSTOMER_DATA", verb: "supplied by the client (not measured or surveyed by us)", meaning: "The customer's own measured trend data, as supplied." },
+  { code: "E5", name: "E5_CUSTOMER_DATA", verb: "supplied by the client (not measured or surveyed by us)", meaning: "The customer's own figures as supplied (a declared rating, contract term, design value or their own data); not measured or surveyed by us." },
   { code: "E6", name: "E6_FIELD_VALIDATED", verb: "field-validated", meaning: "Our model reconciled against measured site performance." },
   { code: "E7", name: "E7_DEPLOYED", verb: "observed in operation", meaning: "An operating outcome observed after implementation." },
 ];

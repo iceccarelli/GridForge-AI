@@ -102,16 +102,16 @@ export function depositTerms(kind: string): DepositTerms | null {
   const band = `${eurFromCents(lo)} to ${eurFromCents(hi)}`;
   const crediting = Object.values(PRODUCTS).filter((x) => x.creditsAgainst === p.id);
   const alsoCredited = crediting.length
-    ? ` ${crediting.map((x) => `A ${x.name} you have already paid for (same email address, ${eurFromCents(x.amountCents)} each) is credited against the same fee, once.`).join(" ")}`
+    ? ` ${crediting.map((x) => `A ${x.name} you have already paid for (same email address, ${eurFromCents(x.amountCents)} each) is credited once against the same fee, after we confirm it is the same buyer (the address typed at checkout is not verified).`).join(" ")}`
     : "";
   return {
     reserves:
-      `This ${eurFromCents(p.amountCents)} deposit reserves senior engineering time for one ${p.name.replace(/ — deposit$/, "")}. ` +
+      `This ${eurFromCents(p.amountCents)} deposit reserves engineering time for one ${p.name.replace(/ — deposit$/, "")}. ` +
       `It is not the fee for the work and it does not buy the document.`,
     opens:
       `It opens a scoping conversation with you. The fee is agreed there, in writing, for the scope agreed there, and falls ` +
       `within ${band}. Nothing is produced until that scope is agreed. Once it is, your private intake link is emailed to you, you supply ` +
-      `the numbers there, a senior engineer reviews what is produced, and you receive it at a private link.`,
+      `the numbers there, a named engineer reviews what is produced, and you receive it at a private link.`,
     credit:
       `The deposit is credited in full against the agreed fee; the balance is the agreed fee less the deposit.${alsoCredited}`,
     timing:

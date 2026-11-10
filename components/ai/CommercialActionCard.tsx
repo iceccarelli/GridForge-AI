@@ -63,7 +63,7 @@ export function CommercialActionCard({ block }: { block: CommercialActionBlock }
         <div className="data text-lg font-semibold text-power">
           {priceLabel}
           {product.turnaroundDays > 0 && (
-            <span className="text-xs text-faint ml-2">{product.turnaroundDays} days</span>
+            <span className="text-xs text-faint ml-2">{product.turnaroundDays} working days</span>
           )}
         </div>
         <button

@@ -71,7 +71,7 @@ export default async function PricingPage() {
             </h1>
             <p className="text-mute text-[17px] leading-relaxed mt-6">
               A free result you can get without an account, metered software you call from your own code, and
-              engineering a senior power-systems engineer reviews for your site. They are different things with different
+              engineering a named power-systems engineer reviews for your site. They are different things with different
               prices, and none of them is billed by the hour. Market intelligence is a separate subscription, further down.
             </p>
             {/* One line, every link to the page that explains the step: the answer to "which one do I need?". */}
@@ -117,8 +117,8 @@ export default async function PricingPage() {
             <h2 id="metered-h" className="text-2xl font-semibold text-ghost">Metered software</h2>
             <p className="mt-2 max-w-3xl text-sm text-mute">
               The same engine, called directly. Start on a free allowance, move to pay-as-you-go under a monthly cap you
-              set, and take a plan when the volume warrants one. API responses are screening output: an engagement is a document a
-              senior engineer reviews and releases, in screening mode and not as an issued engineering opinion.
+              set, and take a plan when the volume warrants one. API responses are screening output: an engagement document is drafted
+              by the engine, then reviewed and released by a named engineer, in screening mode and not as an issued engineering opinion.
             </p>
             <div className="mt-6 rounded border border-power/40 bg-panel-2 p-5 sm:p-6">
               <p className="font-mono text-[11px] uppercase tracking-[0.14em] text-power">

@@ -81,7 +81,7 @@ export default function AboutPage() {
           </li>
           <li>We sell no equipment, hold no inventory and take no margin on hardware. We name no make and no model.</li>
           <li>
-            Engagement documents are produced and reviewed by a senior engineer, in screening mode. They are not an issued engineering
+            Engagement documents are drafted by the engine, then reviewed and released by a named engineer, in screening mode. Hall Watch change notes are written automatically by the engine and are not engineer-reviewed. They are not an issued engineering
             opinion and carry no professional signature.
           </li>
         </ul>

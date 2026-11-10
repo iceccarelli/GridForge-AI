@@ -70,7 +70,7 @@ CONSTRAINT_DOCS: tuple[ConstraintDoc, ...] = (
     ConstraintDoc(
         id="rack_feed_tapoff", name="Rack feed / tap-off rating", domain=_E,
         slug="rack-feed-tapoff-rating",
-        headline="The commonest hard stop in a legacy hall is the last two metres of copper.",
+        headline="In a legacy hall the last two metres of copper can be the first limit.",
         limits="The continuous current a single rack position can be fed at, set by the "
                "tap-off unit on the busway and the flexible cord to the rack PDU.",
         relation="I = P / (√3 · V · pf). A 132 kW rack at 400 V three-phase and pf 0.95 "
@@ -119,8 +119,8 @@ CONSTRAINT_DOCS: tuple[ConstraintDoc, ...] = (
     ConstraintDoc(
         id="transformer_capacity", name="Transformer capacity", domain=_E,
         slug="transformer-capacity",
-        headline="The transformer is rarely the tightest constraint and is usually the one "
-                 "that sets the date.",
+        headline="The transformer need not be the tightest constraint, but its lead time "
+                 "can be the one that sets the date.",
         limits="Usable secondary capacity after the site's derating policy and at the "
                "redundancy the hall is sold on.",
         relation="Required MVA ≈ (racks × rack kW × PUE) / 1000 / pf, at N+1 or 2N as the "
@@ -234,7 +234,7 @@ CONSTRAINT_DOCS: tuple[ConstraintDoc, ...] = (
                     "against the manufacturer's performance curve before committing capital. "
                     "Technology-loop water chemistry is a warranty question before it is a "
                     "capacity question.",
-        misconception="The single most common way a liquid retrofit under-delivers: rated "
+        misconception="A way a liquid retrofit can under-deliver: rated "
                       "duty taken from a datasheet at a reference condition the site does not "
                       "have.",
         sources=("OCP Water-Based Transfer Fluids Guidelines; manufacturer performance data "

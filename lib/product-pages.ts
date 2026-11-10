@@ -60,7 +60,7 @@ export const PRODUCT_PAGES: ProductPage[] = [
     flow: [
       "Pay by card; you receive a private intake link.",
       "Submit the hall's numbers; the engine drafts the screen.",
-      "A senior engineer reviews and releases it; you receive a private link to the finished document.",
+      "A named engineer reviews and releases it; you receive a private link to the finished document.",
     ],
   },
   {
@@ -82,7 +82,7 @@ export const PRODUCT_PAGES: ProductPage[] = [
     flow: [
       "Pay the deposit; a person contacts you to scope the work.",
       "The turnaround is counted from a complete intake and the scoping call, not from payment. Once the scope and fee are agreed, your private intake link is emailed to you.",
-      "You submit the hall's numbers; the engine produces the study and its one-page board summary; a senior engineer reviews and releases it; you receive a private link to the study, the model pack and the working files.",
+      "You submit the hall's numbers; the engine produces the study and its one-page board summary; a named engineer reviews and releases it; you receive a private link to the study, the model pack and the working files.",
       "A walkthrough with your engineers follows the release.",
     ],
   },
@@ -106,7 +106,7 @@ export const PRODUCT_PAGES: ProductPage[] = [
     flow: [
       "Pay by card; you receive a private intake link.",
       "Submit the specification inputs; the engine drafts the document.",
-      "A senior engineer reviews and releases it; you then compare your bids on the same page.",
+      "A named engineer reviews and releases it; you then compare your bids on the same page.",
     ],
   },
   {
@@ -128,7 +128,7 @@ export const PRODUCT_PAGES: ProductPage[] = [
     flow: [
       "Pay the deposit; a person contacts you to scope the work.",
       "The turnaround is counted from a complete intake and the scoping call, not from payment. Once the scope and fee are agreed, your private intake link is emailed to you.",
-      "You submit the hall list; every hall is screened with the identical model; a senior engineer reviews and releases the result; you receive a private link to the ranking document and one model pack per hall.",
+      "You submit the hall list; every hall is screened with the identical model; a named engineer reviews and releases the result; you receive a private link to the ranking document and one model pack per hall.",
     ],
   },
   {
@@ -176,6 +176,7 @@ export function audiencesForProduct(id: ProductId): Audience[] {
 export function turnaroundText(p: Product): string {
   const deposit = depositTerms(p.kind);
   if (deposit) return deposit.timing;
+  if (p.recurring) return "Quarterly, and a re-run whenever you update an input";
   if (p.producesDeliverable) return `${p.turnaroundDays} working days, from a complete intake`;
   return `${p.turnaroundDays} working days`;
 }

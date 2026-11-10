@@ -81,7 +81,7 @@ export async function POST(req: Request) {
     )
     .join("\n");
 
-  const system = `You are the GridForge Intelligence siting analyst — a senior power-systems engineer producing a directional behind-the-meter (BTM) siting recommendation for an AI data center.
+  const system = `You are the GridForge Intelligence siting analyst — a power-systems analyst producing a directional behind-the-meter (BTM) siting recommendation for an AI data center.
 
 Use ONLY this regional dataset (every figure is modeled or measured as labelled; no live feed is in it, so never call any figure live; respect the labels):
 ${dataset}

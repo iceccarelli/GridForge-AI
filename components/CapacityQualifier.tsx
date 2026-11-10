@@ -85,7 +85,7 @@ const FIELDS: FieldDef[] = [
   { key: "currentItLoadMW", label: "Current IT load", unit: "MW", step: "0.1", min: 0, max: 2000,
     hint: "Protected load at the UPS output." },
   { key: "buswayAmpacityA", label: "Busway ampacity", unit: "A", min: 0, max: 6300, positive: true,
-    hint: "400 A legacy or 800–1000 A modern. The most common hard stop." },
+    hint: "400 A legacy or 800–1000 A modern. A legacy busway can be the hard stop." },
   { key: "tapoffMaxA", label: "Tap-off rating", unit: "A", min: 0, max: 1600, positive: true,
     hint: "A rack that cannot be fed cannot be placed." },
   { key: "plantSupplyC", label: "Plant supply temperature", unit: "°C", step: "0.5", min: -5, max: 45,

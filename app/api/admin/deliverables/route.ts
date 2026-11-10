@@ -173,7 +173,7 @@ export async function PATCH(req: Request) {
         { status: 422 }
       );
     }
-    // The buyer is emailed that "a senior engineer" reviewed it: a release without a name on the record makes that sentence
+    // The buyer is emailed that "a named engineer" reviewed it: a release without a name on the record makes that sentence
     // uncheckable, so the name is required.
     const reviewerName = typeof body.reviewed_by === "string" ? body.reviewed_by.trim() : "";
     if (!reviewerName) {
@@ -217,7 +217,7 @@ export async function PATCH(req: Request) {
     }
     // Compare-and-set on status=draft, and trust only the store's answer: the buyer
     // is emailed only after the release is durably recorded.
-    // Who put their name to it, recorded WITH the release (one compare-and-set): the buyer is emailed that "a senior
+    // Who put their name to it, recorded WITH the release (one compare-and-set): the buyer is emailed that "a named
     // engineer" reviewed it, and without a name on the record that sentence cannot be checked. The API accepts a release
     // without a name (older callers) and says so in its answer; the pipeline asks for one.
     const reviewer = reviewerName.slice(0, 120);
@@ -280,8 +280,8 @@ export async function PATCH(req: Request) {
         idempotencyKey: `deliverable-release-${row.id}-${current.slice(0, 16)}`,
         text:
           (hasBoard
-            ? "Your study and its one-page board summary have been reviewed by a senior engineer and released.\n\n"
-            : "Your document has been reviewed by a senior engineer and released.\n\n") +
+            ? "Your study and its one-page board summary have been reviewed by a named engineer and released.\n\n"
+            : "Your document has been reviewed by a named engineer and released.\n\n") +
           `${link}\n\n` +
           "The link is private to this engagement and is the only way to open the document — keep it, and do not " +
           "forward it to anyone who should not read the result. It is a screening-mode document: it carries its " +

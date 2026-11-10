@@ -6,4 +6,4 @@ import { PRODUCTS, eurFromCents } from "@/lib/products";
 
 const SCREEN = PRODUCTS.density_screen;
 
-export const DENSITY_SCREEN_CTA = `${SCREEN.name} — ${eurFromCents(SCREEN.amountCents)} · ${SCREEN.turnaroundDays} days`;
+export const DENSITY_SCREEN_CTA = `${SCREEN.name} — ${eurFromCents(SCREEN.amountCents)} · ${SCREEN.turnaroundDays} working days`;

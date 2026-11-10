@@ -110,7 +110,7 @@ export async function POST(req: Request, ctx: { params: Promise<{ token: string 
         ok: false,
         error:
           row.status === "draft"
-            ? "Your numbers are already in and the document is with a senior engineer for review. " +
+            ? "Your numbers are already in and the document is with a named engineer for review. " +
               "If something needs correcting, reply to the email we sent you."
             : "Your numbers are already being processed.",
       },
@@ -295,14 +295,14 @@ export async function POST(req: Request, ctx: { params: Promise<{ token: string 
         status: "engine_unavailable",
         title: stored.title,
         message:
-          "Received. Part of your pack is still being produced; we will complete it, have a senior engineer " +
+          "Received. Part of your pack is still being produced; we will complete it, have a named engineer " +
           "review it and come back to you. Nothing has been published.",
         assumed: [...assumed.map((f) => ({ field: f, source: ASSUMABLE_SOURCE[f] })), ...specAssumptions, ...portfolioGaps],
       });
     }
 
     // A draft waits for a person. Nothing else announces it, and the buyer has just been told it is with
-    // a senior engineer: tell the engineer. (The document token is never put in an email.)
+    // a named engineer: tell the engineer. (The document token is never put in an email.)
     await notifyOperator(
       `Draft ready for review — ${row.email ?? "unknown buyer"} (${stored.title})`,
       `A paid ${row.kind} has been generated and is waiting for your review and release.\n\n` +
@@ -316,8 +316,8 @@ export async function POST(req: Request, ctx: { params: Promise<{ token: string 
       status: "draft",
       title: stored.title,
       message:
-        "Received. The document is generated and now sits with a senior engineer for review. " +
-        "You will get the link once it is released — we do not publish an engineering opinion " +
+        "Received. The document is generated and now sits with a named engineer for review. " +
+        "You will get the link once it is released — we do not release a document " +
         "nobody has read.",
       // Said here as well as in the document. A customer who left three numbers
       // blank should hear what we assumed at the moment they submitted, not

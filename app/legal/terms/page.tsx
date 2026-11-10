@@ -31,26 +31,24 @@ export default function Terms() {
         Self-serve deliverables (including the Density Screen and Procurement
         Specification) are generated from the hall figures submitted through
         your private intake link and reviewed by a named engineer before
-        release. Scoped engagements (including the Single-Hall Feasibility Study
-        and Portfolio Screen) begin with an engagement reservation deposit;
+        release. Scoped engagements (including the Capacity &amp; Density Envelope
+        Study and the Portfolio Screen) begin with an engagement reservation deposit;
         work starts only after scope, fee (within the published band) and
         turnaround are agreed in writing.
       </p>
 
       <h2 className="text-xl font-semibold text-ghost pt-2">2. Fees, currencies and VAT</h2>
       <p>
-        All published prices and unit rates are stated in euros (EUR) exclusive
-        of applicable value-added tax (VAT) or sales tax. Where required by law,
-        applicable VAT is calculated and added at Stripe checkout, or accounted
-        for under the B2B reverse-charge mechanism where a valid VAT
-        identification number is supplied.
+        All published prices and unit rates are stated in euros (EUR). How tax
+        applies to a purchase is not yet stated on this page; ask before you
+        buy.
       </p>
 
       <h2 className="text-xl font-semibold text-ghost pt-2">3. Metered API and MCP usage</h2>
       <p>
         The free qualifier and estimator require no API key. Metered operations
         on the GridForge Engine are billed per unit at the published catalogue
-        rate (€2 per unit after the 25-unit one-time free allowance on eligible
+        rate (€2 per unit after the 25-unit monthly free allowance on eligible
         accounts). Pay-as-you-go usage is settled monthly in arrears for net
         successful units (charges minus automatic refunds for failed, rejected
         or invalid calls). Monthly balances below the €5 minimum invoice carry
@@ -60,12 +58,12 @@ export default function Terms() {
 
       <h2 className="text-xl font-semibold text-ghost pt-2">4. Refunds, credits and billing holds</h2>
       <p>
-        Engagement reservation deposits are credited in full toward the agreed
-        engagement fee, and are refundable in full if we decline the engagement
-        or if you cancel before scope is confirmed. Where a prior Density Screen
-        was purchased and kept in good standing for the same hall, its fee
-        credits toward the Single-Hall Study as stated in the catalogue; a
-        refunded or disputed purchase carries no credit. A full refund or open
+        Engagement reservation deposits are credited toward the agreed engagement
+        fee. Refund terms are not yet stated on this page; ask before you buy.
+        A Density Screen you have already paid for can be credited once against
+        the same fee after we confirm it is the same buyer (the email address
+        typed at checkout is not verified); a refunded or disputed purchase
+        carries no credit. A full refund or open
         chargeback suspends access to the corresponding deliverable,
         subscription or API account while the hold stands.
       </p>

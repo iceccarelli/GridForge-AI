@@ -104,6 +104,6 @@ Every number in this report carries an evidence class. The class of a computed n
 
 ---
 
-One page for a board. The study it summarises carries the full ladder, scenarios, sensitivity and provenance. Engineering opinion supported by a documented model; not a design package.
+One page for a board. The study it summarises carries the full ladder, scenarios, sensitivity and provenance. Screening-mode output of a documented model; not an issued engineering opinion and not a design package.
 
 Generated 2026-09-14 by the GridForge-AI envelope engine.

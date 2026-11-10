@@ -6,12 +6,12 @@ import { pageImages } from "@/lib/page-cards";
 export const metadata: Metadata = {
   title: "Security",
   description:
-    "How Time to Power protects customer data, API keys and deliverables, and what it does not claim to have certified.",
+    "How Time to Power handles enquiries, API keys and deliverables.",
   alternates: { canonical: "/legal/security" },
   twitter: { card: "summary_large_image", images: pageImages("security") },
   openGraph: {
     ...OG_BASE,
-    images: pageImages("security"), url: "/legal/security", title: "Security", description: "How Time to Power protects customer data, API keys and deliverables, and what it does not claim to have certified.", },
+    images: pageImages("security"), url: "/legal/security", title: "Security", description: "How Time to Power handles enquiries, API keys and deliverables.", },
 };
 
 export default function Security() {
@@ -19,8 +19,9 @@ export default function Security() {
     <LegalShell title="Security" updated="June 2026">
       <p>
         We take the confidentiality of your site information seriously. Enquiries
-        are transmitted over TLS and shared only with people working on your
-        engagement.
+        are transmitted over TLS and processed by the services listed on the
+        privacy page. We hold no security certification (no SOC 2, ISO 27001 or
+        similar).
       </p>
       <h2 className="text-xl font-semibold text-ghost pt-2">Confidentiality</h2>
       <p>

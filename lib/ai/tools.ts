@@ -80,7 +80,7 @@ export const TOOLS: ToolDef[] = [
     name: "gridforge_screen",
     description:
       "Density Screen. A full intake in, a screening read out: every constraint evaluated, " +
-      "the headroom ladder, and which relief unlocks the most racks per euro.",
+      "and the headroom ladder: each relief in binding order, with its cost, lead time and the racks it unlocks.",
     endpoint: "/v1/screen",
     method: "POST",
     tier: "client",

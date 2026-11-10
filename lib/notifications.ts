@@ -165,9 +165,10 @@ async function build(n: Pick<NotificationRow, "kind" | "subject_table" | "subjec
         (PRODUCT_BY_KIND[String(row.kind ?? "")]?.endpoint === "portfolio"
           ? "The next step is the list of halls, one row per hall. "
           : "The next step is the hall's own numbers. ") +
-        "Everything you do not supply is filled " +
+        "Where the document allows it, what you do not supply is filled " +
         "from a library default and named as an assumption in the deliverable, so the more " +
-        "of it you complete, the fewer of your conclusions rest on our guesses.\n\n" +
+        "of it you complete, the fewer of your conclusions rest on our guesses. (A Procurement " +
+        "Specification is not generated from a partial intake.)\n\n" +
         `${SITE_URL}/intake/${intake}` +
         "\n\nThe link is unguessable and specific to this engagement. Do not forward it to " +
         "anyone who should not read the result.",
@@ -306,8 +307,8 @@ async function build(n: Pick<NotificationRow, "kind" | "subject_table" | "subjec
       subject: "Your GridForge document is ready",
       text:
         (hasBoard
-          ? "Your study and its one-page board summary have been reviewed by a senior engineer and released.\n\n"
-          : "Your document has been reviewed by a senior engineer and released.\n\n") +
+          ? "Your study and its one-page board summary have been reviewed by a named engineer and released.\n\n"
+          : "Your document has been reviewed by a named engineer and released.\n\n") +
         `${SITE_URL}/deliverable/${token}\n\n` +
         "The link is private to this engagement and is the only way to open the document — keep it, and do not " +
         "forward it to anyone who should not read the result. It is a screening-mode document: it carries its " +

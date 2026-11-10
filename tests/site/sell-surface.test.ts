@@ -109,7 +109,7 @@ describe("the price on a button is the price checkout charges", () => {
   it("the primary CTA label is assembled from the catalogue", () => {
     const p = PRODUCTS.density_screen;
     expect(DENSITY_SCREEN_CTA).toBe(
-      `${p.name} — ${eurFromCents(p.amountCents)} · ${p.turnaroundDays} days`
+      `${p.name} — ${eurFromCents(p.amountCents)} · ${p.turnaroundDays} working days`
     );
     // The figures the order fixed this CTA at. If the catalogue moves, this fails
     // and somebody decides on purpose rather than discovering it in production.

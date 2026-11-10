@@ -50,7 +50,7 @@ INTAKE_FIELDS: tuple[FieldSpec, ...] = (
               why_it_binds="Determines UPS and plant headroom.",
               how_to_get_it="Branch-circuit monitoring or UPS output trend."),
     FieldSpec("lv.busway_ampacity_A", "Installed busway ampacity", "A", True,
-              why_it_binds="400 A legacy versus 800-1000 A modern is the most common hard stop.",
+              why_it_binds="400 A legacy versus 800-1000 A modern: a legacy busway can be the hard stop.",
               how_to_get_it="Busway nameplate or the electrical record drawings."),
     FieldSpec("lv.tapoff_max_A", "Installed tap-off rating", "A", True,
               why_it_binds="A rack that cannot be fed cannot be placed, whatever else is true.",

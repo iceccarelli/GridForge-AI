@@ -313,7 +313,7 @@ def build(intake: Intake, results: list[ScenarioResult], *,
         kicker="Boundary",
         title="What this is, and what it is not",
         bullets=[
-            "An engineering opinion supported by a documented model. Not a design package, and it "
+            "A screening-mode output of a documented model, not an issued engineering opinion. Not a design package, and it "
             "confers no design liability.",
             "No stamped drawings, no CFD of this hall, no equipment selection or bill of materials.",
             "The floor-loading check is a screening calculation; a structural engineer must sign "

@@ -68,7 +68,7 @@ type State =
 const STATUS_COPY: Record<string, string> = {
   awaiting_intake: "We need your hall's numbers before this can be produced.",
   generating: "Generating from your numbers.",
-  draft: "Generated, and with a senior engineer for review. We do not release an engineering opinion nobody has read.",
+  draft: "Generated, and with a named engineer for review. We do not release a document nobody has read.",
   released: "Released. The document is ready to read.",
   engine_unavailable:
     "Your numbers are saved, but the engine could not produce the document. Nothing is lost and nothing was invented — we are picking this up.",
@@ -228,7 +228,7 @@ export default function Dashboard() {
               <h2 className="text-xl font-semibold text-ghost">No engagements yet.</h2>
               <p className="mt-3 max-w-xl text-mute">
                 Nothing has been commissioned against {state.email}. When something is, it
-                appears here with its status, and the document appears with it once a senior
+                appears here with its status, and the document appears with it once a named
                 engineer has released it.
               </p>
               <div className="mt-6 flex flex-wrap items-center gap-4">

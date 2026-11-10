@@ -53,8 +53,8 @@ export default async function DeliverablePage({
             </>
           ) : (
             <>
-              The document is generated and sits with a senior engineer for review. We do not
-              publish an engineering opinion nobody has read. You will get an email the moment it
+              The document is generated and sits with a named engineer for review. We do not
+              release a document nobody has read. You will get an email the moment it
               is released.
             </>
           )}

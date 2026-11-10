@@ -34,5 +34,5 @@ export function productCard(page: ProductPage, p: Product): CardContent {
     ? [`${eurFromCents(p.amountCents)} deposit`, `Opens ${eurFromCents(p.opensBandCents[0])} to ${eurFromCents(p.opensBandCents[1])}`]
     : [priceLine(p)];
   if (!p.opensBandCents && !p.recurring && p.turnaroundDays) facts.push(`${p.turnaroundDays} working days from intake`);
-  return { kicker: "Fixed-fee engagement", title: p.name.replace(/ — deposit$/, ""), subtitle: page.decision, facts };
+  return { kicker: p.recurring ? "Subscription" : p.opensBandCents ? "Scoped engagement (deposit)" : "Fixed-fee engagement", title: p.name.replace(/ — deposit$/, ""), subtitle: page.decision, facts };
 }

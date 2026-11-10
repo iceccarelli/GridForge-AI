@@ -10,7 +10,7 @@ import { breakEvens, eurExact } from "@/lib/payg-pricing";
  *   1. a FREE result       the capacity check: seven numbers, no card, no account
  *   2. METERED software    a free allowance, then pay-as-you-go under a cap you set, then a plan once the
  *                          volume warrants one
- *   3. ENGINEERING         a fixed fee for a deliverable a senior engineer produces and reviews
+ *   3. ENGINEERING         a fixed fee for a deliverable a named engineer produces and reviews
  *
  * Every figure is read from lib/products.ts (PAYG, the API plans, the engagement catalogue) or derived from
  * it; none is typed here.
@@ -58,8 +58,8 @@ export default function ThreePaths() {
           <span className={eyebrow}>3 · An engineering engagement</span>
           <h3 className="mt-2 text-lg font-semibold text-ghost">A fixed fee, a named deliverable</h3>
           <p className="mt-2 flex-1 text-sm text-mute">
-            When you need a senior engineer to review a hall, not an API response. The fee is fixed before work starts:
-            at checkout, or agreed in writing after a deposit for the Study and the Portfolio Screen. Produced and reviewed by a person. The first paid step is the {screen.name}, from{" "}
+            When you need a named engineer to review a hall, not an API response. The fee is fixed before work starts:
+            at checkout, or agreed in writing after a deposit for the Study and the Portfolio Screen. Drafted by the engine, then reviewed and released by a named engineer (Hall Watch change notes are written automatically and are not engineer-reviewed). The first paid step is the {screen.name}, from{" "}
             {eurFromCents(screen.amountCents)}, which credits in full against the Envelope Study. API
             responses are screening output and never carry an engineer&apos;s sign-off.
           </p>

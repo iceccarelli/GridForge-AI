@@ -113,7 +113,7 @@ export function LiveConsole() {
     const score = Math.round(0.5 * priceScore + 0.5 * renewScore);
     const verdict =
       score >= 66
-        ? "Strong case for firm on-site power right now"
+        ? "Illustrative index: firm on-site power looks attractive in this interval"
         : score >= 33
         ? "Moderate case — watch the swing"
         : "Grid relaxed at the moment";
@@ -136,9 +136,9 @@ export function LiveConsole() {
       {/* ---- header ---- */}
       <div className="flex flex-wrap items-center justify-between gap-3 p-6 sm:p-7 border-b border-line relative">
         <div>
-          <div className="eyebrow">LIVE GRID CONSOLE · GERMANY (DE-LU)</div>
+          <div className="eyebrow">GRID CONSOLE · GERMANY (DE-LU) · LATEST PUBLISHED DATA</div>
           <h3 className="text-xl sm:text-2xl font-semibold tracking-tight mt-1">
-            The grid, streaming in real time.
+            The German grid, latest published interval.
           </h3>
         </div>
         <div className="flex items-center gap-3">
@@ -149,10 +149,10 @@ export function LiveConsole() {
                   <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-verified opacity-60" />
                   <span className="relative inline-flex rounded-full h-2 w-2 bg-verified" />
                 </span>
-                LIVE
+                LATEST
               </span>
               <span className="data text-[11px] text-faint hidden sm:inline">
-                updated {secsAgo}s ago · refresh {countdown}s
+                checked {secsAgo}s ago · refresh {countdown}s
               </span>
             </>
           ) : (
@@ -192,7 +192,7 @@ export function LiveConsole() {
               icon={Leaf}
               value={gOk ? gOk.renewablePct : null}
               suffix="%"
-              label="Renewable share, right now"
+              label="Renewable share, latest interval"
               accent="verified"
             />
             <HeroStat
@@ -233,7 +233,7 @@ export function LiveConsole() {
             {gOk && (
               <div>
                 <Caption
-                  title="What's generating right now"
+                  title="What's generating, latest interval"
                   hint="Green = renewable, amber/red = fossil. The grid leans on fossil when renewables dip."
                 />
                 <MixBar mix={gOk.mix} totalMW={gOk.totalMW} />

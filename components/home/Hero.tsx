@@ -31,7 +31,7 @@ export const SUB =
 export const FREE_NOTE = "7 numbers you already know, no card, no account. Directional.";
 export const DIFFERENCE = "We sell no equipment; that is all \u201cindependent\u201d means here.";
 export const SAMPLE_LABEL = "See a sample deliverable";
-export const PAID_LABEL = `Order a ${SCREEN.name} — ${eurFromCents(SCREEN.amountCents)} · ${SCREEN.turnaroundDays} days`;
+export const PAID_LABEL = `Order a ${SCREEN.name} — ${eurFromCents(SCREEN.amountCents)} · ${SCREEN.turnaroundDays} working days`;
 
 /** The seven answers by the question they answer, in the order the page gives them. tests/site/home-architecture.test.ts checks each one is
  *  in the rendered first screen, in this reading order, and says what its question asks for. */

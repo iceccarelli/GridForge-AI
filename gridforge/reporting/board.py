@@ -35,7 +35,7 @@ def build(intake: Intake, results: list[ScenarioResult],
         subtitle=f"{intake.client} · {plat.name} · summary of the Capacity & Density Envelope Study",
         watermark=watermark_for(intake),
         footer=("One page for a board. The study it summarises carries the full ladder, scenarios, sensitivity "
-                "and provenance. Engineering opinion supported by a documented model; not a design package."),
+                "and provenance. Screening-mode output of a documented model; not an issued engineering opinion and not a design package."),
         status="Board summary",
         meta=[("Site", ctx.site.name), ("Hall", ctx.hall.id), ("Target platform", plat.name),
               ("Recommended architecture", rec.spec.name if rec.unlocked_racks > 0 else "none — no architecture is deployable on these inputs")],

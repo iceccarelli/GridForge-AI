@@ -2,16 +2,16 @@
   "note": "Maintained by scripts/page-lastmod.mjs; do not edit dates by hand.",
   "pages": {
     "/": {
-      "lastmod": "2026-11-08",
-      "hash": "270930bd4681c229ff5417614c6645f8a1907c57e85d7c6c8c765326dcfdf760"
+      "lastmod": "2026-11-10",
+      "hash": "6e25ce583eeabcf60a7c9df157c6c61e3e1a197c538d2798a58b4445642cdfdd"
     },
     "/about": {
-      "lastmod": "2026-11-08",
-      "hash": "8ee37a5a077d9af3c202bc79e70a35ea1ff9bfda3aeab15d06313a5ffd726733"
+      "lastmod": "2026-11-10",
+      "hash": "4658d09ff6d5f4fc331181440c33c6e2266d151283a21df573d23ea3cbdddb3c"
     },
     "/constraints": {
-      "lastmod": "2026-11-07",
-      "hash": "45e08ebc361dec0ccdc03750086e84c235b37a41523607e78e444aea219266de"
+      "lastmod": "2026-11-10",
+      "hash": "aea2af07a03a1f1ab4bbf9e37b0f38db887669fb36aabcec158d26f510115a76"
     },
     "/constraints/achievable-facility-water-temperature": {
       "lastmod": "2026-11-08",
@@ -26,8 +26,8 @@
       "hash": "6e002343d727b9a48b735c39672fc005a653e986f29679f7109c9a1305d084ab"
     },
     "/constraints/cdu-capacity-site-conditions": {
-      "lastmod": "2026-11-08",
-      "hash": "178eaad91e0e7e26e807e4c37d8b9a8cd36f9c5530917ba666933f786ad2ccb6"
+      "lastmod": "2026-11-10",
+      "hash": "a52d06ac62ba7e77b103241364cb5541fb3fe933ca53f021598e74719a8e4c43"
     },
     "/constraints/chilled-water-plant-capacity": {
       "lastmod": "2026-11-08",
@@ -50,16 +50,16 @@
       "hash": "47e1a99bd07de36dd9f0cc0ec80509c22f8d3c47faf9478db7a57e0a9ec1bd6b"
     },
     "/constraints/rack-feed-tapoff-rating": {
-      "lastmod": "2026-11-08",
-      "hash": "8292c4333c86dca7ac1418fc235d69b9bd77e433a499eae36eb0299a8e14a988"
+      "lastmod": "2026-11-10",
+      "hash": "9de787663c13daf7d3c27bb1f4ac9905c0d9a4763274f746fb20b5bf4b063d51"
     },
     "/constraints/residual-air-load-removal": {
       "lastmod": "2026-11-08",
       "hash": "d094ca2fa74ad1de5c1f75e092cd20d49fa02de952edd13e3d02a579ff939d07"
     },
     "/constraints/transformer-capacity": {
-      "lastmod": "2026-11-08",
-      "hash": "45965badb78ad409ff28a32bbbb930c819426a80b3058ddb40fede1e9a30cf5b"
+      "lastmod": "2026-11-10",
+      "hash": "feeaaabb7f3eba1019be7bec169d5bb1961fd779946c15b63f44e567dd21ab01"
     },
     "/constraints/ups-capacity": {
       "lastmod": "2026-11-08",
@@ -70,72 +70,72 @@
       "hash": "10f7921f758fafc8c434568fa7145dc4ba30a660296dc843a92bf55269364c27"
     },
     "/developers": {
-      "lastmod": "2026-11-08",
-      "hash": "f4ef09f731306dd95b128725cef9704de88394820640913f247dc7d2c127ce17"
+      "lastmod": "2026-11-10",
+      "hash": "7910e24139289c18ac3525a5d797465af321a88a8feff3614b93f07c6d6d76d7"
     },
     "/evidence": {
-      "lastmod": "2026-11-08",
-      "hash": "7edaf1d923a020054edcc178143754621fcd87abe8c407a2e3cd6d8b907d0cd8"
+      "lastmod": "2026-11-10",
+      "hash": "b9a0b72e51930432117d60c0f2c5a11b6af728983281d961467d038e122bdfae"
     },
     "/for": {
-      "lastmod": "2026-11-08",
-      "hash": "14878d4cdf4067b8135891e1b88b941818d727ec5bd46f4f0578d8c98f71ef28"
+      "lastmod": "2026-11-10",
+      "hash": "6384cbfaff41ddea0eae235614eed88fc277f69b06623cafd2057e7ad162139f"
     },
     "/for/advisors": {
-      "lastmod": "2026-11-08",
-      "hash": "de5cdcdec49fffd4a34084d88d9477c60f9e9aa0fa7be307ce62b459902cc135"
+      "lastmod": "2026-11-10",
+      "hash": "ff5fbc430bc75de26bf7ad86d2d0ea42be0f2aa0a7549b3411aa927b23a50a7b"
     },
     "/for/ai-operators": {
-      "lastmod": "2026-11-08",
-      "hash": "de5cdcdec49fffd4a34084d88d9477c60f9e9aa0fa7be307ce62b459902cc135"
+      "lastmod": "2026-11-10",
+      "hash": "ff5fbc430bc75de26bf7ad86d2d0ea42be0f2aa0a7549b3411aa927b23a50a7b"
     },
     "/for/colocation": {
-      "lastmod": "2026-11-08",
-      "hash": "de5cdcdec49fffd4a34084d88d9477c60f9e9aa0fa7be307ce62b459902cc135"
+      "lastmod": "2026-11-10",
+      "hash": "ff5fbc430bc75de26bf7ad86d2d0ea42be0f2aa0a7549b3411aa927b23a50a7b"
     },
     "/for/developers": {
-      "lastmod": "2026-11-08",
-      "hash": "de5cdcdec49fffd4a34084d88d9477c60f9e9aa0fa7be307ce62b459902cc135"
+      "lastmod": "2026-11-10",
+      "hash": "ff5fbc430bc75de26bf7ad86d2d0ea42be0f2aa0a7549b3411aa927b23a50a7b"
     },
     "/for/engineering-teams": {
-      "lastmod": "2026-11-08",
-      "hash": "de5cdcdec49fffd4a34084d88d9477c60f9e9aa0fa7be307ce62b459902cc135"
+      "lastmod": "2026-11-10",
+      "hash": "ff5fbc430bc75de26bf7ad86d2d0ea42be0f2aa0a7549b3411aa927b23a50a7b"
     },
     "/for/existing-owners": {
-      "lastmod": "2026-11-08",
-      "hash": "de5cdcdec49fffd4a34084d88d9477c60f9e9aa0fa7be307ce62b459902cc135"
+      "lastmod": "2026-11-10",
+      "hash": "ff5fbc430bc75de26bf7ad86d2d0ea42be0f2aa0a7549b3411aa927b23a50a7b"
     },
     "/for/investors": {
-      "lastmod": "2026-11-08",
-      "hash": "de5cdcdec49fffd4a34084d88d9477c60f9e9aa0fa7be307ce62b459902cc135"
+      "lastmod": "2026-11-10",
+      "hash": "ff5fbc430bc75de26bf7ad86d2d0ea42be0f2aa0a7549b3411aa927b23a50a7b"
     },
     "/guides/nameplate-vs-useful-compute": {
       "lastmod": "2026-11-08",
       "hash": "04a2f5d484583315efd106b354b044d8a118deef36a00ce0de076a6bfb4b6e1f"
     },
     "/intelligence": {
-      "lastmod": "2026-11-08",
-      "hash": "89cf675ab56ab2894ad9e9531a534db2a10c9855c69af5659abefda8d492c8eb"
+      "lastmod": "2026-11-10",
+      "hash": "5214167ce6467660970eac94de37e350fa4bdef50eb15c24d0c4f821177ef81a"
     },
     "/lead-times": {
-      "lastmod": "2026-11-07",
-      "hash": "9a5ef1b527670408d5e5e007875d91757cdee27899f51a342ae1a6ba726da489"
+      "lastmod": "2026-11-10",
+      "hash": "092feb8ae01231899e214267cc5a25b6ddc83ec41c147386729be7906ef067ca"
     },
     "/legal/privacy": {
       "lastmod": "2026-11-03",
       "hash": "b69cd2ba965ca8df24139915397bdbe127098f67b66373af78162b70a908f200"
     },
     "/legal/security": {
-      "lastmod": "2026-11-03",
-      "hash": "f5ae44310a176010f49327beebe8b5ffb9dba4010737e0901144d360ff9126d6"
+      "lastmod": "2026-11-10",
+      "hash": "9400e1b40646f60347a2c36a288fdc66c2744535a6db8e3763b336bbf395c588"
     },
     "/legal/terms": {
-      "lastmod": "2026-11-08",
-      "hash": "6b0a37d07d566f609572f363849f9292a606ba7cfca6cf38b11841f5f0482900"
+      "lastmod": "2026-11-10",
+      "hash": "a44f9fa9337d08268231c450c4d2048e38ccbde927071b36029ae26bf3b24201"
     },
     "/observatory": {
-      "lastmod": "2026-11-08",
-      "hash": "c6447150b511a08c3c0c008858da26cd9416239f425c71d2d8440131865ca9b4"
+      "lastmod": "2026-11-10",
+      "hash": "4750e38af6930ac04a179598a6866b17c8499ea26f59ed7dc33570217b25ff25"
     },
     "/platforms": {
       "lastmod": "2026-11-08",
@@ -158,32 +158,32 @@
       "hash": "ae774d42a4757c67891d347a52fbce215afb98a19e426666c5619e64db058dd2"
     },
     "/pricing": {
-      "lastmod": "2026-11-08",
-      "hash": "e783d65f88923f955be023279412e821778ce3bc82800a3b1399615fcc9039d3"
+      "lastmod": "2026-11-10",
+      "hash": "1ec58c6fffc02864b72123d069eb2a77c1825e0369dd97518cc19cee9a5cd502"
     },
     "/products": {
-      "lastmod": "2026-11-08",
-      "hash": "03d7079ceb468fa8850d923c98aec55aa39b3d76dce41c2a3c1b2cbe2eb8b226"
+      "lastmod": "2026-11-10",
+      "hash": "afe9d06a6cc2f374b1ce17ca69fe528e2b73b0c1083042093564e863bb296023"
     },
     "/products/density-screen": {
-      "lastmod": "2026-11-09",
-      "hash": "ace0f7d75483ce27f72067fdbeeaf0fb0ee42c4e8ae3ec993b9d925e42c761f6"
+      "lastmod": "2026-11-10",
+      "hash": "5e6d2aa8167cbe2fdf5e23f460c0ddfeb590aa4758f149ec4e806f82a23724c6"
     },
     "/products/envelope-study": {
-      "lastmod": "2026-11-09",
-      "hash": "ace0f7d75483ce27f72067fdbeeaf0fb0ee42c4e8ae3ec993b9d925e42c761f6"
+      "lastmod": "2026-11-10",
+      "hash": "5e6d2aa8167cbe2fdf5e23f460c0ddfeb590aa4758f149ec4e806f82a23724c6"
     },
     "/products/hall-watch": {
-      "lastmod": "2026-11-09",
-      "hash": "ace0f7d75483ce27f72067fdbeeaf0fb0ee42c4e8ae3ec993b9d925e42c761f6"
+      "lastmod": "2026-11-10",
+      "hash": "5e6d2aa8167cbe2fdf5e23f460c0ddfeb590aa4758f149ec4e806f82a23724c6"
     },
     "/products/portfolio-screen": {
-      "lastmod": "2026-11-09",
-      "hash": "ace0f7d75483ce27f72067fdbeeaf0fb0ee42c4e8ae3ec993b9d925e42c761f6"
+      "lastmod": "2026-11-10",
+      "hash": "5e6d2aa8167cbe2fdf5e23f460c0ddfeb590aa4758f149ec4e806f82a23724c6"
     },
     "/products/procurement-specification": {
-      "lastmod": "2026-11-09",
-      "hash": "ace0f7d75483ce27f72067fdbeeaf0fb0ee42c4e8ae3ec993b9d925e42c761f6"
+      "lastmod": "2026-11-10",
+      "hash": "5e6d2aa8167cbe2fdf5e23f460c0ddfeb590aa4758f149ec4e806f82a23724c6"
     },
     "/qualify": {
       "lastmod": "2026-11-08",
@@ -194,28 +194,28 @@
       "hash": "732500ee9a6c623c9403670547865e81f540a7b4fa501354abdfcdb7c7fab234"
     },
     "/reference/board_summary.html": {
-      "lastmod": "2026-11-02",
-      "hash": "01acd0b76135b1ed8ebbeaaa24b1170a737c17a972734bbc86dd653408326401"
+      "lastmod": "2026-11-10",
+      "hash": "798970e04240fa4824ed08a73def8beb1a9839c659ed59415cbfebd19d4a8607"
     },
     "/reference/density_screen.html": {
       "lastmod": "2026-11-07",
       "hash": "bb431fa8573e2cdfe51123a294f82d551ae4e064adfb1d50eb11aa168b863c9e"
     },
     "/reference/envelope_study.html": {
-      "lastmod": "2026-11-07",
-      "hash": "48c7d5c4a4489f152b6b3fb1b8b764b382c34793f51823944936635a36c32931"
+      "lastmod": "2026-11-10",
+      "hash": "689cc1d547841601476adc7fc92de53bf13ea3fd225812e3ae32c62c731e44eb"
     },
     "/reference/proposal.html": {
-      "lastmod": "2026-11-07",
-      "hash": "fe671fc23f900032bad167521bdb2cf6b5e57a3a607f8620317252cec1d78644"
+      "lastmod": "2026-11-10",
+      "hash": "5c0f3be1770f34ac858811e6644f97d1987ddbbd25f0f6eec1eafe6d08719b1f"
     },
     "/reference/specification.html": {
       "lastmod": "2026-11-07",
       "hash": "80b0340c3b3e7a086d8f6a6d95f4283b7f80e614804e287a43adc7951185184e"
     },
     "/reference/walkthrough.html": {
-      "lastmod": "2026-11-07",
-      "hash": "814e8bb5ea063c0591ca80ffcd1060c55f9c33e404269cd823004b0e3ba2e6e2"
+      "lastmod": "2026-11-10",
+      "hash": "f77b1be3e12dc2dfc8028893479a7b3a8ca9b9503c8c8e9388169728ffb6f6e6"
     }
   }
 }

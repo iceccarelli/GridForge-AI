@@ -3,7 +3,7 @@
   "slug": "transformer-capacity",
   "name": "Transformer capacity",
   "domain": "electrical",
-  "headline": "The transformer is rarely the tightest constraint and is usually the one that sets the date.",
+  "headline": "The transformer need not be the tightest constraint, but its lead time can be the one that sets the date.",
   "limits": "Usable secondary capacity after the site's derating policy and at the redundancy the hall is sold on.",
   "relation": "Required MVA \u2248 (racks \u00d7 rack kW \u00d7 PUE) / 1000 / pf, at N+1 or 2N as the hall is contracted. Harmonic content from GPU rectifier loads derates a standard unit further.",
   "binds_when": "Sum your existing IT load and the new load at your expected PUE, divide by 0.95, and compare against installed capacity with one unit out of service. If the margin is thin, check lead time before you check price.",
