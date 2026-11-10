@@ -505,9 +505,7 @@ export function QualifyReadout({
   return (
     <div className="mt-8 animate-slide-up">
       {template ? <TemplateNotice template={template} recorded={result.inputs_declared_assumed ?? []} /> : null}
-      <p ref={headlineRef} tabIndex={-1} className="text-lg text-ghost leading-snug max-w-3xl outline-none focus-visible:ring-2 focus-visible:ring-power/60">
-        {headline}
-      </p>
+      <p ref={headlineRef} tabIndex={-1} className="text-lg text-ghost leading-snug max-w-3xl outline-none focus-visible:ring-2 focus-visible:ring-power/60">{headline}</p>
       {share ? <ShareLink href={share} /> : null}
 
       <div className="mt-5 grid gap-3 sm:grid-cols-3">
