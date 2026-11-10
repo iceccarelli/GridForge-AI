@@ -187,11 +187,31 @@ def write_model_pack(path, intake: Intake, results: list[ScenarioResult],
 # in Excel, LibreOffice, pandas and a text editor, which is more than can be said
 # for a .xlsx.
 
+_FORMULA_START = ("=", "+", "-", "@", "\t", "\r")
+
+
+def _is_plain_number(text: str) -> bool:
+    try:
+        float(text)
+    except ValueError:
+        return False
+    return True
+
+
+def _safe_cell(v: Any) -> Any:
+    """A spreadsheet runs a cell that starts with = + - @ (or a tab or CR) as a formula. A text cell here can be text a buyer typed (a
+    company, a hall label), so such text gets an apostrophe in front and shows as text. A plain number written as text ('-1.5') is not
+    a formula and is left alone, as is a lone '-' or '+' used as an empty-value placeholder; real numbers are never strings."""
+    if isinstance(v, str) and v.startswith(_FORMULA_START) and v not in ("-", "+") and not _is_plain_number(v):
+        return "'" + v
+    return v
+
+
 def _csv(header: list[str], rows: list[list[Any]]) -> str:
     buf = io.StringIO()
     w = csv.writer(buf, lineterminator="\n")
-    w.writerow(header)
-    w.writerows(rows)
+    w.writerow([_safe_cell(h) for h in header])
+    w.writerows([[_safe_cell(c) for c in row] for row in rows])
     return buf.getvalue()
 
 

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import nextConfig from "../../next.config";
-import { GLOBAL_HEADERS, TOKEN_API_ROUTES, TOKEN_HEADERS, TOKEN_ROUTES, securityHeaderRules } from "@/lib/security-headers";
+import { GLOBAL_HEADERS, QUERY_TOKEN_PAGES, TOKEN_API_ROUTES, TOKEN_HEADERS, TOKEN_ROUTES, securityHeaderRules } from "@/lib/security-headers";
 import fs from "node:fs";
 import path from "node:path";
 
@@ -46,8 +46,11 @@ describe("security headers", () => {
       const dir = path.join("app", r.replace(/\/:path\*$/, ""));
       expect(handlers(dir).length, `${r} has no route handler`).toBeGreaterThan(0);
     }
+    // Pages whose credential is in the query string must be real pages.
+    for (const r of QUERY_TOKEN_PAGES) expect(fs.existsSync(path.join("app", r, "page.tsx")), `${r} is not a page`).toBe(true);
     const api = new Set<string>(TOKEN_API_ROUTES);
-    for (const r of TOKEN_ROUTES) expect(tokenPages.includes(r) || api.has(r), `${r} matches no page or route`).toBe(true);
+    const query = new Set<string>(QUERY_TOKEN_PAGES);
+    for (const r of TOKEN_ROUTES) expect(tokenPages.includes(r) || api.has(r) || query.has(r), `${r} matches no page or route`).toBe(true);
   });
 
   it("serves AVIF before WebP and keeps remote images to the one allowed host", () => {

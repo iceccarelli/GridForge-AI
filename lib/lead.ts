@@ -40,17 +40,17 @@ export const GRID_STATUS_OPTIONS = [
 // --- Validation schema (per-step fields grouped; one schema validates all) ---
 export const leadSchema = z.object({
   // Step 1 — project shape
-  capacity: z.string().min(1, "Approximate MW helps us size the read"),
-  location: z.string().min(3, "Where is the site? (city / ISO / country)"),
+  capacity: z.string().min(1, "Approximate MW helps us size the read").max(40, "Keep the capacity to a short figure"),
+  location: z.string().min(3, "Where is the site? (city / ISO / country)").max(160, "Keep the location to 160 characters"),
   urgency: z.enum(URGENCY_OPTIONS),
   gridStatus: z.enum(GRID_STATUS_OPTIONS),
   // Step 2 — needs
-  services: z.array(z.string()).min(1, "Pick at least one"),
-  message: z.string().min(10, "A line or two about the project"),
+  services: z.array(z.string().max(80)).min(1, "Pick at least one").max(8, "Pick at most eight"),
+  message: z.string().min(10, "A line or two about the project").max(4000, "Keep the message to 4,000 characters"),
   // Step 3 — contact
-  name: z.string().min(2, "Your name"),
-  company: z.string().min(2, "Company or organization"),
-  email: z.string().email("A valid work email"),
+  name: z.string().min(2, "Your name").max(160),
+  company: z.string().min(2, "Company or organization").max(160),
+  email: z.string().email("A valid work email").max(254),
 });
 
 export type LeadInput = z.infer<typeof leadSchema>;

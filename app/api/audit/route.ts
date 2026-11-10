@@ -4,6 +4,7 @@ import { mailSender, sendMail } from "@/lib/mail";
 import { NextResponse } from "next/server";
 import { guardRequest, mailRecipientAllowed } from "@/lib/rate-limit";
 import { leadSchema, scoreLead, parseCapacityMW, type LeadRecord } from "@/lib/lead";
+import { readBoundedJson } from "@/lib/http-body";
 
 export const runtime = "nodejs";
 
@@ -23,12 +24,10 @@ export const runtime = "nodejs";
 // UX never silently fails. The form ALWAYS posts here; Formspree (if set) is a
 // redundant server-side forward, not a bypass.
 export async function POST(req: Request) {
-  let raw: unknown;
-  try {
-    raw = await req.json();
-  } catch {
-    return NextResponse.json({ ok: false, error: "Invalid payload" }, { status: 400 });
-  }
+  // Bounded before it is parsed: this route is open to anyone, so the body is capped like /api/contact's (a megabyte of text was accepted before).
+  const read = await readBoundedJson(req, 16 * 1024);
+  if (!read.ok) return NextResponse.json({ ok: false, error: read.status === 413 ? "That submission is too long." : "Invalid payload" }, { status: read.status });
+  const raw: unknown = read.value;
 
   const parsed = leadSchema.safeParse(raw);
   if (!parsed.success) {
@@ -193,10 +192,12 @@ async function notify(record: LeadRecord): Promise<void> {
           from,
           to: record.email,
           replyTo: process.env.LEAD_TO_EMAIL || "power@timetopower.ai",
-          subject: `Time to Power \u2014 enquiry received (${record.capacity} site)`,
+          // A fixed acknowledgement. It echoes NOTHING the caller typed: the address is whatever they entered, and a free-text field
+          // in mail from the company's domain would let anyone send a victim text of their choosing.
+          subject: `Time to Power \u2014 enquiry received`,
           text:
             `Thank you for your request.\n\n` +
-            `We received your submission for a ${record.capacity} site in ${record.location}.\n\n` +
+            `We received your submission.\n\n` +
             `${nextSteps}\n\n` +
             `All information is held in strict confidence. An NDA is available immediately on request.\n\n` +
             `\u2014 Time to Power\nIndependent power-and-thermal engineering for existing AI sites`,
