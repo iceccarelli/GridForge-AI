@@ -145,3 +145,33 @@ def test_publishing_is_manual_tokenless_and_refuses_without_a_licence_file():
 def test_the_source_distribution_leaves_the_repository_wide_tests_out():
     manifest = (ROOT / "MANIFEST.in").read_text()
     assert "prune tests" in manifest, "setuptools adds tests/test*.py to an sdist by default; they are not part of the engine"
+
+
+# The PyPI name `gridforge` belongs to an unrelated project (a console-table library, 3.0.0, MIT), so the distribution is `gridforge-engine`.
+# A publish to the wrong name can never succeed, and a README that says `pip install gridforge` sends a reader to somebody else's package.
+DISTRIBUTION = "gridforge-engine"
+
+
+def test_the_distribution_name_is_not_the_one_pypi_already_gives_to_an_unrelated_project():
+    assert PYPROJECT["project"]["name"] == DISTRIBUTION
+    # The import package and the command are unchanged: renaming the distribution moves no code.
+    assert PYPROJECT["project"]["scripts"]["gridforge"] == "gridforge.cli:main"
+    assert (PKG / "__init__.py").exists()
+
+
+def test_the_publish_workflow_asks_pypi_about_the_name_it_publishes():
+    wf = (ROOT / ".github" / "workflows" / "publish-pypi.yml").read_text()
+    assert f"https://pypi.org/pypi/{DISTRIBUTION}/" in wf
+    assert "https://pypi.org/pypi/gridforge/" not in wf
+    assert f"project name `{DISTRIBUTION}`" in wf
+
+
+def test_the_readme_that_ships_to_pypi_installs_the_distribution_not_a_stranger_s_package():
+    readme = (ROOT / PYPROJECT["project"]["readme"]).read_text()
+    assert f"pip install {DISTRIBUTION}" in readme
+    assert not re.search(r"pip install gridforge(?![-\w])", readme)
+
+
+def test_the_package_checker_expects_the_distribution_name():
+    checker = (ROOT / "scripts" / "check-package.py").read_text()
+    assert f'NAME = "{DISTRIBUTION}"' in checker

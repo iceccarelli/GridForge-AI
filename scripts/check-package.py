@@ -17,7 +17,7 @@ from email.parser import Parser
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
-NAME = "gridforge"
+NAME = "gridforge-engine"   # the distribution name (pyproject.toml); the import package inside it is still `gridforge`
 MAX_FILE_BYTES = 5_000_000
 
 WHEEL_MUST_HAVE = (

@@ -5,7 +5,7 @@ Answers one question: **how much AI compute can this hall carry, what binds firs
 It takes a description of a hall (grid connection, transformers, UPS, low-voltage distribution, rack feed, cooling plant, floor and white space) and a GPU platform, and solves every constraint at once. The result is a rack count, the constraint that binds first, and a headroom ladder: relieve the binding constraint, solve again, and see what the next one is.
 
 ```bash
-pip install gridforge
+pip install gridforge-engine      # installs the `gridforge` command and the `gridforge` import package
 
 gridforge init -o intake.json         # a blank intake to send a client
 gridforge gaps    intake.json         # the data request: what is missing and why it matters

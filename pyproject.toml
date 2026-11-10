@@ -3,7 +3,7 @@ requires = ["setuptools>=77"]  # 77 for PEP 639 licence metadata
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "gridforge"
+name = "gridforge-engine"   # the PyPI project name; `gridforge` is taken on PyPI by an unrelated project. The import package and the command stay `gridforge`.
 version = "0.9.0"          # the engine's own version (gridforge/api/server.py VERSION); tests/test_packaging.py keeps them equal
 description = "Power and thermal capacity envelope engine for AI data-centre halls"
 readme = "docs/pypi-readme.md"
