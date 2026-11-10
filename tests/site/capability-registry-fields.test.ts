@@ -273,7 +273,7 @@ describe("each kind of wrong field makes the audit fail (mutation checks)", () =
     caught({ registry: inEntry(REGISTRY, "procurement_bids", 'production_status: "live"', 'production_status: "not_deployed"') }, /procurement_bids: production_status: marked not_deployed but \/v1\/bids is in lib\/engine-deployed.json \(the entry is stale\)/);
     // the reverse direction: a not_deployed entry whose route the snapshot later lists
     const withRoute = { ...snapshot, endpoints: [...snapshot.endpoints, "/v1/calibration/residuals"] };
-    caught({ deployed: JSON.stringify(withRoute), registry: inEntry(REGISTRY, "calibration_capture", 'production_status: "unverified"', 'production_status: "not_deployed"') }, /calibration_capture: production_status: marked not_deployed but \/v1\/calibration\/residuals is in/);
+    caught({ deployed: JSON.stringify(withRoute), registry: inEntry(REGISTRY, "calibration_capture", 'production_status: "live"', 'production_status: "not_deployed"') }, /calibration_capture: production_status: marked not_deployed but \/v1\/calibration\/residuals is in/);
     // a missing or unknown production_status
     caught({ registry: inEntry(REGISTRY, "qualify", 'production_status: "live",', 'production_status: "mostly",') }, /qualify: production_status: production_status "mostly" is not one of/);
     caught({ registry: inEntry(REGISTRY, "qualify", '\n    production_status: "live",', "") }, /qualify: production_status: the field production_status is missing/);
@@ -288,13 +288,13 @@ describe("each kind of wrong field makes the audit fail (mutation checks)", () =
     // a concrete route the snapshot lacks is not live either
     const snapWithout = JSON.parse(fs.readFileSync(path.join(ROOT, "lib/engine-deployed.json"), "utf8"));
     snapWithout.endpoints = snapWithout.endpoints.filter((e: string) => e !== "/v1/calibration/residuals");
-    caught({ deployed: JSON.stringify(snapWithout), registry: inEntry(REGISTRY, "calibration_capture", 'production_status: "unverified"', 'production_status: "live"') }, /calibration_capture: production_status: marked live but \/v1\/calibration\/residuals is not in lib\/engine-deployed\.json/);
+    caught({ deployed: JSON.stringify(snapWithout) }, /calibration_capture: production_status: marked live but \/v1\/calibration\/residuals is not in lib\/engine-deployed\.json/);
   });
 
   it("M7c not_deployed cannot be claimed without a concrete absent route", () => {
     caught({ registry: inEntry(REGISTRY, "api_triage", 'production_status: "unverified"', 'production_status: "not_deployed"') }, /api_triage: production_status: marked not_deployed but its rest_endpoint is a wildcard/);
     caught({ registry: inEntry(REGISTRY, "intelligence_team", 'production_status: "unverified"', 'production_status: "not_deployed"') }, /intelligence_team: production_status: marked not_deployed but its rest_endpoint is null/);
-    caught({ registry: inEntry(inEntry(REGISTRY, "calibration_capture", 'rest_endpoint: "/v1/calibration/residuals"', "rest_endpoint: null"), "calibration_capture", 'production_status: "unverified"', 'production_status: "not_deployed"') }, /calibration_capture: production_status: marked not_deployed but its rest_endpoint is null/);
+    caught({ registry: inEntry(inEntry(REGISTRY, "calibration_capture", 'rest_endpoint: "/v1/calibration/residuals"', "rest_endpoint: null"), "calibration_capture", 'production_status: "live"', 'production_status: "not_deployed"') }, /calibration_capture: production_status: marked not_deployed but its rest_endpoint is null/);
   });
 
   it("M7d an unverified entry whose notes do not say so", () => {

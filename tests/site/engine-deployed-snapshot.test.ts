@@ -4,9 +4,8 @@
  * lib/engine-deployed.json is a committed snapshot of the deployed engine's GET /v1/version `endpoints` (and the MCP
  * transport it declares). The repository's engine can be ahead of the one on Fly, so "implemented here" is not "deployed".
  * As of the 2026-10-27 redeploy the snapshot listed every route the repository's ROUTES serves (scripts/check-engine-drift.py: no
- * difference). The live engine has since been seen serving GET /v1/calibration/residuals (read-only GET 200 on 2026-11-06; /v1/version
- * lists 24 endpoints) which the committed snapshot (23, dated 2026-11-05) does not list, so calibration_capture is "unverified", not
- * "not_deployed" and not "live". The invariants below do not pin that state; they are computed from the snapshot.
+ * difference). The live engine was seen serving GET /v1/calibration/residuals on 2026-11-06, the snapshot listed it from 2026-11-07, and the
+ * 2026-11-10 redeploy's drift check found no difference between the deployed engine and this repository, so calibration_capture is "live". The invariants below do not pin that state; they are computed from the snapshot.
  *
  * UPDATING THAT SNAPSHOT IS PART OF AN ENGINE REDEPLOY. After the engine is redeployed:
  *   1. read https://gridforge-engine.fly.dev/v1/version and replace `endpoints` (and `snapshot_date`) in lib/engine-deployed.json;
