@@ -65,11 +65,11 @@ const warnings = () => warn.mock.calls.map((c) => c.map(String).join(" "));
 
 describe("the policy", () => {
   it("the default per-domain cap is stated, and the env var overrides it only with a sensible integer", () => {
-    expect(FREE_ACCOUNTS_MAX_PER_DOMAIN_DEFAULT).toBe(10);
-    expect(freeAccountsMaxPerDomain({} as NodeJS.ProcessEnv)).toBe(10);
+    expect(FREE_ACCOUNTS_MAX_PER_DOMAIN_DEFAULT).toBe(25);
+    expect(freeAccountsMaxPerDomain({} as NodeJS.ProcessEnv)).toBe(25);
     expect(freeAccountsMaxPerDomain({ GRIDFORGE_FREE_ACCOUNTS_MAX_PER_DOMAIN: "3" } as unknown as NodeJS.ProcessEnv)).toBe(3);
     for (const bad of ["0", "-1", "lots", "", "1.5", "1000000", " "]) {
-      expect(freeAccountsMaxPerDomain({ GRIDFORGE_FREE_ACCOUNTS_MAX_PER_DOMAIN: bad } as unknown as NodeJS.ProcessEnv), bad).toBe(10);
+      expect(freeAccountsMaxPerDomain({ GRIDFORGE_FREE_ACCOUNTS_MAX_PER_DOMAIN: bad } as unknown as NodeJS.ProcessEnv), bad).toBe(25);
     }
     expect(FREE_ACCOUNTS_MAX_PER_DOMAIN_DEFAULT).toBeLessThan(freeAccountsMax({} as NodeJS.ProcessEnv)); // a domain can never be the whole site ceiling
   });
@@ -93,11 +93,44 @@ describe("the policy", () => {
 
   it("freeDomainCap: free-mail (any spelling of the address) is exempt; everything else gets the cap and the domain key", () => {
     for (const e of ["a@gmail.com", "A.B+tag@Gmail.com", "x@googlemail.com", "y@outlook.com", "z@yahoo.co.uk"]) expect(freeDomainCap(e), e).toBeNull();
-    expect(freeDomainCap("u1@evil.example")).toEqual({ key: "evil.example", max: 10 });
-    expect(freeDomainCap("u1@a.b.evil.example")).toEqual({ key: "evil.example", max: 10 });
+    expect(freeDomainCap("u1@evil.example")).toEqual({ key: "evil.example", max: 25 });
+    expect(freeDomainCap("u1@a.b.evil.example")).toEqual({ key: "evil.example", max: 25 });
     expect(freeDomainCap("u1@evil.example", { GRIDFORGE_FREE_ACCOUNTS_MAX_PER_DOMAIN: "2" } as unknown as NodeJS.ProcessEnv)).toEqual({ key: "evil.example", max: 2 });
     expect(freeDomainCap("not an email")).toBeNull(); // nothing to key on; the address is refused elsewhere
     expect(freeDomainCap(null)).toBeNull();
+  });
+});
+
+describe("the free-mail exemption is the EXACT domain only", () => {
+  it("a sub-domain of a listed provider is capped (x@y.fastmail.com, x@anything.gmail.com); the provider's own address is exempt", () => {
+    for (const e of ["x@y.fastmail.com", "x@anything.gmail.com", "x@a.b.outlook.com", "x@mail.yahoo.co.uk", "x@evil.protonmail.ch", "x@my.web.de"]) {
+      const cap = freeDomainCap(e);
+      expect(cap, e).not.toBeNull();
+      expect(cap!.max).toBe(25);
+    }
+    expect(freeDomainCap("x@y.fastmail.com")!.key).toBe("fastmail.com");
+    expect(freeDomainCap("x@anything.gmail.com")!.key).toBe("gmail.com");
+    for (const e of ["a@gmail.com", "a@fastmail.com", "a@outlook.com", "a@yahoo.co.uk", "a@protonmail.ch", "a@web.de"]) expect(freeDomainCap(e), e).toBeNull();
+  });
+
+  it("through the route: a catch-all at <anything>.gmail.com is capped, while real gmail.com users keep minting past the cap", async () => {
+    process.env.GRIDFORGE_FREE_ACCOUNTS_MAX_PER_DOMAIN = "2";
+    for (const e of ["a@x.gmail.com", "b@y.gmail.com", "c@z.gmail.com", "r1@gmail.com", "r2@gmail.com", "r3@gmail.com"]) await signUp(e);
+    expect((await mint("a@x.gmail.com")).status).toBe(200);
+    expect((await mint("b@y.gmail.com")).status).toBe(200);
+    expect(await (await mint("c@z.gmail.com")).json()).toMatchObject({ reason: "domain_capacity" }); // one cap for gmail.com and every sub-domain of it
+    for (const e of ["r1@gmail.com", "r2@gmail.com", "r3@gmail.com"]) expect((await mint(e)).status, e).toBe(200);
+  });
+});
+
+describe("country variants of large providers are on the list (exact entries)", () => {
+  it("yahoo.in, yahoo.com.au, outlook.com.br, protonmail.ch, mailbox.org and the other named families are exempt; there are no wildcards", () => {
+    for (const d of ["yahoo.in", "yahoo.com.au", "outlook.com.br", "protonmail.ch", "mailbox.org", "hotmail.com.br", "live.com.au", "msn.co.uk", "gmx.co.uk", "zoho.eu",
+                     "icloud.com", "me.com", "mac.com", "yandex.by", "mail.ru", "qq.com", "163.com", "126.com"]) {
+      expect(FREE_MAIL_DOMAINS.has(d), d).toBe(true);
+      expect(freeDomainCap(`someone@${d}`), d).toBeNull();
+    }
+    for (const d of FREE_MAIL_DOMAINS) expect(d, d).toMatch(/^[a-z0-9]([a-z0-9.-]*[a-z0-9])?$/); // exact names: no "*", no leading dot
   });
 });
 

@@ -66,7 +66,7 @@ afterEach(() => {
 describe("finding 1: production refuses a session key that is not distinct and strong", () => {
   const forge = (secret: string) => {
     const payload = `${Date.now() + 60_000}.deadbeefdeadbeef`;
-    return `${payload}.${crypto.createHmac("sha256", secret).update(payload).digest("hex")}`;
+    return `${payload}.${crypto.createHmac("sha256", secret).update(`v2.${payload}`).digest("hex") /* the MAC is versioned (lib/admin.ts MAC_VERSION): this is the CURRENT format */}`;
   };
 
   it("EXPLOIT (before the fix): the derived key is a pure function of the password, so anyone who learns or guesses the password offline can forge a session without ever hitting the login throttle", async () => {

@@ -131,7 +131,7 @@ describe("F11: admin login throttle identity and session key", () => {
 
   const forge = (secret: string | Buffer) => {
     const payload = `${Date.now() + 60_000}.deadbeefdeadbeef`;
-    return `${payload}.${crypto.createHmac("sha256", secret).update(payload).digest("hex")}`;
+    return `${payload}.${crypto.createHmac("sha256", secret).update(`v2.${payload}`).digest("hex") /* the MAC is versioned (lib/admin.ts MAC_VERSION): this is the CURRENT format */}`;
   };
 
   it("without ADMIN_SESSION_SECRET the signing key is derived, never the raw password: a cookie signed with the password is refused", async () => {

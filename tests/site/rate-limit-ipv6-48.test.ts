@@ -11,7 +11,7 @@
  *     (a mutation check run against a mutated copy of the module, below).
  *
  * LIMITS, stated honestly: the in-memory counter used here is per process; production uses the shared Postgres counter (0024).
- * A caller with a /32 can still use 8 allowances per /48 it rotates between -- the /48 bucket bounds a /48, not a whole provider.
+ * A caller with a /32 can still use 32 allowances per /48 it rotates between -- the /48 bucket bounds a /48, not a whole provider.
  * The shared aggregate budgets and the provider-spend ceiling are what bound the total.
  */
 import fs from "node:fs";
@@ -75,11 +75,11 @@ describe("the /48 identity", () => {
   });
 
   it("the default ceiling is stated, and a malformed override means the default, never 'unlimited'", () => {
-    expect(IPV6_48_FACTOR_DEFAULT).toBe(8);
-    expect(ipv6CoarseFactor({} as NodeJS.ProcessEnv)).toBe(8);
+    expect(IPV6_48_FACTOR_DEFAULT).toBe(32);
+    expect(ipv6CoarseFactor({} as NodeJS.ProcessEnv)).toBe(32);
     expect(ipv6CoarseFactor({ GRIDFORGE_RATE_V6_48_FACTOR: "4" } as unknown as NodeJS.ProcessEnv)).toBe(4);
     for (const bad of ["0", "-3", "1e9", "NaN", "", "8.5", "99999", "lots"]) {
-      expect(ipv6CoarseFactor({ GRIDFORGE_RATE_V6_48_FACTOR: bad } as unknown as NodeJS.ProcessEnv), bad).toBe(8);
+      expect(ipv6CoarseFactor({ GRIDFORGE_RATE_V6_48_FACTOR: bad } as unknown as NodeJS.ProcessEnv), bad).toBe(32);
     }
   });
 });
@@ -138,11 +138,15 @@ describe("a caller rotating /64s inside one /48 is stopped; a normal caller is n
   });
 
   it("the provider-spend budget is also charged per /48: rotating /64s cannot multiply a caller's engine budget", async () => {
+    // At the default factor (32) the /48 ceiling of every provider budget is above that budget's SHARED aggregate, which then binds first. To see the /48
+    // charge itself stop the rotation, the factor is lowered for this test (the env override, same code path) so the /48 ceiling is below the aggregate.
+    vi.stubEnv("GRIDFORGE_RATE_V6_48_FACTOR", "4");
     const realFetch = globalThis.fetch;
     globalThis.fetch = (async () => new Response("{}", { status: 200 })) as typeof fetch;
     try {
       const budget = PROVIDER_BUDGETS["engine:public:free"]; // 360 an hour per caller, 3000 for everyone
-      const ceiling = budget.caller.limit * IPV6_48_FACTOR_DEFAULT; // 2880: below the aggregate, so only the /48 can be what stops this
+      const ceiling = budget.caller.limit * ipv6CoarseFactor(); // 1440
+      expect(ceiling).toBe(budget.caller.limit * 4);
       expect(ceiling).toBeLessThan(budget.aggregate.limit);
       let ok = 0;
       for (let i = 0; i < ceiling + 40; i++) {

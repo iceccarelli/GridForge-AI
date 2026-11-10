@@ -4,7 +4,7 @@
  *
  *   - logout writes the session's nonce (a keyed hash of it, never the nonce) to a server-side denylist (migration 0055);
  *   - verifyAdminCookie reads it, and FAILS CLOSED in production when it cannot (store missing, migration not applied, unreachable, unexpected answer);
- *   - the lifetime is 4 hours, and a correctly signed cookie that claims longer (one minted under the old 12 hour rule) is refused;
+ *   - the lifetime is 4 hours, and a cookie minted under the old 12 hour format is refused at every point of its life (the MAC is versioned);
  *   - no cookie, nonce or MAC is logged.
  *
  * LIMITS, stated honestly: revocation is per SESSION (a copied cookie of a session that was never logged out stays valid until it expires, at most 4
@@ -91,11 +91,21 @@ describe("lifetime", () => {
     expect(await verifyAdminCookie(t, Date.now() + 5 * 3600_000)).toBe(false);
   });
 
-  it("a correctly SIGNED cookie that claims more than the lifetime (minted under the old 12 hour rule) is refused at once", async () => {
-    const { adminToken, verifyAdminCookie } = await admin();
-    const old = adminToken(Date.now() + 8 * 3600_000)!; // expiry = now + 12 h
-    expect(await verifyAdminCookie(old)).toBe(false);
-    expect(await verifyAdminCookie(old, Date.now() + 9 * 3600_000)).toBe(true); // it only becomes acceptable once within a lifetime of expiry
+  it("a cookie minted under the OLD format (12 h, MAC over <expiry>.<nonce>) never validates: refused at +0 h, +4 h, +8.1 h and +11.9 h", async () => {
+    const { verifyAdminCookie } = await admin();
+    const t0 = Date.now();
+    const legacy = (() => {
+      const payload = `${t0 + 12 * 3600_000}.deadbeefdeadbeef`;
+      // the key the site used then: the development-derived one, exactly as lib/admin.ts derives it with no ADMIN_SESSION_SECRET
+      const key = crypto.createHmac("sha256", PASSWORD).update("gf-admin-session-key-v1").digest("hex");
+      return `${payload}.${crypto.createHmac("sha256", key).update(payload).digest("hex")}`;
+    })();
+    for (const hours of [0, 4, 8.1, 11.9]) expect(await verifyAdminCookie(legacy, t0 + hours * 3600_000), `at +${hours} h`).toBe(false);
+    // and the same payload signed in the current format IS accepted, so the refusal above is the format, not the key or the clock
+    const key = crypto.createHmac("sha256", PASSWORD).update("gf-admin-session-key-v1").digest("hex");
+    const payload = `${t0 + 3600_000}.deadbeefdeadbeef`;
+    const current = `${payload}.${crypto.createHmac("sha256", key).update(`v2.${payload}`).digest("hex")}`;
+    expect(await verifyAdminCookie(current, t0)).toBe(true);
   });
 
   it("the login cookie's maxAge is the lifetime", async () => {

@@ -24,12 +24,10 @@ export function adminConfigured(): boolean {
 
 /**
  * Session lifetime. The cookie's maxAge in the login route matches it. 4 hours (it was 12): a cookie that leaks is worth that long at most,
- * and logging out revokes it at once (see `revokeAdminSession`). A correctly signed cookie that claims MORE than this (one minted under the old
- * 12 hour rule) is refused too, so shortening the lifetime takes effect for sessions already issued.
+ * and logging out revokes it at once (see `revokeAdminSession`). Cookies minted under the old 12 hour rule are
+ * refused outright, at every point of their life: the MAC is versioned (see MAC_VERSION).
  */
 export const ADMIN_SESSION_SECONDS = 60 * 60 * 4;
-/** Clock difference between serverless instances that a cookie's claimed expiry is allowed before it counts as "longer than the lifetime". */
-const SESSION_SKEW_MS = 60_000;
 
 /**
  * Secret the session tokens are signed with.
@@ -93,8 +91,15 @@ export function resetAdminSecretWarning(): void {
   reportedWeakSecret = false;
 }
 
+/**
+ * The MAC covers `v2.<expiry>.<nonce>`: the version is part of what is signed, not of the cookie. Cookies minted before the denylist and the 4 hour
+ * lifetime (12 hours, MAC over `<expiry>.<nonce>`) therefore NEVER validate again, at any point of their old life -- a lifetime clamp alone would have
+ * refused them for 8 hours and accepted them again for their last 4. Bump the label to retire every cookie the same way.
+ */
+const MAC_VERSION = "v2";
+
 function sign(payload: string, secret: string): string {
-  return crypto.createHmac("sha256", secret).update(payload).digest("hex");
+  return crypto.createHmac("sha256", secret).update(`${MAC_VERSION}.${payload}`).digest("hex");
 }
 
 /**
@@ -219,7 +224,7 @@ export function refuseCrossSiteWrite(req: Request): Response | null {
   return bad ? NextResponse.json({ ok: false, error: "Cross-site request refused." }, { status: 403 }) : null;
 }
 
-/** The nonce and expiry of a cookie whose MAC is valid under the session secret, or null. No clock check: see `parseSession`. */
+/** The nonce and expiry of a cookie whose (versioned) MAC is valid under the session secret, or null. No clock check: see `parseSession`. */
 function parseSigned(value: string | undefined): { expiry: number; nonce: string } | null {
   const secret = sessionSecret();
   if (!secret || !value) return null;
@@ -231,12 +236,10 @@ function parseSigned(value: string | undefined): { expiry: number; nonce: string
   return { expiry: Number(expiry), nonce };
 }
 
-/** A validly signed cookie that has not expired and does not claim longer than the lifetime. */
+/** A validly signed cookie that has not expired. */
 function parseSession(value: string | undefined, now: number): { expiry: number; nonce: string } | null {
   const s = parseSigned(value);
-  if (!s || s.expiry <= now) return null;
-  if (s.expiry - now > ADMIN_SESSION_SECONDS * 1000 + SESSION_SKEW_MS) return null; // minted under the old, longer rule
-  return s;
+  return s && s.expiry > now ? s : null;
 }
 
 // --- Server-side revocation (migration 0055) ---------------------------------

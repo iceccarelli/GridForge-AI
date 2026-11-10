@@ -98,6 +98,26 @@ export function rejectedTokenKeys(): string[] {
 
 const SESSION_EXPIRED = "Your session has expired. Sign in again.";
 
+/**
+ * Could this bearer be a Supabase access token at all? A JWT is three non-empty base64url segments; its payload is a JSON object; and if it claims an
+ * expiry (`exp`, seconds) that moment must not be past. Anything else cannot be valid, so asking Supabase would only spend its capacity. This proves
+ * NOTHING about a token that passes: the signature is Supabase's to check, and a token is never trusted for what it says (see `identify`).
+ */
+export function couldBeAccessToken(token: string, nowMs: number): boolean {
+  if (token.length > 8192) return false;
+  const parts = token.split(".");
+  if (parts.length !== 3 || parts.some((p) => !/^[A-Za-z0-9_-]+$/.test(p))) return false;
+  try {
+    const payload: unknown = JSON.parse(Buffer.from(parts[1], "base64url").toString("utf8"));
+    if (!payload || typeof payload !== "object" || Array.isArray(payload)) return false;
+    const exp = (payload as { exp?: unknown }).exp;
+    if (exp !== undefined && (typeof exp !== "number" || !Number.isFinite(exp) || exp * 1000 <= nowMs)) return false;
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 /** The bearer token on a request, if it carries one. */
 export function bearer(req: Request): string {
   const header = req.headers.get("authorization") ?? "";
@@ -133,11 +153,19 @@ export async function identify(req: Request): Promise<Identity> {
     return { ok: false, status: 503, error: "Sign-in is not configured on this deployment." };
   }
 
+  // A bearer that cannot be a Supabase access token (not three base64url segments, a payload that is not JSON, or a claimed expiry already past) is refused
+  // here: it costs no outbound call, spends none of the caller's budget (so a flood of junk of this kind cannot lock out a signed-in user who shares the
+  // address) and is cached nowhere. REMAINING LIMIT, stated plainly: JWT-shaped junk with a future `exp` cannot be told from a real token without asking
+  // Supabase, so it still costs one counted lookup (and is remembered for a minute once Supabase rejects it); an attacker sharing an address with users can
+  // still use up the shared budget that way, which is why the budget is generous and is given back for every lookup that turns out to be a valid user.
+  if (!couldBeAccessToken(token, Date.now())) return { ok: false, status: 401, error: SESSION_EXPIRED };
+
   const key = tokenKey(token);
   if (recentlyRejected(key, Date.now())) return { ok: false, status: 401, error: SESSION_EXPIRED };
 
-  const denial = await admitCaller(req, "auth_lookup");
-  if (denial) {
+  const admitted = await admitCaller(req, "auth_lookup");
+  if (admitted.denied) {
+    const denial = admitted.denied;
     if (denial.status === 429) {
       const retryAfter = denial.retryAfter ?? 60;
       return { ok: false, status: 429, error: `Too many requests. Try again in ${retryAfter} second${retryAfter === 1 ? "" : "s"}.`, retryAfter };
@@ -164,6 +192,10 @@ export async function identify(req: Request): Promise<Identity> {
     console.error("[GridForge] portal identity failed:", await storeFault(res));
     return { ok: false, status: 503, error: "Could not check your session just now." };
   }
+
+  // Supabase answered 200: this is a real signed-in user, not a stranger probing. Give the lookup back, so honest traffic does not use the budget up
+  // (only lookups that Supabase rejects, or that fail, stay counted). Best effort; a refund that cannot be made just leaves the hit counted.
+  if (res.status === 200) await admitted.refund();
 
   const body = (await res.json().catch(() => ({}))) as {
     email?: string;

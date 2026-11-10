@@ -18,12 +18,13 @@ import { siteUrl } from "@/lib/site";
 import { RATE_POLICIES, resetMemoryLimiter } from "@/lib/rate-limit";
 import { IDENTITY_REJECTION_TTL_MS, identify, rejectedTokenKeys, resetIdentityCache } from "@/lib/portal";
 import { PostgrestFake } from "./postgrest-fake";
-import { bearerFor, installWithAuth, tokenFor } from "./auth-fake";
+import { bearerFor, installWithAuth, jwtFor, junkJwt } from "./auth-fake";
 
 const ADDR = "203.0.113.50";
 const get = (headers: Record<string, string>, path = "/api/engagements") =>
   new Request(siteUrl(path), { headers: { "x-forwarded-for": ADDR, ...headers } });
-const junk = (i: number | string) => ({ authorization: `Bearer junk-${i}` });
+/** JWT-shaped junk with a FUTURE exp: it cannot be told from a real token without asking Supabase, so it is the junk that still costs a lookup. */
+const junk = (i: number | string) => ({ authorization: `Bearer ${junkJwt(i)}` });
 
 let db: PostgrestFake;
 let restore: () => void;
@@ -110,7 +111,8 @@ describe("(a) a per-caller counter stands in front of the outbound lookup", () =
   });
 
   it("an IPv6 caller rotating /64s inside one /48 is held by the /48 ceiling too", async () => {
-    const ceiling = RATE_POLICIES.auth_lookup.limit * 8;
+    vi.stubEnv("GRIDFORGE_RATE_V6_48_FACTOR", "4"); // a lower factor than the default (32) keeps this loop short; the code path is the same
+    const ceiling = RATE_POLICIES.auth_lookup.limit * 4;
     let refused = 0;
     // one lookup from each of ceiling + 5 distinct /64s of 2001:db8:feed::/48: no /64 is near its own limit
     for (let i = 0; i < ceiling + 5; i++) {
@@ -136,7 +138,7 @@ describe("(b) a short negative cache keyed on a hash of the token", () => {
   });
 
   it("stores a SHA-256 of the token and never the token", async () => {
-    const token = "secret-looking-token-abcdef0123456789";
+    const token = junkJwt("secret-looking-abcdef0123456789");
     await identify(get({ authorization: `Bearer ${token}` }));
     const keys = rejectedTokenKeys();
     expect(keys).toEqual([crypto.createHash("sha256").update(token).digest("hex")]);
@@ -187,6 +189,81 @@ describe("(b) a short negative cache keyed on a hash of the token", () => {
     }
     expect(authCalls()).toBe(5);
     expect(rejectedTokenKeys()).toEqual([]);
-    expect(tokenFor("x")).toBe("tok:x"); // (the fake's token format, for the reader)
+  });
+});
+
+describe("P2-4(a): a bearer that cannot be an access token is refused locally, for free", () => {
+  const nowS = () => Math.floor(Date.now() / 1000);
+  const b64 = (o: unknown) => Buffer.from(JSON.stringify(o)).toString("base64url");
+  const cannotBeValid: [string, string][] = [
+    ["a bare word", "forged"],
+    ["two segments", "aaa.bbb"],
+    ["four segments", "aaa.bbb.ccc.ddd"],
+    ["an empty segment", `${b64({ alg: "x" })}..sig`],
+    ["characters outside base64url", `${b64({ alg: "x" })}.${b64({ exp: nowS() + 600 })}.sig+/=`],
+    ["a payload that is not JSON", `${b64({ alg: "x" })}.${Buffer.from("not json").toString("base64url")}.sig`],
+    ["a payload that is not an object", `${b64({ alg: "x" })}.${b64([1, 2])}.sig`],
+    ["an exp in the past", jwtFor("a@acme.example", { exp: nowS() - 5 })],
+    ["an exp that is not a number", `${b64({ alg: "x" })}.${b64({ exp: "soon" })}.sig`],
+    ["a token over 8 KiB", `${"a".repeat(9000)}.b.c`],
+  ];
+
+  it.each(cannotBeValid)("%s: 401, no outbound call, no budget spent, nothing cached", async (_label, token) => {
+    const r = await identify(get({ authorization: `Bearer ${token}` }));
+    expect(r).toMatchObject({ ok: false, status: 401 });
+    expect(authCalls()).toBe(0);
+    expect(rejectedTokenKeys()).toEqual([]);
+    expect(db.rows("rate_limit_windows").filter((x) => String(x.bucket).startsWith("auth_lookup"))).toEqual([]);
+  });
+
+  it("a shared-address flood of non-JWT tokens no longer blocks a valid user", async () => {
+    for (let i = 0; i < RATE_POLICIES.auth_lookup.limit * 3; i++) await identify(get({ authorization: `Bearer flood-${i}` }));
+    for (let i = 0; i < 50; i++) await identify(get({ authorization: `Bearer ${jwtFor("x@y.example", { exp: nowS() - 60 - i })}` }));
+    expect(authCalls()).toBe(0);
+    expect(await identify(get(bearerFor("honest@acme.example")))).toMatchObject({ ok: true, email: "honest@acme.example" });
+  });
+
+  it("the LIMIT that remains: JWT-shaped junk with a future exp still costs a counted lookup, so a shared-address flood of THAT can exhaust the budget", async () => {
+    // Stated plainly because it is true: such a token cannot be told from a real one without asking Supabase. The budget is what bounds it.
+    for (let i = 0; i < RATE_POLICIES.auth_lookup.limit; i++) await identify(get(junk(i)));
+    expect(authCalls()).toBe(RATE_POLICIES.auth_lookup.limit);
+    expect(await identify(get(bearerFor("honest@acme.example")))).toMatchObject({ ok: false, status: 429 });
+  });
+});
+
+describe("P2-4(b): a lookup that turns out to be a valid user is given back", () => {
+  const spent = () => db.rows("rate_limit_windows").filter((r) => String(r.bucket).startsWith("auth_lookup")).reduce((n, r) => n + (r.hits as number), 0);
+
+  it("twice the budget of VALID lookups from one address all succeed, and the budget is left unspent", async () => {
+    for (let i = 0; i < RATE_POLICIES.auth_lookup.limit * 2; i++) expect(await identify(get(bearerFor("honest@acme.example"))), `lookup ${i + 1}`).toMatchObject({ ok: true });
+    expect(authCalls()).toBe(RATE_POLICIES.auth_lookup.limit * 2);
+    expect(spent()).toBe(0);
+  });
+
+  it("is correct under the /48 counter too: both the /64 and the /48 hit are given back", async () => {
+    const v6 = (i: number) => new Request(siteUrl("/api/engagements"), { headers: { "x-forwarded-for": `2001:db8:feed:${(i + 1).toString(16)}::1`, ...bearerFor("honest@acme.example") } });
+    for (let i = 0; i < 40; i++) expect(await identify(v6(i))).toMatchObject({ ok: true });
+    expect(db.rows("rate_limit_windows").some((r) => String(r.bucket) === "auth_lookup_v6_48")).toBe(false); // the row is gone, not left at 40
+    expect(spent()).toBe(0);
+  });
+
+  it("only a 200 is refunded: a rejected token and a failing Supabase stay counted", async () => {
+    await identify(get(junk("rejected")));
+    expect(spent()).toBe(1);
+    const real = globalThis.fetch;
+    globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = typeof input === "string" ? input : input instanceof URL ? input.href : input.url;
+      return url.includes("/auth/v1/user") ? new Response("boom", { status: 500 }) : real(input, init);
+    }) as typeof fetch;
+    vi.spyOn(console, "error").mockImplementation(() => {});
+    await identify(get(junk("down")));
+    globalThis.fetch = real;
+    expect(spent()).toBe(2);
+  });
+
+  it("a valid user among junk keeps the junk's cost counted (the refund is for the valid lookup only)", async () => {
+    for (let i = 0; i < 5; i++) await identify(get(junk(i)));
+    for (let i = 0; i < 5; i++) await identify(get(bearerFor("honest@acme.example")));
+    expect(spent()).toBe(5);
   });
 });

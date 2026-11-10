@@ -28,10 +28,10 @@
 //
 // IPv6 AND THE /48. A caller is identified by its /64 (the smallest block one subscriber gets). A caller holding a /48 (65,536 /64s)
 // or more could otherwise take a fresh allowance from every /64 it chose to speak from. So an IPv6 caller is ALSO counted in a coarser
-// bucket keyed on its /48, with a ceiling of IPV6_48_FACTOR_DEFAULT (8) times the route's own limit (override: GRIDFORGE_RATE_V6_48_FACTOR),
+// bucket keyed on its /48, with a ceiling of IPV6_48_FACTOR_DEFAULT (32) times the route's own limit (override: GRIDFORGE_RATE_V6_48_FACTOR),
 // and is refused when EITHER bucket is over. A normal caller (one /64, or an office on a few /64s) is stopped by its own /64 allowance
 // long before it could reach the /48 ceiling; the factor only decides how many /64 allowances one /48 may use. LIMITS: this bounds a
-// /48, not a /32 -- an operator holding many /48s still gets 8 allowances per /48; the shared aggregate budgets below bound the total.
+// /48, not a /32 -- an operator holding many /48s still gets 32 allowances per /48; the shared aggregate budgets below bound the total.
 // IPv4 and the "unattributed" caller are keyed exactly as before.
 //
 // KEY ROTATION AND RETENTION. Rows are (bucket, subject, window start) -> hits and nothing else; windows are at most one
@@ -385,12 +385,13 @@ export function callerIdentity(req: Request): CallerIdentity {
 // ---------------------------------------------------------------------------------------------------------------------
 
 /**
- * How many /64 allowances one IPv6 /48 may use on any IP-keyed limiter. 8: a /48 is what a site or a campus is given, and a normal
- * caller sits on ONE /64 (refused by its own allowance long before this), while an office on several VLANs still fits; a caller
- * rotating through a /48's 65,536 /64s is held to 8 allowances instead of 65,536. It trades a little for a campus whose /64s all
- * lean on one route at once (they share 8 allowances) against an unbounded multiplier. Per-policy limits are scaled, not replaced.
+ * How many /64 allowances one IPv6 /48 may use on any IP-keyed limiter. 32. A normal caller sits on ONE /64 and is refused by its own allowance long
+ * before this matters. But a /48 is not one household: residential ISPs commonly delegate a /56 or a /60 to each customer, so one /48 can hold dozens to
+ * thousands of unrelated homes, and a campus or office can use many /64s. 32 leaves room for that, at the price that a caller who really owns the
+ * /48 may use 32 allowances (not 65,536) -- and that a very large ISP block behind one /48 shares 32. It is a trade-off, tunable with
+ * GRIDFORGE_RATE_V6_48_FACTOR; the shared aggregate budgets bound the total whatever it is. Per-policy limits are scaled, not replaced.
  */
-export const IPV6_48_FACTOR_DEFAULT = 8;
+export const IPV6_48_FACTOR_DEFAULT = 32;
 
 /** The /48 multiplier: GRIDFORGE_RATE_V6_48_FACTOR when it is an integer from 1 to 1024, else the default. Never "off". */
 export function ipv6CoarseFactor(env: NodeJS.ProcessEnv = process.env): number {
@@ -484,7 +485,15 @@ async function countPolicyHit(policy: RatePolicy, subject: string, now?: number)
  * (`hits` must still be what was read), so a concurrent hit is never overwritten; there is no migration for it, and it needs only the same table the counter writes.
  */
 export async function refundHit(name: RatePolicyName, subject: string): Promise<boolean> {
-  const policy = RATE_POLICIES[name];
+  return refundPolicyHit(RATE_POLICIES[name], subject);
+}
+
+/** `refundHit` for the /48 bucket of a policy (an IPv6 caller's coarse identity). */
+export async function refundCoarseHit(name: RatePolicyName, coarseSubject: string): Promise<boolean> {
+  return refundPolicyHit(coarsePolicy(RATE_POLICIES[name]), coarseSubject);
+}
+
+async function refundPolicyHit(policy: RatePolicy, subject: string): Promise<boolean> {
   if (!creds()) {
     if (isProduction()) return false;
     const key = `${policy.bucket}:${subject}`;
@@ -610,16 +619,27 @@ export async function guardRequest(req: Request, name: RatePolicyName, opts: Gua
 /**
  * Count one hit of a request-level policy against the caller (its address, and its /48 for IPv6) WITHOUT a spend scope, for work that is not
  * itself a provider call but must be bounded per caller before it happens (the Supabase Auth lookup in lib/portal.ts). Same identity, same
- * fail-closed rules as `guardRequest`: the denial to answer with (429 with a Retry-After, or 503 when the counter or the caller's identity
- * cannot be established), or null to proceed.
+ * fail-closed rules as `guardRequest`. Resolves to the denial to answer with (429 with a Retry-After, or 503 when the counter or the caller's address
+ * cannot be established), or `{ denied: null, refund }` to proceed: `refund()` gives back what THIS call charged (both buckets), best effort, for work that
+ * turned out not to deserve the charge (an honest signed-in user's lookup). A refund that cannot be made leaves the hit counted.
  */
-export async function admitCaller(req: Request, name: RatePolicyName): Promise<SpendDenial | null> {
+export async function admitCaller(req: Request, name: RatePolicyName): Promise<{ denied: SpendDenial } | { denied: null; refund: () => Promise<void> }> {
   const who = callerIdentity(req);
   if (!who.ok) {
     console.error(`[GridForge] rate limit: caller identity unavailable (${who.reason}); refusing`);
-    return { status: 503, retryAfter: null };
+    return { denied: { status: 503, retryAfter: null } };
   }
-  return (await charge(RATE_POLICIES[name], who.subject)) ?? (await chargeCoarse(RATE_POLICIES[name], who.coarse));
+  const own = await charge(RATE_POLICIES[name], who.subject);
+  if (own) return { denied: own };
+  const coarseDenial = await chargeCoarse(RATE_POLICIES[name], who.coarse);
+  if (coarseDenial) return { denied: coarseDenial }; // the /64 hit stays counted: the request was made
+  return {
+    denied: null,
+    async refund() {
+      await refundHit(name, who.subject);
+      if (who.coarse) await refundCoarseHit(name, who.coarse);
+    },
+  };
 }
 
 // ---------------------------------------------------------------------------------------------------------------------
