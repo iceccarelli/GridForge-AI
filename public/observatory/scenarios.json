@@ -3,9 +3,9 @@
     "state": "empty",
     "statement": "Model accuracy against instrumented sites has not been established: 0 reconciled observations across 0 sites, covering 0 of 20 model outputs. Every figure in this report is modelled. The uncertainty ranges shown come from input uncertainty propagated through the model, not from the difference between this engine's predictions and site data — no such difference has been recorded yet."
   },
-  "contentSha256": "2ea323647a7290a10edf00ac16783b88cd651f57eb52fe6d237dd63c7367572c",
+  "contentSha256": "a2fca8fb32a35fccfb244631ad60b9bd4b21feb5ad055fbf57b94de3b1077139",
   "engine": {
-    "codeSha256": "ae72d866521dbeae5b736f9e5de58c1942b93066e50e52f4f42bab10a1000c26",
+    "codeSha256": "94ec8efe8df3abf8f5ac639af985ca56d77a5a98b168a6f4023c239086c98b9e",
     "routes": [
       "/v1/compare",
       "/v1/screen"
@@ -163,7 +163,7 @@
         "The engine labels any input an intake supplies as supplied by the client (class E5); in this synthetic hall that label describes how the engine treats an input, not a measurement.",
         "BTM option BESS-2MW-8MWh: it is credited as firm capacity with NO declared energy rating. A battery is firm only for what its stored energy can sustain, and recharge is not modelled, so the racks this adds are unverified.",
         "BTM option GEN-5MW: no unit count was declared, so it is credited at nameplate x firm factor as if no unit could be out of service. A single unit under N+1 would count as zero firm capacity; the racks this adds are unverified.",
-        "Busway: hall.occupied_positions was not supplied, so the occupied count is an assumption (E0), not a fact. Reading every position that is not free as occupied (560 in total less 180 free = 380 positions), at their 8 kW design density, would draw 3,040 kW, more than the 1,720 kW the declared busway can carry. busway_ampacity_A is read as the installed total and existing load is not subtracted, so check whether the figure you gave is the whole hall's busway, and give hall.occupied_positions so this check runs on a count rather than an assumption.",
+        "Busway: hall.occupied_positions was not supplied, so the occupied positions are an assumption (E0), not a count. Reading every position that is not free as occupied (560 in total less 180 free = 380 positions), at their 8 kW design density, would draw 3,040 kW, more than the 1,720 kW the declared busway can carry. busway_ampacity_A is read as the installed total and existing load is not subtracted, so check whether the figure you gave is the whole hall's busway, and give hall.occupied_positions so this check runs on a count rather than an assumption.",
         "The transformer lead time is customer-supplied (unverified): it is used as typed, with a generic +-35% band around it, and the engine still classes it E0 (an assumption): the engine cannot check a figure against a written manufacturer quotation, so it stays an assumption until that quotation is reviewed. It is not a delivery commitment.",
         "At least one date rests on an assumed lead time (E0). Treat this comparison as indicative: it shows which inputs decide the answer, not a commitment to any date.",
         "Where a liquid scenario assumes a CDU kit (the intake declares no CDUs), no rack is dated earlier than the library CDU lead time, an assumption, and the first-rack date rests on it; the kit's commissioning and the conversion works are not in the schedule.",

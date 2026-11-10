@@ -3,7 +3,7 @@
   "pages": {
     "/": {
       "lastmod": "2026-11-10",
-      "hash": "7358caa1e016d7aee4aef3477506cb57f9aec6aecbca2cebca255eea0823b611"
+      "hash": "71947180f702b9c7e45a676628c8a243b6e83e26c53631a6c430512cb85264f0"
     },
     "/about": {
       "lastmod": "2026-11-10",
@@ -111,7 +111,7 @@
     },
     "/guides/nameplate-vs-useful-compute": {
       "lastmod": "2026-11-10",
-      "hash": "996b75dad043da9254ee831a4b75d93822505f9feedfb4621f976d458dbfb33c"
+      "hash": "fcad5cddc96ad585b1efcb9bee2aac45e93977821b521d9d0601f81a3cff20ac"
     },
     "/intelligence": {
       "lastmod": "2026-11-10",
@@ -135,7 +135,7 @@
     },
     "/observatory": {
       "lastmod": "2026-11-10",
-      "hash": "241ce490cb13c28c5e9ca39bbb9bd1e3304d53654eff563787da4afa96fe9f82"
+      "hash": "2169d56ca8308351db954fabb38694b202b9ef51a103523843f4796eb7628229"
     },
     "/platforms": {
       "lastmod": "2026-11-08",
@@ -187,11 +187,11 @@
     },
     "/qualify": {
       "lastmod": "2026-11-10",
-      "hash": "fa486df2f4097bf6682d16903cfb5c463e9a5dcf04fb29a2b8a2bbefcf078a50"
+      "hash": "f13defe9b8ccc75be2e5dcaed6c03daf0e6e18e050e0dcc35fd2e0b0dfeb9ae3"
     },
     "/reference": {
       "lastmod": "2026-11-10",
-      "hash": "63d328919dc165f9db9d521dc59794a5d149cbb66592e53d95b730b3c6c7d1d8"
+      "hash": "5d67003bc444c9e5ecc5ed3644049104bd2e30499b51e43d51d27102cfe37b16"
     },
     "/reference/board_summary.html": {
       "lastmod": "2026-11-10",
@@ -199,7 +199,7 @@
     },
     "/reference/density_screen.html": {
       "lastmod": "2026-11-10",
-      "hash": "c3d21cde6d56d4e3f412bf96f6a7046ac7f7e576b7640758c720038aeb4a796e"
+      "hash": "9f8e4d3a832702e96d013bf35a47a1fc4b7e7eb26ba60b66570bccf8136f4161"
     },
     "/reference/envelope_study.html": {
       "lastmod": "2026-11-10",
@@ -207,7 +207,7 @@
     },
     "/reference/proposal.html": {
       "lastmod": "2026-11-10",
-      "hash": "aa2ee982c307aeb1ac6df0320b5c1416ef4d1629ad9291d5d42f6268b621228e"
+      "hash": "167e6065e7fcaa34ab8c18621fdfa79917abb09eeedd445d306af0d777373c62"
     },
     "/reference/specification.html": {
       "lastmod": "2026-11-10",
@@ -215,7 +215,7 @@
     },
     "/reference/walkthrough.html": {
       "lastmod": "2026-11-10",
-      "hash": "bcf707c73b3f62755a086b85652cff647862b981c6405e6f9d97e1ec0f85453f"
+      "hash": "fdf8334f96aac877137639e9a36deba326882751525d84463e1466596fe7f9e3"
     }
   }
 }

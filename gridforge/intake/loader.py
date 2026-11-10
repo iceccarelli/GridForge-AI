@@ -302,11 +302,11 @@ def _busway_vs_existing_load(ctx, report: "IntakeReport", rack_total_supplied: b
             who = f"the {occupied} occupied positions you declared (hall.occupied_positions, {declared.evidence.short})"
             ask = ""
         elif rack_total_supplied:
-            who = (f"hall.occupied_positions was not supplied, so the occupied count is an assumption (E0), not a fact. Reading every position "
+            who = (f"hall.occupied_positions was not supplied, so the occupied positions are an assumption (E0), not a count. Reading every position "
                    f"that is not free as occupied ({hall.rack_positions} in total less {hall.positions_available} free = {occupied} positions)")
             ask = ", and give hall.occupied_positions so this check runs on a count rather than an assumption"
         else:
-            who = (f"neither hall.occupied_positions nor hall.rack_positions was supplied, so the occupied count is an assumption (E0) from the "
+            who = (f"neither hall.occupied_positions nor hall.rack_positions was supplied, so the occupied positions are an assumption (E0) from the "
                    f"library default total of {hall.rack_positions} positions, not a count of anything in your hall. Reading that total less your "
                    f"{hall.positions_available} free positions as occupied ({occupied} positions)")
             ask = ", and give hall.occupied_positions and hall.rack_positions (a full intake takes both) so this check runs on counts rather than an assumption"

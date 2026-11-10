@@ -58,7 +58,7 @@ Intake is 84% complete. Each row below is a number that moves the answer and tha
 
 > ℹ️ BTM option GEN-5MW: no unit count was declared, so it is credited at nameplate x firm factor as if no unit could be out of service. A single unit under N+1 would count as zero firm capacity; the racks this adds are unverified.
 
-> ℹ️ Busway: hall.occupied_positions was not supplied, so the occupied count is an assumption (E0), not a fact. Reading every position that is not free as occupied (560 in total less 180 free = 380 positions), at their 8 kW design density, would draw 3,040 kW, more than the 1,720 kW the declared busway can carry. busway_ampacity_A is read as the installed total and existing load is not subtracted, so check whether the figure you gave is the whole hall's busway, and give hall.occupied_positions so this check runs on a count rather than an assumption.
+> ℹ️ Busway: hall.occupied_positions was not supplied, so the occupied positions are an assumption (E0), not a count. Reading every position that is not free as occupied (560 in total less 180 free = 380 positions), at their 8 kW design density, would draw 3,040 kW, more than the 1,720 kW the declared busway can carry. busway_ampacity_A is read as the installed total and existing load is not subtracted, so check whether the figure you gave is the whole hall's busway, and give hall.occupied_positions so this check runs on a count rather than an assumption.
 
 ## 4. Fee, timing and terms
 

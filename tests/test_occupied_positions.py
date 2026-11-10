@@ -73,7 +73,7 @@ def test_without_the_total_the_default_total_is_named_as_an_assumption_not_a_cou
 
 def test_with_the_total_given_the_derived_count_is_still_called_an_assumption():
     (w,) = _busway(load_document(_doc()))                                # 560 total, 180 free: 380 not free
-    assert "hall.occupied_positions was not supplied, so the occupied count is an assumption (E0), not a fact" in w
+    assert "hall.occupied_positions was not supplied, so the occupied positions are an assumption (E0), not a count" in w
     assert "560 in total less 180 free = 380 positions" in w and "3,040 kW" in w
     assert "the 380 occupied positions" not in w                       # fails on the engine before this change
 
