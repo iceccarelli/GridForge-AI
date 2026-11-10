@@ -3,7 +3,7 @@
   "pages": {
     "/": {
       "lastmod": "2026-11-10",
-      "hash": "6e25ce583eeabcf60a7c9df157c6c61e3e1a197c538d2798a58b4445642cdfdd"
+      "hash": "71947180f702b9c7e45a676628c8a243b6e83e26c53631a6c430512cb85264f0"
     },
     "/about": {
       "lastmod": "2026-11-10",
@@ -71,7 +71,7 @@
     },
     "/developers": {
       "lastmod": "2026-11-10",
-      "hash": "7910e24139289c18ac3525a5d797465af321a88a8feff3614b93f07c6d6d76d7"
+      "hash": "0352b4ccb127e733e24127308f20f044b73edab429ec933a034dcbc2f9988eb1"
     },
     "/evidence": {
       "lastmod": "2026-11-10",
@@ -110,8 +110,8 @@
       "hash": "ff5fbc430bc75de26bf7ad86d2d0ea42be0f2aa0a7549b3411aa927b23a50a7b"
     },
     "/guides/nameplate-vs-useful-compute": {
-      "lastmod": "2026-11-08",
-      "hash": "04a2f5d484583315efd106b354b044d8a118deef36a00ce0de076a6bfb4b6e1f"
+      "lastmod": "2026-11-10",
+      "hash": "fcad5cddc96ad585b1efcb9bee2aac45e93977821b521d9d0601f81a3cff20ac"
     },
     "/intelligence": {
       "lastmod": "2026-11-10",
@@ -135,7 +135,7 @@
     },
     "/observatory": {
       "lastmod": "2026-11-10",
-      "hash": "075cb591d9a756873f72efdd471c22de82e0710184d0bdecb6f18467be97a5ff"
+      "hash": "2169d56ca8308351db954fabb38694b202b9ef51a103523843f4796eb7628229"
     },
     "/platforms": {
       "lastmod": "2026-11-08",
@@ -186,12 +186,12 @@
       "hash": "5e6d2aa8167cbe2fdf5e23f460c0ddfeb590aa4758f149ec4e806f82a23724c6"
     },
     "/qualify": {
-      "lastmod": "2026-11-08",
-      "hash": "fbd1df020e889b242b3297294769d3d6e07be03208a0ae208babade0457dbcfa"
+      "lastmod": "2026-11-10",
+      "hash": "f13defe9b8ccc75be2e5dcaed6c03daf0e6e18e050e0dcc35fd2e0b0dfeb9ae3"
     },
     "/reference": {
-      "lastmod": "2026-11-09",
-      "hash": "732500ee9a6c623c9403670547865e81f540a7b4fa501354abdfcdb7c7fab234"
+      "lastmod": "2026-11-10",
+      "hash": "5d67003bc444c9e5ecc5ed3644049104bd2e30499b51e43d51d27102cfe37b16"
     },
     "/reference/board_summary.html": {
       "lastmod": "2026-11-10",
@@ -199,7 +199,7 @@
     },
     "/reference/density_screen.html": {
       "lastmod": "2026-11-10",
-      "hash": "0b7dda7e86f6d91469f9a790e2fc57547cc4ca139ce40cb41cf4edba53e2387c"
+      "hash": "9f8e4d3a832702e96d013bf35a47a1fc4b7e7eb26ba60b66570bccf8136f4161"
     },
     "/reference/envelope_study.html": {
       "lastmod": "2026-11-10",
@@ -207,15 +207,15 @@
     },
     "/reference/proposal.html": {
       "lastmod": "2026-11-10",
-      "hash": "114d105daa0ffe35b1bd552d83b4e4463381deea597fbd7ce485c828723a7ff1"
+      "hash": "167e6065e7fcaa34ab8c18621fdfa79917abb09eeedd445d306af0d777373c62"
     },
     "/reference/specification.html": {
       "lastmod": "2026-11-10",
-      "hash": "5e38336ff82fcdd13e87d122d5e1111098352d145628e964cdfa1c4b1fe7aa46"
+      "hash": "b4f012fb43749f09e4ea00a1df836c74ba55d734698ce532d44610221549f42b"
     },
     "/reference/walkthrough.html": {
       "lastmod": "2026-11-10",
-      "hash": "fddcc07b6534b0d9bb39ffd411af4be3c43dab214fd809361dd5dd8bc90b52ce"
+      "hash": "fdf8334f96aac877137639e9a36deba326882751525d84463e1466596fe7f9e3"
     }
   }
 }

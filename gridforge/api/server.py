@@ -53,7 +53,15 @@ the identity is the socket peer unless the operator says otherwise:
     GRIDFORGE_RATE_LIMIT           requests per minute per caller on every route except the cheap discovery routes (default 30; 0 = off).
     GRIDFORGE_DISCOVERY_RATE_LIMIT requests per minute per caller on /health, /v1/version and /v1/tools, which cost almost nothing but are
                                    still bounded (default: ten times GRIDFORGE_RATE_LIMIT, at least 600; follows the main limiter off).
-An address that does not parse is not an identity: the socket peer is used instead. IPv6 callers are counted per /64.
+    GRIDFORGE_RATE_LIMIT_IPV6_48_MULTIPLE   an IPv6 caller is counted on TWO buckets, its /64 (the limit above) and its enclosing /48, whose
+                                   allowance is this many times the /64 limit (default 8; a value below 1 is read as 1, so one ordinary caller
+                                   is never throttled by the /48 before its /64). A holder of a /48 can mint 65,536 /64s and used to get a fresh
+                                   allowance for each. IPv4 is unchanged: one bucket per address. Not a measurement of any real subscriber
+                                   population; the default is a placeholder chosen to bind a prefix holder, not one household.
+    GRIDFORGE_MAX_CONCURRENT_SOLVES   solves (any route that runs the model, /mcp tool calls included) that may run at the same instant, in
+                                   all (default 16; 0 = no cap). A request that would be the next one is answered 503 with a Retry-After
+                                   header and a JSON body, at once: it is never queued. A placeholder bound, not a measured capacity.
+An address that does not parse is not an identity: the socket peer is used instead. IPv6 callers are counted per /64 and per /48.
 GRIDFORGE_ADMIN_KEY and GRIDFORGE_KEY_SECRET, when set, should be at least 24 characters (MIN_SECRET_CHARS). `serve` logs a WARNING naming the
 variable and its length (never the value) and carries on, so a deployment whose secrets are older than this check does not go down.
     GRIDFORGE_ENFORCE_SECRET_STRENGTH   set to 1: `serve` refuses to start (exit 2) on a secret shorter than that. Set it once the live secrets
@@ -113,6 +121,16 @@ MAX_BODY_BYTES = 512 * 1024
 RATE_LIMIT_PER_MINUTE = int(os.environ.get("GRIDFORGE_RATE_LIMIT", "30"))
 #: GET routes that cost almost nothing and are the first thing a health check, a directory or an agent reads: they are not charged to the main
 #: limiter, but they are bounded by their own (a generous multiple of it), so they cannot be hammered for ever.
+#: An IPv6 caller is also counted on its /48; that bucket allows this many times the per-/64 limit (GRIDFORGE_RATE_LIMIT_IPV6_48_MULTIPLE).
+#: 8 is a placeholder: >= 1 so a single /64 is always stopped by its own limit first (a normal caller is never throttled by the /48), and small
+#: enough that a /48 (65,536 /64s) gets 8 allowances, not 65,536. It is not derived from any measured subscriber population.
+IPV6_WIDE_MULTIPLE_DEFAULT = 8
+#: Solves that may run at once (GRIDFORGE_MAX_CONCURRENT_SOLVES; 0 = no cap). 16 is a placeholder, not a measured capacity: well above what
+#: a handful of callers at the per-caller rate limit can overlap, low enough that a flood cannot start an unbounded number of solver threads
+#: on the single small machine (fly.toml: shared-cpu-1x, 512 MB). Excess requests are answered 503 + Retry-After at once, never queued.
+MAX_CONCURRENT_SOLVES_DEFAULT = 16
+#: Seconds named in Retry-After when the engine is at its concurrency cap. A hint to a well-behaved client, not a prediction.
+SOLVE_RETRY_AFTER_SECONDS = 2
 DISCOVERY_PATHS = frozenset({"/", "/health", "/v1/version", "/v1/tools"})
 DISCOVERY_MIN_PER_MINUTE = 600
 DISCOVERY_FACTOR = 10
@@ -316,13 +334,39 @@ def _refuse_duplicate_keys(pairs):
     return dict(pairs)
 
 
+def _env_int(name: str, default: int, minimum: int = 0) -> int:
+    """A whole-number environment setting, or `default` when it is unset, empty or not a whole number; never below `minimum`."""
+    raw = os.environ.get(name)
+    if raw in (None, ""):
+        return default
+    try:
+        return max(minimum, int(str(raw).strip()))
+    except ValueError:
+        return default
+
+
 class _RateLimiter:
-    def __init__(self, per_minute: int):
+    """Sliding one-minute counts per caller bucket. An IPv6 caller is charged on two buckets at once, its /64 (`per_minute`) and its enclosing
+    /48 (`per_minute` x `wide_multiple`): it is limited by BOTH, and a refused request is charged to neither."""
+
+    def __init__(self, per_minute: int, wide_multiple: int | None = None):
         self.per_minute = per_minute
+        self.wide_multiple = max(1, _env_int("GRIDFORGE_RATE_LIMIT_IPV6_48_MULTIPLE", IPV6_WIDE_MULTIPLE_DEFAULT)
+                                 if wide_multiple is None else wide_multiple)
         self._hits: dict[str, deque] = defaultdict(deque)
         self._lock = threading.Lock()
 
-    def allow(self, key: str) -> bool:
+    @property
+    def wide_limit(self) -> int:
+        return self.per_minute * self.wide_multiple
+
+    def _window(self, key: str, now: float) -> deque:
+        q = self._hits[key]
+        while q and now - q[0] > 60:
+            q.popleft()
+        return q
+
+    def allow(self, key: str, wide: str = "") -> bool:
         if self.per_minute <= 0:
             return True
         now = time.time()
@@ -330,13 +374,53 @@ class _RateLimiter:
             if len(self._hits) > 10_000:                      # a spoofed-key flood must not grow this forever
                 for k in [k for k, d in self._hits.items() if not d or now - d[-1] > 60]:
                     del self._hits[k]
-            q = self._hits[key]
-            while q and now - q[0] > 60:
-                q.popleft()
-            if len(q) >= self.per_minute:
+            q = self._window(key, now)
+            wq = self._window(wide, now) if wide else None
+            if len(q) >= self.per_minute or (wq is not None and len(wq) >= self.wide_limit):
                 return False
             q.append(now)
+            if wq is not None:
+                wq.append(now)
             return True
+
+
+class _SolveGate:
+    """At most `limit` solves at the same instant, process-wide. `enter` never waits: when every slot is taken it says so and the caller answers
+    503 with Retry-After, so load is shed, not queued. A BoundedSemaphore under the hood; `limit` 0 means no cap."""
+
+    def __init__(self, limit: int):
+        self.limit = limit
+        self._sem = threading.BoundedSemaphore(limit) if limit > 0 else None
+
+    def enter(self) -> bool:
+        return self._sem is None or self._sem.acquire(blocking=False)
+
+    def leave(self) -> None:
+        if self._sem is not None:
+            self._sem.release()
+
+    def full(self) -> bool:
+        """Would `enter` be refused right now? A look, not a reservation (a slot is taken and given back at once)."""
+        if self._sem is None:
+            return False
+        if self._sem.acquire(blocking=False):
+            self._sem.release()
+            return False
+        return True
+
+
+#: Every route that runs the model. /v1/estimate (arithmetic on a table) and /v1/revoke (a file write) do not, and an MCP call is gated by the
+#: endpoint its tool maps to, in `_invoke`, so initialize / tools/list are never refused.
+SOLVING_ROUTES = frozenset({"/v1/qualify", "/v1/screen", "/v1/compare", "/v1/study", "/v1/portfolio", "/v1/proposal", "/v1/deck", "/v1/diff",
+                            "/v1/spec", "/v1/bids", "/v1/power/assess", "/v1/power/deploy/assess", "/v1/power/deploy/spec",
+                            "/v1/power/deploy/bids"})
+SOLVE_GATE = _SolveGate(_env_int("GRIDFORGE_MAX_CONCURRENT_SOLVES", MAX_CONCURRENT_SOLVES_DEFAULT))
+
+
+def _busy_payload() -> dict:
+    return {"error": f"the engine is running its limit of {SOLVE_GATE.limit} solves at once; nothing was run and nothing was charged",
+            "retryable": True, "retry_after_seconds": SOLVE_RETRY_AFTER_SECONDS, "max_concurrent_solves": SOLVE_GATE.limit,
+            "fix": "retry after the Retry-After interval. The request was refused, not queued"}
 
 
 def _bucket(addr: str) -> str:
@@ -352,6 +436,18 @@ def _bucket(addr: str) -> str:
             return str(ip.ipv4_mapped)
         return str(ipaddress.ip_network(f"{ip}/64", strict=False))
     return str(ip)
+
+
+def _bucket_wide(addr: str) -> str:
+    """The coarser identity an IPv6 address is ALSO counted on: its /48 (a site allocation: 65,536 /64s). "" for IPv4, an IPv4-mapped address
+    and text that is not an address: those have one bucket only. Without it a holder of a /48 or a /32 minted a fresh /64 allowance per request."""
+    try:
+        ip = ipaddress.ip_address((addr or "").strip().split("%", 1)[0])
+    except ValueError:
+        return ""
+    if isinstance(ip, ipaddress.IPv6Address) and ip.ipv4_mapped is None:
+        return str(ipaddress.ip_network(f"{ip}/48", strict=False))
+    return ""
 
 
 def weak_secrets(env=None) -> list[str]:
@@ -1317,6 +1413,22 @@ def _nests_deeper_than(node, limit: int) -> bool:
 
 
 def _invoke(endpoint: str, handler, body, tier):
+    """Run `handler` for `endpoint` inside the engine-wide concurrency cap (SOLVE_GATE) when the endpoint solves; see `_invoke_inner`.
+
+    The ONE place a solve starts, for REST and MCP alike. When every slot is taken this raises ApiError 503 (with retry_after_seconds in its
+    detail) at once: it never waits for a slot, so a flood is shed, not queued."""
+    if endpoint not in SOLVING_ROUTES:
+        return _invoke_inner(endpoint, handler, body, tier)
+    if not SOLVE_GATE.enter():
+        busy = _busy_payload()
+        raise ApiError(503, busy.pop("error"), **busy)
+    try:
+        return _invoke_inner(endpoint, handler, body, tier)
+    finally:
+        SOLVE_GATE.leave()
+
+
+def _invoke_inner(endpoint: str, handler, body, tier):
     """Call a handler, applying accepted cost evidence from the request when it carries any.
 
     The evidence applies to THIS call only (a request-scoped overlay over the library); an entry that is not accepted,
@@ -1400,6 +1512,9 @@ def _mcp_call_tool(params: dict, tier: Tier, charge) -> dict:
                 raise RpcError(-32602, _IDEM_REUSED, {"status": 422})
             getattr(charge, "replayed", lambda: None)()
             return _mcp_content(name, hit[3])
+    if endpoint in SOLVING_ROUTES and SOLVE_GATE.full():
+        busy = _busy_payload()        # before any charge: nothing to refund
+        raise RpcError(-32003, busy["error"], {"status": 503, **busy})
     denied = charge(endpoint, args)
     if denied:
         status = denied.get("status")
@@ -1421,6 +1536,8 @@ def _mcp_call_tool(params: dict, tier: Tier, charge) -> dict:
         return _mcp_content(name, result)
     except ApiError as exc:
         refund()
+        if exc.status == 503:         # the concurrency cap was taken between the look above and the start: still busy, not invalid
+            raise RpcError(-32003, exc.message, {"status": 503, **exc.extra})
         raise RpcError(-32602, exc.message, exc.extra)
     except IntakeError as exc:
         refund()
@@ -1553,8 +1670,8 @@ class Handler(BaseHTTPRequestHandler):
         if path in DISCOVERY_PATHS:
             main = self.limiter.per_minute
             self.discovery_limiter.per_minute = max(DISCOVERY_FACTOR * main, DISCOVERY_MIN_PER_MINUTE) if main > 0 else 0
-            return self.discovery_limiter.allow(self._client_key())
-        return self.limiter.allow(self._client_key())
+            return self._within(self.discovery_limiter)
+        return self._within(self.limiter)
 
     def log_message(self, fmt: str, *args) -> None:  # pragma: no cover - noise
         if os.environ.get("GRIDFORGE_ACCESS_LOG"):
@@ -1608,14 +1725,14 @@ class Handler(BaseHTTPRequestHandler):
             return True
         return declared == "application/json" or (declared.startswith("application/") and declared.endswith("+json"))
 
-    def _client_key(self) -> str:
-        """Who is calling, for the rate limiter: see "Who a caller is" in the module docstring.
+    def _client_addr(self) -> str:
+        """The address text the caller is identified by: see "Who a caller is" in the module docstring.
 
         The socket peer, unless a proxy of ours is declared (GRIDFORGE_TRUSTED_PROXY_HOPS, GRIDFORGE_TRUSTED_IP_HEADER, or Fly.io's own
         FLY_APP_NAME). A client-supplied X-Forwarded-For with no declared proxy is ignored: it used to be read with one hop by default, so a
         caller could send a different single entry on every request and never meet the limit."""
         env = os.environ
-        peer = _bucket(self.client_address[0] if self.client_address else "") or "?"
+        peer = (self.client_address[0] if self.client_address else "") or ""
         on_fly = bool(env.get("FLY_APP_NAME"))
         try:
             raw_hops = env.get("GRIDFORGE_TRUSTED_PROXY_HOPS")
@@ -1627,12 +1744,20 @@ class Handler(BaseHTTPRequestHandler):
             entries = [p.strip() for p in (self.headers.get(named) or "").split(",") if p.strip()]
             n = max(hops, 1) if named == "x-forwarded-for" else 1
             if len(entries) >= n and _bucket(entries[-n]):
-                return _bucket(entries[-n])
+                return entries[-n]
         if hops:
             fwd = [p.strip() for p in (self.headers.get("X-Forwarded-For") or "").split(",") if p.strip()]
             if len(fwd) >= hops and _bucket(fwd[-hops]):
-                return _bucket(fwd[-hops])
+                return fwd[-hops]
         return peer
+
+    def _client_key(self) -> str:
+        """The caller's rate-limit identity: its address (IPv6: its /64), or "?" when no address can be read."""
+        return _bucket(self._client_addr()) or "?"
+
+    def _within(self, limiter: "_RateLimiter") -> bool:
+        """Count this request against `limiter` on the caller's /64 AND, for IPv6, its /48. False when either bucket is full."""
+        return limiter.allow(self._client_key(), _bucket_wide(self._client_addr()))
 
     def _supplied_key(self) -> str:
         auth = (self.headers.get("Authorization") or "").strip()
@@ -1934,7 +2059,7 @@ class Handler(BaseHTTPRequestHandler):
             return self._send(404, {"error": "not found",
                                     "endpoints": sorted(ROUTES) + ["/mcp"]})
 
-        if not self.limiter.allow(self._client_key()):
+        if not self._within(self.limiter):
             return self._send(429, {"error": "rate limit exceeded",
                                     "limit_per_minute": RATE_LIMIT_PER_MINUTE})
         tier = self._tier()
@@ -2012,6 +2137,10 @@ class Handler(BaseHTTPRequestHandler):
                 self._last_units, self._last_usage = 0, METER.current(plan.account)
                 return self._send(hit[2], hit[3])
 
+        if path in SOLVING_ROUTES and SOLVE_GATE.full():
+            # Shed load before anything is charged: a refused request leaves no ledger event to refund. Not queued.
+            self._retry_after = SOLVE_RETRY_AFTER_SECONDS
+            return self._send(503, _busy_payload())
         denied = self._charge(path, body, idem=_ledger_idem(idem_key[2]) if idem_key else "",
                               body_sha=body_hash[:16])
         if denied:
@@ -2027,6 +2156,8 @@ class Handler(BaseHTTPRequestHandler):
             return self._send(200, result)
         except ApiError as exc:
             self._refund()
+            if exc.status == 503 and exc.extra.get("retry_after_seconds"):
+                self._retry_after = exc.extra["retry_after_seconds"]
             return self._send(exc.status, {"error": exc.message, **exc.extra})
         except IntakeError as exc:
             self._refund()
@@ -2080,7 +2211,7 @@ class Handler(BaseHTTPRequestHandler):
 
         def rate() -> bool:
             calls[0] += 1
-            return calls[0] == 1 or self.limiter.allow(self._client_key())   # the first rode in on the HTTP hit
+            return calls[0] == 1 or self._within(self.limiter)   # the first rode in on the HTTP hit
         charge.rate = rate
         rid = "".join(c for c in (self.headers.get("X-Request-Id") or "")[:64] if c.isascii() and (c.isalnum() or c in "._:-"))
         charge.request_id = rid or secrets.token_hex(6)
