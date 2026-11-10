@@ -92,7 +92,7 @@ def _int(raw: Any, what: str = "value") -> int:
 #: 1e308 weeks came back as a "dated" scenario, and a million transformer units moved a 160-week date to 44.
 PLAUSIBLE_MAX: dict[str, float] = {
     "hall.net_white_space_m2": 200_000, "hall.floor_loading_kPa": 100, "hall.clear_height_m": 30, "hall.aisle_pitch_m": 10,
-    "hall.design_density_kW_per_rack": 300, "hall.rack_positions": 50_000, "hall.positions_available": 50_000,
+    "hall.design_density_kW_per_rack": 300, "hall.rack_positions": 50_000, "hall.positions_available": 50_000, "hall.occupied_positions": 50_000,
     "site.design_drybulb_C": 60, "site.design_wetbulb_C": 45,
     "grid.firm_capacity_MVA": 5_000, "grid.contracted_MW": 5_000, "grid.current_site_peak_MW": 5_000, "grid.current_it_load_MW": 5_000,
     "lv.voltage_V": 36_000, "lv.busway_ampacity_A": 10_000, "lv.busway_runs": 1_000, "lv.tapoff_max_A": 5_000,
@@ -272,24 +272,72 @@ def _reference_vs_ids(doc: dict, ctx, report: "IntakeReport") -> None:
             f"deliverable carries both, so check which hall this intake describes.")
 
 
-def _busway_vs_existing_load(ctx, report: "IntakeReport") -> None:
+def _rack_total_supplied(doc: dict) -> bool:
+    """Whether the document gave hall.rack_positions at all (a read, never a gap: the total has no field spec). Empty list and null count as not given,
+    as in ``_Reader.raw``."""
+    v = _dig(doc, "hall.rack_positions")
+    return v is not None and not (isinstance(v, list) and not v)
+
+
+def _busway_vs_existing_load(ctx, report: "IntakeReport", rack_total_supplied: bool = True) -> None:
     """The busway constraint reads `busway_ampacity_A` as the INSTALLED total and does not subtract what is already on it. If the racks
     already in the hall would draw more than that total at their design density, the figure is more likely a spare or per-run value than
-    the whole hall's busway: say so rather than let the constraint look more precise than the input."""
+    the whole hall's busway: say so rather than let the constraint look more precise than the input.
+
+    The occupied count is the client's own (`hall.occupied_positions`, E5 at most) when they gave one. When they did not, it is NOT a fact about
+    the hall: it is every position that is not free, read from the total and the free positions (and from the library's default total when the
+    client gave none), and the warning says exactly that, as an assumption (E0), instead of stating a count."""
     import math
     lv, hall = ctx.power.lv, ctx.hall
     if lv.existing_load_kW is not None:
         return          # the load already on the busway was given and is subtracted: the "existing load is not subtracted" caveat no longer applies
-    occupied = max(hall.rack_positions - hall.positions_available, 0)
+    declared = hall.occupied_positions
+    occupied = int(declared.value) if declared is not None else max(hall.rack_positions - hall.positions_available, 0)
     existing_kW = occupied * hall.design_density_kW_per_rack.value
     phase = math.sqrt(3) if lv.phases == 3 else 1.0
     total_kW = (phase * lv.voltage_V.value * lv.busway_ampacity_A.value * lv.busway_utilisation_limit.value
                 * ctx.power.grid.power_factor.value * lv.busway_runs) / 1000.0
     if existing_kW > total_kW > 0:
+        if declared is not None:
+            who = f"the {occupied} occupied positions you declared (hall.occupied_positions, {declared.evidence.short})"
+            ask = ""
+        elif rack_total_supplied:
+            who = (f"hall.occupied_positions was not supplied, so the occupied positions are an assumption (E0), not a count. Reading every position "
+                   f"that is not free as occupied ({hall.rack_positions} in total less {hall.positions_available} free = {occupied} positions)")
+            ask = ", and give hall.occupied_positions so this check runs on a count rather than an assumption"
+        else:
+            who = (f"neither hall.occupied_positions nor hall.rack_positions was supplied, so the occupied positions are an assumption (E0) from the "
+                   f"library default total of {hall.rack_positions} positions, not a count of anything in your hall. Reading that total less your "
+                   f"{hall.positions_available} free positions as occupied ({occupied} positions)")
+            ask = ", and give hall.occupied_positions and hall.rack_positions (a full intake takes both) so this check runs on counts rather than an assumption"
         report.warnings.append(
-            f"Busway: the {occupied} occupied positions at their {hall.design_density_kW_per_rack.value:g} kW design density would draw "
+            f"Busway: {who}, at their {hall.design_density_kW_per_rack.value:g} kW design density, would draw "
             f"{existing_kW:,.0f} kW, more than the {total_kW:,.0f} kW the declared busway can carry. busway_ampacity_A is read as the "
-            f"installed total and existing load is not subtracted, so check whether the figure you gave is the whole hall's busway.")
+            f"installed total and existing load is not subtracted, so check whether the figure you gave is the whole hall's busway{ask}.")
+
+
+def _occupied_positions_disclosure(ctx, report: "IntakeReport", rack_total_supplied: bool) -> None:
+    """Occupied positions are an optional figure, and the engine never invents one. Two things need saying about it, once each:
+    (1) free positions equal the total and no occupied figure was given: the hall is then read as having nothing occupied, which silences the
+    busway check against the load already in it, so the client is asked to confirm it (a declared zero is that confirmation);
+    (2) a declared occupied count that, with the free positions, does not account for every position the client says the hall has."""
+    hall = ctx.hall
+    declared = hall.occupied_positions
+    if declared is None:
+        if hall.positions_available == hall.rack_positions:
+            total = (f"hall.positions_available equals hall.rack_positions ({hall.rack_positions})" if rack_total_supplied else
+                     f"hall.rack_positions was not supplied, so the total is taken as the {hall.positions_available} free positions")
+            report.warnings.append(
+                f"hall.occupied_positions was not supplied and {total}, so no position is read as occupied (an assumption, E0). Please confirm "
+                f"that nothing is occupied (declare hall.occupied_positions as 0), or give the number of occupied positions: with none read as "
+                f"occupied, the check of the busway against the load already in the hall cannot run.")
+        return
+    accounted = int(declared.value) + hall.positions_available
+    if rack_total_supplied and accounted < hall.rack_positions:
+        report.warnings.append(
+            f"hall.occupied_positions ({int(declared.value)}) and hall.positions_available ({hall.positions_available}) account for {accounted} of "
+            f"the {hall.rack_positions} positions in hall.rack_positions: the other {hall.rack_positions - accounted} are neither free nor "
+            f"occupied as declared (reserved, out of service or not yet fitted out). They are not counted as free or as drawing load.")
 
 
 def _existing_busway_vs_installed(path: str, existing, power, report: "IntakeReport") -> None:
@@ -795,11 +843,11 @@ def _project_block(doc: dict) -> dict:
     return project
 
 
-def _declared_positions(r) -> int:
-    """The free rack positions the document declares, or 0 when it does not (or declares something unusable, which the field's own
-    validation then reports in its own words)."""
+def _declared_positions(r, path: str = "hall.positions_available") -> int:
+    """The rack positions the document declares at `path` (the free positions by default), or 0 when it does not (or declares something
+    unusable, which the field's own validation then reports in its own words)."""
     try:
-        v = _dig(r.doc, "hall.positions_available")   # a read, not r.raw(): reading must not record a gap
+        v = _dig(r.doc, path)   # a read, not r.raw(): reading must not record a gap
         if isinstance(v, dict) and "value" in v:
             # The annotated form {value, evidence, note}: the number is inside. Without unwrapping, a figure above hall.rack_positions
             # declared assumed (or with a note) was read as "not declared" and refused where the same plain number was accepted.
@@ -807,6 +855,20 @@ def _declared_positions(r) -> int:
         return int(v) if isinstance(v, (int, float)) and not isinstance(v, bool) and v == v and 0 <= v < 1e9 else 0
     except Exception:
         return 0
+
+
+def _read_occupied_positions(r) -> Quantity | None:
+    """`hall.occupied_positions`: optional, a whole number of positions (plain or the annotated object form), or None when absent.
+
+    Read at the client's class (E5, or lower when they declare lower; never higher), like every other figure. Absent, it is a named OPTIONAL gap
+    (recorded at the end of the load) and no count is derived here: the consequences are stated where the figure would be used (`_busway_vs_existing_load`)."""
+    path = "hall.occupied_positions"
+    raw = _dig(r.doc, path)
+    if raw is None or (isinstance(raw, list) and not raw):
+        return None         # the optional gap is recorded at the end of the load, after the long-standing ones
+    q = r.q(path, "positions", "occupied rack positions")
+    _int_max(q.value, path, path)       # whole, zero or more, and below the ceiling: refused by this field's name otherwise
+    return q
 
 
 def _load_document(doc: dict) -> Intake:
@@ -822,6 +884,7 @@ def _load_document(doc: dict) -> Intake:
         )
     platform = get_platform(platform_id)
 
+    occupied_positions = _read_occupied_positions(r)
     hall = HallSpec(
         id=str(r.raw("hall.id", "HALL-1")),
         build_year=_build_year(r.raw("hall.build_year", 2015)),
@@ -838,13 +901,18 @@ def _load_document(doc: dict) -> Intake:
         # An undeclared total never contradicts the free positions that WERE declared: the default total is the library's 400, or the
         # free positions when there are more than that (a hall cannot have more free positions than positions). Without this a hall with
         # 401+ free positions, run through the qualifier that asks only for the free positions, was refused over a figure nobody gave.
-        rack_positions=_int_max(r.raw("hall.rack_positions", max(400, _declared_positions(r))), "hall.rack_positions", "hall.rack_positions"),
+        # An undeclared total is the library default as it always was (400, or the free positions when there are more), clamped to the ceiling so a
+        # free-positions figure above it is refused by its own field. It does NOT grow to hold an occupied count: a total nobody gave is not a figure
+        # to refuse a client's own numbers against (see the consistency check below, which runs only on a total the client gave).
+        rack_positions=_int_max(r.raw("hall.rack_positions", min(max(400, _declared_positions(r)), PLAUSIBLE_MAX.get("hall.rack_positions", math.inf))),
+                                "hall.rack_positions", "hall.rack_positions"),
         positions_available=_int_max(r.raw("hall.positions_available", 100), "hall.positions_available", "hall.positions_available"),
         design_density_kW_per_rack=r.q(
             "hall.design_density_kW_per_rack", "kW", "hall design density per rack",
             V(8, "kW", "assumed design density (European colo 2010-2020: 8-20 kW/rack)",
               ASSUMED, band=(6, 20))),
         containment=str(r.raw("hall.containment", "cold_aisle")),
+        occupied_positions=occupied_positions,
     )
     site = SiteSpec(
         id=str(r.raw("site.id", "SITE-1")),
@@ -1185,6 +1253,12 @@ def _load_document(doc: dict) -> Intake:
     if hall.positions_available > hall.rack_positions:
         raise IntakeError(f"hall.positions_available is {hall.positions_available}, more than hall.rack_positions "
                           f"({hall.rack_positions}): free positions cannot exceed the positions that exist")
+    if (hall.occupied_positions is not None and _rack_total_supplied(doc)
+            and hall.occupied_positions.value + hall.positions_available > hall.rack_positions):
+        occ = int(hall.occupied_positions.value)
+        raise IntakeError(f"hall.occupied_positions is {occ} and hall.positions_available is {hall.positions_available}: together "
+                          f"{occ + hall.positions_available} positions, more than hall.rack_positions ({hall.rack_positions}). A position cannot be both "
+                          f"free and occupied, so check the three figures (occupied plus free cannot exceed the positions that exist)")
     if thermal.plant.design_return_C.value <= thermal.plant.design_supply_C.value:
         msg = (f"thermal.plant.design_return_C ({thermal.plant.design_return_C.value:g} degC) is not above "
                f"design_supply_C ({thermal.plant.design_supply_C.value:g} degC): a chilled-water return at or below supply carries no heat")
@@ -1198,7 +1272,8 @@ def _load_document(doc: dict) -> Intake:
     ctx = EnvelopeContext(site=site, hall=hall, power=power, thermal=thermal, cluster=cluster,
                           architecture=arch, pue=PUE_BY_ARCHITECTURE[arch], economics=econ)
 
-    _busway_vs_existing_load(ctx, report)
+    rack_total_supplied = _rack_total_supplied(doc)
+    _busway_vs_existing_load(ctx, report, rack_total_supplied)
     _reference_vs_ids(doc, ctx, report)
     if not transformers:
         report.warnings.append("No transformer schedule supplied: transformer capacity is not "
@@ -1208,10 +1283,16 @@ def _load_document(doc: dict) -> Intake:
     if not options:
         report.warnings.append("No behind-the-meter options declared: where the grid binds, the "
                                "study can only report that it binds.")
+    _occupied_positions_disclosure(ctx, report, rack_total_supplied)          # after the long-standing warnings: none of them moves
 
     # The optional busway-load row goes LAST in the ledger: the deck's "What nobody has measured yet" slide shows the first eight gaps, and a
     # newer optional input must not displace the long-standing ones from it (tests/test_existing_load_input.py pins the first eight).
     r.report.gaps.sort(key=lambda g: g.path == existing_busway_path)       # stable: only that row moves, and only to the end
+    if hall.occupied_positions is None:
+        # Named as an OPTIONAL gap (never required, outside the completeness ratio) and LAST, after the busway-load row, for the same reason.
+        occ_path = "hall.occupied_positions"
+        r._gap(occ_path, FIELD_BY_PATH[occ_path], None,
+               "no occupied count; every position not free is read as occupied for the busway check only")
     scenarios = _scenario_set(doc.get("scenarios"))
     return Intake(project=project, context=ctx, scenarios=scenarios,
                   report=report, document=doc)

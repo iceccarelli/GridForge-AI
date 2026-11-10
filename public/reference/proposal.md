@@ -52,12 +52,13 @@ Intake is 84% complete. Each row below is a number that moves the answer and tha
 | All-in grid electricity price | optional | library placeholder of 140 EUR/MWh (E0) | The supply contract, or 12 months of invoices divided by metered energy. |
 | Discount rate | optional | none: the lifecycle value is undiscounted | The client's hurdle rate. |
 | Load already on the busway | optional | 0 kW, nothing subtracted (busway_ampacity_A is read as the whole installed total) | Branch-circuit or busway monitoring (peak kW over a representative month), or the sum of the metered rack loads on the busway. |
+| Rack positions occupied | optional | no occupied count; every position not free is read as occupied for the busway check only | The tenancy schedule or the floor plan's rack register: racks physically installed, which is not the same as positions sold. |
 
 > ℹ️ BTM option BESS-2MW-8MWh: it is credited as firm capacity with NO declared energy rating. A battery is firm only for what its stored energy can sustain, and recharge is not modelled, so the racks this adds are unverified.
 
 > ℹ️ BTM option GEN-5MW: no unit count was declared, so it is credited at nameplate x firm factor as if no unit could be out of service. A single unit under N+1 would count as zero firm capacity; the racks this adds are unverified.
 
-> ℹ️ Busway: the 380 occupied positions at their 8 kW design density would draw 3,040 kW, more than the 1,720 kW the declared busway can carry. busway_ampacity_A is read as the installed total and existing load is not subtracted, so check whether the figure you gave is the whole hall's busway.
+> ℹ️ Busway: hall.occupied_positions was not supplied, so the occupied positions are an assumption (E0), not a count. Reading every position that is not free as occupied (560 in total less 180 free = 380 positions), at their 8 kW design density, would draw 3,040 kW, more than the 1,720 kW the declared busway can carry. busway_ampacity_A is read as the installed total and existing load is not subtracted, so check whether the figure you gave is the whole hall's busway, and give hall.occupied_positions so this check runs on a count rather than an assumption.
 
 ## 4. Fee, timing and terms
 

@@ -387,7 +387,8 @@ def constraints_out(res) -> list[dict]:
 def rack_rows(res) -> list[dict]:
     ctx = res.ladder.initial_context
     hall, plat = ctx.hall, ctx.cluster.platform
-    occupied = max(hall.rack_positions - hall.positions_available, 0)
+    occupied = (int(hall.occupied_positions.value) if getattr(hall, "occupied_positions", None) is not None
+                else max(hall.rack_positions - hall.positions_available, 0))
     found, after = res.envelope.max_racks, res.unlocked_racks
     rows = []
     if occupied:

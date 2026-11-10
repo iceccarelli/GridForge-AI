@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { identify } from "@/lib/portal";
+import { identify, identityRefusal } from "@/lib/portal";
 import { lookupSubscription, subscriptionsConfigured } from "@/lib/subscribers";
 import Anthropic from "@anthropic-ai/sdk";
 import { SITING_REGIONS, sitingScore, queueBasisNote } from "@/lib/siting";
@@ -20,7 +20,7 @@ export async function POST(req: Request) {
   // caller-supplied `email` is ignored (it used to be the credential, so knowing a
   // subscriber's address let anyone spend their LLM analyst).
   const who = await identify(req);
-  if (!who.ok) return NextResponse.json({ ok: false, error: who.error }, { status: who.status });
+  if (!who.ok) return identityRefusal(who);
   // An unconfirmed session claiming an address must not drive an entitlement lookup for it (it can reconcile and clear a stale pause at
   // Stripe for that address, and the latency is an oracle): same refusal as /api/team.
   if (!who.verified) {

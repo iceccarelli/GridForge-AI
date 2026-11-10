@@ -6,7 +6,7 @@ import {
   lookupSubscription,
   subscriptionsConfigured,
 } from "@/lib/subscribers";
-import { identify } from "@/lib/portal";
+import { identify, identityRefusal } from "@/lib/portal";
 
 export const runtime = "nodejs";
 
@@ -31,7 +31,7 @@ async function whoIs(req: Request) {
   if (!id.ok) {
     return {
       email: "",
-      denied: NextResponse.json({ ok: false, error: id.error }, { status: id.status }),
+      denied: identityRefusal(id),
     };
   }
   // A session that merely claims an address (no emailed link followed) must not drive an entitlement lookup for it: that lookup can ask

@@ -164,6 +164,7 @@ const ALL_FIELDS: readonly EngineField[] = [...SCALAR_FIELDS, ...SECTIONS.flatMa
  */
 export const NOT_SENT_PLACEHOLDERS: readonly { path: string; label: string; fallback: string }[] = [
   { path: "thermal.cdus", label: "Installed CDU schedule", fallback: "the hybrid and full-DLC scenarios assume three 1,350 kW N+1 CDUs already installed at no cost; this page cannot send a CDU schedule" },
+  { path: "hall.occupied_positions", label: "Rack positions occupied", fallback: "no occupied count is known: the engine reads every position that is not free as occupied for its busway check only, and says that is an assumption (E0); this page records no occupied count to send" },
 ];
 
 const BY_REGISTRY = new Map(SCALAR_FIELDS.map((x) => [x.registry, x]));

@@ -31,7 +31,12 @@ _INTAKE_SCHEMA = {
     "type": "object",
     "description": ("A GridForge intake document. GET /v1/intake/template for the blank "
                     "form with every field, or supply a sparse one — anything absent is "
-                    "filled from library defaults and reported as an assumption."),
+                    "filled from library defaults and reported as an assumption. Optional hall.occupied_positions (a "
+                    "non-negative whole number, or {value, evidence, note, source}; E5 when you supply it, never higher) is the "
+                    "number of rack positions already occupied. Omitted, the engine does not know it: it is listed as an optional gap, "
+                    "and the busway check against the load already in the hall reads every position that is not free as occupied "
+                    "and says so as an assumption (E0). Declare 0 to confirm that nothing is occupied. It changes no rack count, "
+                    "cost or date."),
     "additionalProperties": True,
 }
 

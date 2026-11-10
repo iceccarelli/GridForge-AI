@@ -14,6 +14,7 @@ import crypto from "node:crypto";
 import { newToken, type ApiAccount } from "@/lib/api-access";
 import { ensureNotification } from "@/lib/notifications";
 import { PAYG, accountRef, cleanEmail, freeAccountsMax, normaliseFreeEmail } from "@/lib/payg";
+import type { freeDomainCap } from "@/lib/payg";
 import { recordFunnelEvent } from "@/lib/funnel";
 import { enc, pg, rpc } from "@/lib/payg-store";
 
@@ -101,10 +102,39 @@ export async function createFreeAccount(rawEmail: unknown, rawCompany: unknown, 
 /**
  * First use of the emailed link to mint a key: count this account against the month's VERIFIED ceiling, atomically. Idempotent for
  * an account already verified. `capacity` means the month's allowance for new verified accounts is used up.
+ *
+ * `domain` (from `freeDomainCap`; null for free-mail, which is exempt) adds the per-domain cap in the SAME serialised database call
+ * (gf_free_account_verify_capped, migration 0055), so a flood of concurrent first mints from one catch-all domain cannot overshoot it:
+ * `domain_capacity` means that domain (and its sub-domains) already has its cap of verified accounts this month. The site-wide ceiling is checked
+ * first. Without migration 0055 the function does not exist and this answers "error" (fail closed: the route answers 503, nothing is minted).
+ * When this verification takes a domain to 80% of its cap, ONE console line says so (the domain only, never an address).
  */
-export async function verifyFreeAccount(token: string, max: number = freeAccountsMax()): Promise<"ok" | "capacity" | "unknown" | "error"> {
-  const r = await rpc<{ ok: boolean; reason?: string }>("gf_free_account_verify", { p_token: token, p_max: max });
+export async function verifyFreeAccount(
+  token: string,
+  max: number = freeAccountsMax(),
+  domain: ReturnType<typeof freeDomainCap> = null
+): Promise<"ok" | "capacity" | "domain_capacity" | "unknown" | "error"> {
+  const r = await rpc<{ ok: boolean; already?: boolean; reason?: string; domain_count?: number }>("gf_free_account_verify_capped", {
+    p_token: token,
+    p_max: max,
+    p_domain_key: domain?.key ?? null,
+    p_domain_max: domain?.max ?? null,
+  });
   if (!r.ok || !r.data) return "error";
-  if (r.data.ok) return "ok";
-  return r.data.reason === "capacity" ? "capacity" : "unknown";
+  if (r.data.ok) {
+    if (domain && r.data.already !== true && typeof r.data.domain_count === "number") warnDomainNearCap(domain, r.data.domain_count);
+    return "ok";
+  }
+  if (r.data.reason === "capacity") return "capacity";
+  return r.data.reason === "domain_capacity" ? "domain_capacity" : "unknown";
+}
+
+/** One line when a verification is the one that takes a domain to 80% of its cap (the domain, never an address). Exact crossing, so it is logged once per domain per month, whichever instance saw it. */
+function warnDomainNearCap(domain: { key: string; max: number }, count: number): void {
+  const threshold = Math.ceil(domain.max * 0.8);
+  if (count >= threshold && count - 1 < threshold) {
+    console.warn(
+      `[GridForge] free allowance: the domain ${domain.key} has reached 80% of its monthly cap on verified free accounts (${count} of ${domain.max}); once it is full, further accounts from that domain are refused until next month (UTC).`
+    );
+  }
 }

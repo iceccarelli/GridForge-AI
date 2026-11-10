@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { storeFault } from "@/lib/safe-log";
-import { identify } from "@/lib/portal";
+import { identify, identityRefusal } from "@/lib/portal";
 import { PRODUCT_BY_KIND } from "@/lib/products";
 
 export const runtime = "nodejs";
@@ -22,7 +22,7 @@ export const runtime = "nodejs";
 export async function GET(req: Request) {
   const who = await identify(req);
   if (!who.ok) {
-    return NextResponse.json({ ok: false, error: who.error }, { status: who.status });
+    return identityRefusal(who);
   }
 
   const url = process.env.SUPABASE_URL;
