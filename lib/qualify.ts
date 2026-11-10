@@ -132,7 +132,17 @@ export function toEngineBody(input: QualifyInput) {
 
 export type EngineOutcome =
   | { ok: true; result: QualifyResult }
+  | { ok: false; reason: "busy"; detail: string; retryAfterSeconds: number }
   | { ok: false; reason: "unconfigured" | "unreachable" | "rejected"; detail: string };
+
+/** What a visitor is told when the engine shed the request (503 + Retry-After): short and honest, never the engine's own sentence. */
+export const ENGINE_BUSY_MESSAGE = "The capacity engine is busy; try again in a few seconds.";
+
+/** The Retry-After header as whole seconds, kept within 1..60 so a visitor is never told to wait a minute-plus or zero; null when absent or unreadable. */
+export function retryAfterSeconds(header: string | null): number | null {
+  if (header === null || !/^\s*\d{1,6}\s*$/.test(header)) return null;
+  return Math.min(60, Math.max(1, Number(header)));
+}
 
 /**
  * Whether this deployment can call the engine at all (the same test callEngine applies). A page that offers something only the engine can do
@@ -165,6 +175,10 @@ export async function callEngine(input: QualifyInput): Promise<EngineOutcome> {
     });
     const body = await res.json().catch(() => ({}));
     if (!res.ok) {
+      // The engine is at its limit of solves (or a metered key's usage could not be recorded): it said so with a 503 and a Retry-After. That is
+      // "busy, retry", not a rejection of this request, and the engine's own wording stays on the server.
+      const wait = res.status === 503 ? retryAfterSeconds(res.headers.get("Retry-After")) : null;
+      if (wait !== null) return { ok: false, reason: "busy", detail: ENGINE_BUSY_MESSAGE, retryAfterSeconds: wait };
       return {
         ok: false,
         reason: "rejected",

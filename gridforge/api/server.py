@@ -54,13 +54,19 @@ the identity is the socket peer unless the operator says otherwise:
     GRIDFORGE_DISCOVERY_RATE_LIMIT requests per minute per caller on /health, /v1/version and /v1/tools, which cost almost nothing but are
                                    still bounded (default: ten times GRIDFORGE_RATE_LIMIT, at least 600; follows the main limiter off).
     GRIDFORGE_RATE_LIMIT_IPV6_48_MULTIPLE   an IPv6 caller is counted on TWO buckets, its /64 (the limit above) and its enclosing /48, whose
-                                   allowance is this many times the /64 limit (default 8; a value below 1 is read as 1, so one ordinary caller
+                                   allowance is this many times the /64 limit (default 32; a value below 1 is read as 1, so one ordinary caller
                                    is never throttled by the /48 before its /64). A holder of a /48 can mint 65,536 /64s and used to get a fresh
-                                   allowance for each. IPv4 is unchanged: one bucket per address. Not a measurement of any real subscriber
-                                   population; the default is a placeholder chosen to bind a prefix holder, not one household.
-    GRIDFORGE_MAX_CONCURRENT_SOLVES   solves (any route that runs the model, /mcp tool calls included) that may run at the same instant, in
-                                   all (default 16; 0 = no cap). A request that would be the next one is answered 503 with a Retry-After
-                                   header and a JSON body, at once: it is never queued. A placeholder bound, not a measured capacity.
+                                   allowance for each. A /48 may also hold unrelated users (residential prefixes are often a /56 or a /60, and a
+                                   carrier may pool many subscribers in one), which is why the multiple is generous. IPv4 is unchanged: one bucket
+                                   per address. A placeholder, not a measurement of any subscriber population.
+    GRIDFORGE_MAX_CONCURRENT_SOLVES   solves (any route that runs the model, /mcp tool calls included) that may run at the same instant, in all
+                                   (default 16; 0 = no cap; a negative or unreadable value is the default, never "off"). At most half of them
+                                   (at least one) may be held by keyless (public-tier) callers, so a keyed caller always has headroom.
+    GRIDFORGE_MAX_CONCURRENT_SOLVES_PER_CALLER   solves one caller identity (the rate limiter's: the IPv4 address, the IPv6 /64) may run at the same
+                                   instant (default 2; 0 = no per-caller cap; negative or unreadable = the default). A request that would exceed any
+                                   of the three is answered 503 with a Retry-After header and a JSON body at once: it is never queued and never
+                                   charged. These bound HOW MANY solves run, not how long one takes: there is no wall-clock limit on a single
+                                   solve, and solves share the interpreter, so more at once means each is slower. Placeholders, not measured capacity.
 An address that does not parse is not an identity: the socket peer is used instead. IPv6 callers are counted per /64 and per /48.
 GRIDFORGE_ADMIN_KEY and GRIDFORGE_KEY_SECRET, when set, should be at least 24 characters (MIN_SECRET_CHARS). `serve` logs a WARNING naming the
 variable and its length (never the value) and carries on, so a deployment whose secrets are older than this check does not go down.
@@ -72,6 +78,7 @@ from __future__ import annotations
 import hashlib
 import hmac
 import ipaddress
+import itertools
 import json
 import math
 import os
@@ -122,14 +129,24 @@ RATE_LIMIT_PER_MINUTE = int(os.environ.get("GRIDFORGE_RATE_LIMIT", "30"))
 #: GET routes that cost almost nothing and are the first thing a health check, a directory or an agent reads: they are not charged to the main
 #: limiter, but they are bounded by their own (a generous multiple of it), so they cannot be hammered for ever.
 #: An IPv6 caller is also counted on its /48; that bucket allows this many times the per-/64 limit (GRIDFORGE_RATE_LIMIT_IPV6_48_MULTIPLE).
-#: 8 is a placeholder: >= 1 so a single /64 is always stopped by its own limit first (a normal caller is never throttled by the /48), and small
-#: enough that a /48 (65,536 /64s) gets 8 allowances, not 65,536. It is not derived from any measured subscriber population.
-IPV6_WIDE_MULTIPLE_DEFAULT = 8
-#: Solves that may run at once (GRIDFORGE_MAX_CONCURRENT_SOLVES; 0 = no cap). 16 is a placeholder, not a measured capacity: well above what
-#: a handful of callers at the per-caller rate limit can overlap, low enough that a flood cannot start an unbounded number of solver threads
-#: on the single small machine (fly.toml: shared-cpu-1x, 512 MB). Excess requests are answered 503 + Retry-After at once, never queued.
+#: 32 is a placeholder, not derived from any measured subscriber population: >= 1 so a single /64 is always stopped by its own limit first (a
+#: normal caller is never throttled by the /48), generous because a /48 may hold UNRELATED users (residential prefixes are often a /56 or a /60,
+#: a carrier may pool subscribers in one /48), and far below the 65,536 fresh /64 allowances a /48 holder had before. A /32 holder still gets one
+#: /48 allowance per /48 it spreads over.
+IPV6_WIDE_MULTIPLE_DEFAULT = 32
+#: The rate limiter's table of tracked buckets is bounded: expired entries are swept at most once a second once it passes the soft size, and past
+#: the hard size the oldest-inserted entries are dropped (a flood of fresh identities forgets its own oldest ones first). Dropping a live entry
+#: only forgets its count, which never refuses anyone.
+RATE_TABLE_SOFT_KEYS = 10_000
+RATE_TABLE_MAX_KEYS = 20_000
+#: Solves that may run at once (GRIDFORGE_MAX_CONCURRENT_SOLVES; 0 = no cap). 16 is a placeholder, not a measured capacity.
 MAX_CONCURRENT_SOLVES_DEFAULT = 16
-#: Seconds named in Retry-After when the engine is at its concurrency cap. A hint to a well-behaved client, not a prediction.
+#: Solves one caller identity may run at once (GRIDFORGE_MAX_CONCURRENT_SOLVES_PER_CALLER; 0 = off). A placeholder: one caller at the rate limit
+#: sending heavy requests could otherwise hold every global slot, and a heavy solve takes seconds, so slots are held long enough to matter.
+MAX_CONCURRENT_SOLVES_PER_CALLER_DEFAULT = 2
+#: Keyless (public-tier) callers may hold at most this share of the global slots (floor, at least one); the rest is headroom for keyed callers.
+PUBLIC_SOLVE_SHARE = 0.5
+#: Seconds named in Retry-After when a request is shed. A hint to a well-behaved client, not a prediction.
 SOLVE_RETRY_AFTER_SECONDS = 2
 DISCOVERY_PATHS = frozenset({"/", "/health", "/v1/version", "/v1/tools"})
 DISCOVERY_MIN_PER_MINUTE = 600
@@ -345,9 +362,23 @@ def _env_int(name: str, default: int, minimum: int = 0) -> int:
         return default
 
 
+def _env_cap(name: str, default: int) -> int:
+    """A concurrency setting: a whole number, 0 meaning "no cap". Unset, empty, unreadable or NEGATIVE is the default, never "off": a typo must not
+    switch a protection off."""
+    raw = os.environ.get(name)
+    if raw in (None, ""):
+        return default
+    try:
+        v = int(str(raw).strip())
+    except ValueError:
+        return default
+    return v if v >= 0 else default
+
+
 class _RateLimiter:
     """Sliding one-minute counts per caller bucket. An IPv6 caller is charged on two buckets at once, its /64 (`per_minute`) and its enclosing
-    /48 (`per_minute` x `wide_multiple`): it is limited by BOTH, and a refused request is charged to neither."""
+    /48 (`per_minute` x `wide_multiple`): it is limited by BOTH, and a refused request is charged to neither. The table of buckets is bounded
+    (RATE_TABLE_SOFT_KEYS / RATE_TABLE_MAX_KEYS)."""
 
     def __init__(self, per_minute: int, wide_multiple: int | None = None):
         self.per_minute = per_minute
@@ -355,6 +386,8 @@ class _RateLimiter:
                                  if wide_multiple is None else wide_multiple)
         self._hits: dict[str, deque] = defaultdict(deque)
         self._lock = threading.Lock()
+        self._swept = 0.0
+        self.sweeps = 0
 
     @property
     def wide_limit(self) -> int:
@@ -366,14 +399,26 @@ class _RateLimiter:
             q.popleft()
         return q
 
+    def _bound_table(self, now: float) -> None:
+        """Keep the table small without scanning it on every request (lock held). Expired entries go at most once a second; past the hard size
+        the oldest-inserted go until it is 10% under it, so the next scan is a long way off."""
+        n = len(self._hits)
+        if n > RATE_TABLE_SOFT_KEYS and now - self._swept >= 1.0:
+            self._swept = now
+            self.sweeps += 1
+            for k in [k for k, d in self._hits.items() if not d or now - d[-1] > 60]:
+                del self._hits[k]
+        if len(self._hits) > RATE_TABLE_MAX_KEYS:
+            drop = len(self._hits) - int(RATE_TABLE_MAX_KEYS * 0.9)
+            for k in list(itertools.islice(self._hits, drop)):
+                del self._hits[k]
+
     def allow(self, key: str, wide: str = "") -> bool:
         if self.per_minute <= 0:
             return True
         now = time.time()
         with self._lock:
-            if len(self._hits) > 10_000:                      # a spoofed-key flood must not grow this forever
-                for k in [k for k, d in self._hits.items() if not d or now - d[-1] > 60]:
-                    del self._hits[k]
+            self._bound_table(now)
             q = self._window(key, now)
             wq = self._window(wide, now) if wide else None
             if len(q) >= self.per_minute or (wq is not None and len(wq) >= self.wide_limit):
@@ -385,28 +430,56 @@ class _RateLimiter:
 
 
 class _SolveGate:
-    """At most `limit` solves at the same instant, process-wide. `enter` never waits: when every slot is taken it says so and the caller answers
-    503 with Retry-After, so load is shed, not queued. A BoundedSemaphore under the hood; `limit` 0 means no cap."""
+    """Bounds how many solves run at the same instant, and never waits: a request that would exceed a bound is refused at once (the caller
+    answers 503 + Retry-After), so load is shed, not queued. Three bounds, all counted under one lock:
+      * `limit`       solves in all (0 = no cap);
+      * `public_limit` of those may be held by keyless callers (default half, at least one), so keyed callers always have headroom;
+      * `per_caller`  solves one caller identity may hold (0 = off), so one identity cannot take every slot.
+    It bounds HOW MANY solves run, not how long one takes: there is no wall-clock limit on a solve."""
 
-    def __init__(self, limit: int):
+    def __init__(self, limit: int, per_caller: int = 0, public_limit: int | None = None):
         self.limit = limit
-        self._sem = threading.BoundedSemaphore(limit) if limit > 0 else None
+        self.per_caller = per_caller
+        self.public_limit = ((max(1, int(limit * PUBLIC_SOLVE_SHARE)) if limit > 0 else 0) if public_limit is None else public_limit)
+        self._lock = threading.Lock()
+        self._active = 0
+        self._public = 0
+        self._callers: dict[str, int] = {}
 
-    def enter(self) -> bool:
-        return self._sem is None or self._sem.acquire(blocking=False)
+    def _refused(self, caller: str, public: bool) -> bool:
+        if self.limit > 0 and self._active >= self.limit:
+            return True
+        if public and self.limit > 0 and self._public >= self.public_limit:
+            return True
+        return bool(caller and self.per_caller > 0 and self._callers.get(caller, 0) >= self.per_caller)
 
-    def leave(self) -> None:
-        if self._sem is not None:
-            self._sem.release()
+    def enter(self, caller: str = "", public: bool = False) -> bool:
+        with self._lock:
+            if self._refused(caller, public):
+                return False
+            self._active += 1
+            self._public += 1 if public else 0
+            if caller:
+                self._callers[caller] = self._callers.get(caller, 0) + 1
+            return True
 
-    def full(self) -> bool:
-        """Would `enter` be refused right now? A look, not a reservation (a slot is taken and given back at once)."""
-        if self._sem is None:
-            return False
-        if self._sem.acquire(blocking=False):
-            self._sem.release()
-            return False
-        return True
+    def leave(self, caller: str = "", public: bool = False) -> None:
+        with self._lock:
+            if self._active <= 0 or (public and self._public <= 0) or (caller and self._callers.get(caller, 0) <= 0):
+                raise ValueError("leave without a matching enter")
+            self._active -= 1
+            self._public -= 1 if public else 0
+            if caller:
+                left = self._callers[caller] - 1
+                if left:
+                    self._callers[caller] = left
+                else:
+                    del self._callers[caller]
+
+    def full(self, caller: str = "", public: bool = False) -> bool:
+        """Would `enter` be refused right now? A read of the counters: nothing is taken, so it cannot hide a free slot from a concurrent enter."""
+        with self._lock:
+            return self._refused(caller, public)
 
 
 #: Every route that runs the model. /v1/estimate (arithmetic on a table) and /v1/revoke (a file write) do not, and an MCP call is gated by the
@@ -414,12 +487,14 @@ class _SolveGate:
 SOLVING_ROUTES = frozenset({"/v1/qualify", "/v1/screen", "/v1/compare", "/v1/study", "/v1/portfolio", "/v1/proposal", "/v1/deck", "/v1/diff",
                             "/v1/spec", "/v1/bids", "/v1/power/assess", "/v1/power/deploy/assess", "/v1/power/deploy/spec",
                             "/v1/power/deploy/bids"})
-SOLVE_GATE = _SolveGate(_env_int("GRIDFORGE_MAX_CONCURRENT_SOLVES", MAX_CONCURRENT_SOLVES_DEFAULT))
+SOLVE_GATE = _SolveGate(_env_cap("GRIDFORGE_MAX_CONCURRENT_SOLVES", MAX_CONCURRENT_SOLVES_DEFAULT),
+                        _env_cap("GRIDFORGE_MAX_CONCURRENT_SOLVES_PER_CALLER", MAX_CONCURRENT_SOLVES_PER_CALLER_DEFAULT))
 
 
 def _busy_payload() -> dict:
-    return {"error": f"the engine is running its limit of {SOLVE_GATE.limit} solves at once; nothing was run and nothing was charged",
-            "retryable": True, "retry_after_seconds": SOLVE_RETRY_AFTER_SECONDS, "max_concurrent_solves": SOLVE_GATE.limit,
+    """The body of a shed request. It says the engine is busy and to retry, and nothing about how many slots there are or which bound was met."""
+    return {"error": "the engine is busy; nothing was run and nothing was charged",
+            "retryable": True, "retry_after_seconds": SOLVE_RETRY_AFTER_SECONDS,
             "fix": "retry after the Retry-After interval. The request was refused, not queued"}
 
 
@@ -1419,13 +1494,14 @@ def _invoke(endpoint: str, handler, body, tier):
     detail) at once: it never waits for a slot, so a flood is shed, not queued."""
     if endpoint not in SOLVING_ROUTES:
         return _invoke_inner(endpoint, handler, body, tier)
-    if not SOLVE_GATE.enter():
+    caller, public = getattr(_CTX, "caller", ""), tier is Tier.PUBLIC
+    if not SOLVE_GATE.enter(caller, public):
         busy = _busy_payload()
         raise ApiError(503, busy.pop("error"), **busy)
     try:
         return _invoke_inner(endpoint, handler, body, tier)
     finally:
-        SOLVE_GATE.leave()
+        SOLVE_GATE.leave(caller, public)
 
 
 def _invoke_inner(endpoint: str, handler, body, tier):
@@ -1512,7 +1588,8 @@ def _mcp_call_tool(params: dict, tier: Tier, charge) -> dict:
                 raise RpcError(-32602, _IDEM_REUSED, {"status": 422})
             getattr(charge, "replayed", lambda: None)()
             return _mcp_content(name, hit[3])
-    if endpoint in SOLVING_ROUTES and SOLVE_GATE.full():
+    if endpoint in SOLVING_ROUTES and SOLVE_GATE.full(getattr(_CTX, "caller", ""), tier is Tier.PUBLIC):
+        getattr(charge, "busy", lambda: None)()       # the HTTP response carries Retry-After too
         busy = _busy_payload()        # before any charge: nothing to refund
         raise RpcError(-32003, busy["error"], {"status": 503, **busy})
     denied = charge(endpoint, args)
@@ -1537,6 +1614,7 @@ def _mcp_call_tool(params: dict, tier: Tier, charge) -> dict:
     except ApiError as exc:
         refund()
         if exc.status == 503:         # the concurrency cap was taken between the look above and the start: still busy, not invalid
+            getattr(charge, "busy", lambda: None)()
             raise RpcError(-32003, exc.message, {"status": 503, **exc.extra})
         raise RpcError(-32602, exc.message, exc.extra)
     except IntakeError as exc:
@@ -2048,10 +2126,11 @@ class Handler(BaseHTTPRequestHandler):
     def do_POST(self) -> None:  # noqa: N802
         self._open_res, self._req_units, self._last_units, self._last_usage = None, 0, None, None
         _CTX.plan, _CTX.supplied_key = self._plan(), self._supplied_key()
+        _CTX.caller = self._client_key()          # the solve gate's per-caller identity: the one the rate limiter uses
         try:
             self._do_post()
         finally:
-            _CTX.plan, _CTX.supplied_key = None, ""
+            _CTX.plan, _CTX.supplied_key, _CTX.caller = None, "", ""
 
     def _do_post(self) -> None:
         path = urlparse(self.path).path.rstrip("/") or "/"
@@ -2137,7 +2216,7 @@ class Handler(BaseHTTPRequestHandler):
                 self._last_units, self._last_usage = 0, METER.current(plan.account)
                 return self._send(hit[2], hit[3])
 
-        if path in SOLVING_ROUTES and SOLVE_GATE.full():
+        if path in SOLVING_ROUTES and SOLVE_GATE.full(self._client_key(), tier is Tier.PUBLIC):
             # Shed load before anything is charged: a refused request leaves no ledger event to refund. Not queued.
             self._retry_after = SOLVE_RETRY_AFTER_SECONDS
             return self._send(503, _busy_payload())
@@ -2198,6 +2277,10 @@ class Handler(BaseHTTPRequestHandler):
             return self._charge(endpoint, args, idem=_ledger_idem(info[0][2]), body_sha=info[1][:16])
 
         charge.refund = self._refund
+
+        def busy() -> None:
+            self._retry_after = SOLVE_RETRY_AFTER_SECONDS
+        charge.busy = busy
         charge.current = lambda: self._open_res        # the reservation the call just made, if any
         charge.idem = idem_for
 
@@ -2299,7 +2382,7 @@ def serve(host: str = "0.0.0.0", port: int = 8080) -> None:  # pragma: no cover 
         print(f"gridforge: WARNING: {line}" + (" Refusing to start (GRIDFORGE_ENFORCE_SECRET_STRENGTH=1)." if refuse else ""), file=sys.stderr)
     if refuse:
         raise SystemExit(2)          # before anything is bound
-    httpd = ThreadingHTTPServer((host, port), Handler)
+    httpd = _Server((host, port), Handler)
     keys = _api_keys()
     print(f"gridforge {VERSION} listening on http://{host}:{port}")
     print(f"  public : POST /v1/qualify")
@@ -2314,6 +2397,12 @@ def serve(host: str = "0.0.0.0", port: int = 8080) -> None:  # pragma: no cover 
         graceful_stop(httpd)
 
 
+class _Server(ThreadingHTTPServer):
+    #: The listening backlog. The default of 5 reset connections in a burst of a couple of dozen simultaneous connects before the engine could
+    #: answer any of them, which defeats shedding load with a 503 (a reset carries no Retry-After).
+    request_queue_size = 64
+
+
 def make_server(host: str = "127.0.0.1", port: int = 0) -> ThreadingHTTPServer:
     """Used by the tests, and by anyone embedding the engine in their own process."""
-    return ThreadingHTTPServer((host, port), Handler)
+    return _Server((host, port), Handler)

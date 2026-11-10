@@ -74,7 +74,7 @@ Inputs to the capacity model that were assumed rather than supplied (each is an 
 - All-in grid electricity price (economics.electricity_eur_per_MWh; EUR/MWh): not supplied: assumed library placeholder of 140 EUR/MWh (E0)
 - Discount rate (economics.discount_rate): not supplied: assumed no value (none: the lifecycle value is undiscounted) (E0)
 - Load already on the busway (lv.existing_busway_load_kW; kW): not supplied: assumed 0 kW, nothing subtracted (busway_ampacity_A is read as the whole installed total) (E0)
-- Rack positions occupied (hall.occupied_positions; positions): not supplied: assumed not supplied: no occupied count is known; every position that is not free is read as occupied for the busway check only (an assumption, E0), and nothing else uses it (E0)
+- Rack positions occupied (hall.occupied_positions; positions): not supplied: assumed no occupied count; every position not free is read as occupied for the busway check only (E0)
 
 ## 3. Technical requirements
 

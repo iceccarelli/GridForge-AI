@@ -52,7 +52,7 @@ Intake is 84% complete. Each row below is a number that moves the answer and tha
 | All-in grid electricity price | optional | library placeholder of 140 EUR/MWh (E0) | The supply contract, or 12 months of invoices divided by metered energy. |
 | Discount rate | optional | none: the lifecycle value is undiscounted | The client's hurdle rate. |
 | Load already on the busway | optional | 0 kW, nothing subtracted (busway_ampacity_A is read as the whole installed total) | Branch-circuit or busway monitoring (peak kW over a representative month), or the sum of the metered rack loads on the busway. |
-| Rack positions occupied | optional | not supplied: no occupied count is known; every position that is not free is read as occupied for the busway check only (an assumption, E0), and nothing else uses it | The tenancy schedule or the floor plan's rack register: racks physically installed, which is not the same as positions sold. |
+| Rack positions occupied | optional | no occupied count; every position not free is read as occupied for the busway check only | The tenancy schedule or the floor plan's rack register: racks physically installed, which is not the same as positions sold. |
 
 > ℹ️ BTM option BESS-2MW-8MWh: it is credited as firm capacity with NO declared energy rating. A battery is firm only for what its stored energy can sustain, and recharge is not modelled, so the racks this adds are unverified.
 
