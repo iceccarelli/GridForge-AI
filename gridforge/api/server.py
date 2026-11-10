@@ -62,8 +62,8 @@ the identity is the socket peer unless the operator says otherwise:
     GRIDFORGE_MAX_CONCURRENT_SOLVES   solves (any route that runs the model, /mcp tool calls included) that may run at the same instant, in all
                                    (default 16; 0 = no cap; a negative or unreadable value is the default, never "off"). At most half of them
                                    (at least one) may be held by keyless (public-tier) callers, so a keyed caller always has headroom.
-    GRIDFORGE_MAX_CONCURRENT_SOLVES_PER_CALLER   solves one caller identity (the rate limiter's: the IPv4 address, the IPv6 /64) may run at the same
-                                   instant (default 2; 0 = no per-caller cap; negative or unreadable = the default). A request that would exceed any
+    GRIDFORGE_MAX_CONCURRENT_SOLVES_PER_CALLER   solves one KEYLESS caller identity (the rate limiter's: the IPv4 address, the IPv6 /64) may run at
+                                   the same instant (default 2; keyed callers are not capped per identity; 0 = no per-caller cap; negative or unreadable = the default). A request that would exceed any
                                    of the three is answered 503 with a Retry-After header and a JSON body at once: it is never queued and never
                                    charged. These bound HOW MANY solves run, not how long one takes: there is no wall-clock limit on a single
                                    solve, and solves share the interpreter, so more at once means each is slower. Placeholders, not measured capacity.
@@ -78,7 +78,6 @@ from __future__ import annotations
 import hashlib
 import hmac
 import ipaddress
-import itertools
 import json
 import math
 import os
@@ -141,8 +140,9 @@ RATE_TABLE_SOFT_KEYS = 10_000
 RATE_TABLE_MAX_KEYS = 20_000
 #: Solves that may run at once (GRIDFORGE_MAX_CONCURRENT_SOLVES; 0 = no cap). 16 is a placeholder, not a measured capacity.
 MAX_CONCURRENT_SOLVES_DEFAULT = 16
-#: Solves one caller identity may run at once (GRIDFORGE_MAX_CONCURRENT_SOLVES_PER_CALLER; 0 = off). A placeholder: one caller at the rate limit
-#: sending heavy requests could otherwise hold every global slot, and a heavy solve takes seconds, so slots are held long enough to matter.
+#: Solves one KEYLESS caller identity may run at once (GRIDFORGE_MAX_CONCURRENT_SOLVES_PER_CALLER; 0 = off; keyed callers are not capped per
+#: identity). A placeholder: one anonymous caller at the rate limit sending heavy requests could otherwise hold every global slot, and a heavy solve
+#: takes seconds, so slots are held long enough to matter.
 MAX_CONCURRENT_SOLVES_PER_CALLER_DEFAULT = 2
 #: Keyless (public-tier) callers may hold at most this share of the global slots (floor, at least one); the rest is headroom for keyed callers.
 PUBLIC_SOLVE_SHARE = 0.5
@@ -410,7 +410,7 @@ class _RateLimiter:
                 del self._hits[k]
         if len(self._hits) > RATE_TABLE_MAX_KEYS:
             drop = len(self._hits) - int(RATE_TABLE_MAX_KEYS * 0.9)
-            for k in list(itertools.islice(self._hits, drop)):
+            for k in list(self._hits)[:drop]:
                 del self._hits[k]
 
     def allow(self, key: str, wide: str = "") -> bool:
@@ -434,7 +434,9 @@ class _SolveGate:
     answers 503 + Retry-After), so load is shed, not queued. Three bounds, all counted under one lock:
       * `limit`       solves in all (0 = no cap);
       * `public_limit` of those may be held by keyless callers (default half, at least one), so keyed callers always have headroom;
-      * `per_caller`  solves one caller identity may hold (0 = off), so one identity cannot take every slot.
+      * `per_caller`  solves one KEYLESS caller identity may hold (0 = off), so one anonymous identity cannot take every slot. Keyed callers are
+                      not capped per identity: the website's own qualifier and an API customer's backend call from a few addresses with
+                      many requests in flight, and a key is accountable (metered, revocable) where an anonymous address is not.
     It bounds HOW MANY solves run, not how long one takes: there is no wall-clock limit on a solve."""
 
     def __init__(self, limit: int, per_caller: int = 0, public_limit: int | None = None):
@@ -451,7 +453,7 @@ class _SolveGate:
             return True
         if public and self.limit > 0 and self._public >= self.public_limit:
             return True
-        return bool(caller and self.per_caller > 0 and self._callers.get(caller, 0) >= self.per_caller)
+        return bool(public and caller and self.per_caller > 0 and self._callers.get(caller, 0) >= self.per_caller)
 
     def enter(self, caller: str = "", public: bool = False) -> bool:
         with self._lock:
@@ -459,17 +461,17 @@ class _SolveGate:
                 return False
             self._active += 1
             self._public += 1 if public else 0
-            if caller:
+            if public and caller:
                 self._callers[caller] = self._callers.get(caller, 0) + 1
             return True
 
     def leave(self, caller: str = "", public: bool = False) -> None:
         with self._lock:
-            if self._active <= 0 or (public and self._public <= 0) or (caller and self._callers.get(caller, 0) <= 0):
+            if self._active <= 0 or (public and self._public <= 0) or (public and caller and self._callers.get(caller, 0) <= 0):
                 raise ValueError("leave without a matching enter")
             self._active -= 1
             self._public -= 1 if public else 0
-            if caller:
+            if public and caller:
                 left = self._callers[caller] - 1
                 if left:
                     self._callers[caller] = left

@@ -331,7 +331,16 @@ def test_one_caller_identity_holds_at_most_its_share_and_others_are_untouched():
     g.leave("a", True)
     assert g.enter("a", True)                                                          # its own slot came back
     g2 = S._SolveGate(16, per_caller=0)                                                # 0 = off
-    assert all(g2.enter("a", False) for _ in range(10))
+    assert all(g2.enter("a", True) for _ in range(8))
+
+
+def test_a_keyed_caller_is_not_capped_per_identity():
+    """The website's own qualifier and an API customer's backend call from a few addresses with many requests in flight (tests/test_payg_http.py
+    sends six concurrent keyed requests from one address): only keyless identities are capped one by one."""
+    g = S._SolveGate(16, per_caller=2)
+    assert all(g.enter("website", False) for _ in range(6)) and g._callers == {}
+    for _ in range(6):
+        g.leave("website", False)
 
 
 def test_keyless_callers_hold_at_most_half_the_slots_and_a_keyed_caller_always_has_headroom():
