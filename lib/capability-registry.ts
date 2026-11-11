@@ -752,7 +752,7 @@ export const CAPABILITY_REGISTRY: Capability[] = [
     status: "free",
     production_status: "live",
     notes:
-      "Live in the sense this registry uses: /v1/calibration/residuals is listed by the deployed engine's /v1/version (the snapshot lib/engine-deployed.json, dated 2026-11-10, " +
+      "Live in the sense this registry uses: /v1/calibration/residuals is listed by the deployed engine's /v1/version (the snapshot lib/engine-deployed.json, dated 2026-11-11, " +
       "after the redeploy of that day, whose drift check found no difference between the deployed engine and this repository), and it is a public read-only route. " +
       "That is the route, not a claim that the ledger holds evidence: it holds none. "+
       "Nothing here writes the ledger by itself: with no verified observation the export is empty and the answer is 'uncalibrated'. " +
