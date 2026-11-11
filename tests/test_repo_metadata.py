@@ -122,6 +122,12 @@ def _updates() -> tuple[str, list[dict[str, str]]]:
             nest = ""
         if cur is None:
             continue
+        if ind > 4 and line.startswith("- "):
+            # A list item inside groups: / ignore: (`- dependency-name: "x"`). Its keys are recorded under the block's name like any
+            # other nested key; a bare scalar item carries no key and is skipped.
+            line = line[2:]
+            if not re.fullmatch(r"([\w-]+):\s*(.*)", line):
+                continue
         m = re.fullmatch(r"([\w-]+):\s*(.*)", line)
         assert m, f"cannot read dependabot.yml line: {raw}"
         k, v = m.group(1), m.group(2).strip().strip("\"'")
@@ -164,3 +170,15 @@ def test_the_reference_build_copies_the_licence_so_a_fresh_run_does_not_delete_i
     A hand-placed public/reference/fonts/OFL.txt that the script does not write is deleted by that run (main went red this way)."""
     src = (ROOT / "scripts" / "build-reference.sh").read_text()
     assert 'cp app/fonts/OFL.txt "$OUT/fonts/OFL.txt"' in src
+
+
+def test_dependabot_groups_updates_and_does_not_propose_framework_majors_as_updates():
+    """The policy in .github/dependabot.yml: Actions move together, npm minor/patch move together, and a MAJOR of a package that
+    must match Next's major, the Node runtime or the rendering/build configuration is a deliberate migration, not an update PR."""
+    text = DEPENDABOT.read_text()
+    version, entries = _updates()
+    by = {e["package-ecosystem"]: e for e in entries}
+    assert "groups" in by["github-actions"] and "groups" in by["npm"]
+    npm_block = text[text.index('package-ecosystem: "npm"'):text.index('package-ecosystem: "pip"')]
+    for name in ("eslint-config-next", "@types/node", "react", "react-dom", "@types/react", "@types/react-dom", "tailwindcss"):
+        assert re.search(rf'dependency-name: "{re.escape(name)}"\s+update-types: \["version-update:semver-major"\]', npm_block), name

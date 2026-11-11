@@ -394,7 +394,7 @@ def test_a_dict_wrapped_machine_list_is_counted(tmp_path, engines):
 # ---- the override never skips the later gates ---------------------------------------------------------------------------------------
 def test_the_confirm_gate_runs_first_and_does_not_read_the_override():
     text = WORKFLOW.read_text()
-    confirm = text[text.index("- name: Confirm and check credentials"):text.index("- uses: actions/checkout@v4")]
+    confirm = text[text.index("- name: Confirm and check credentials"):text.index("- uses: actions/checkout@v7")]
     assert 'CONFIRM" != "DEPLOY"' in confirm and "allow_no_baseline" not in confirm
 
 

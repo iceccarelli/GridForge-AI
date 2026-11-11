@@ -1,17 +1,46 @@
 version: 2
+# Weekly. Three rules keep this from becoming a queue nobody reads:
+#   1. GitHub Actions move together (one PR), because a workflow set that mixes versions is harder to reason about than one that does not.
+#   2. npm minor and patch updates move together (one PR); each one still runs the whole CI, including the per-route JavaScript budget.
+#   3. A MAJOR version of a framework-level package is a migration, not an update, so it is not proposed here: it is done on purpose, in
+#      its own pull request, with the migration steps and the bundle budget in front of the reviewer. Majors of everything else still arrive
+#      one PR each so a payments or UI library is tested alone. Stripe, recharts, lucide, sonner and the form resolvers are in that group.
 updates:
-  - package-ecosystem: "npm"
-    directory: "/"
-    schedule:
-      interval: "weekly"
-    open-pull-requests-limit: 10
-  - package-ecosystem: "pip"
-    directory: "/"
-    schedule:
-      interval: "weekly"
-    open-pull-requests-limit: 10
   - package-ecosystem: "github-actions"
     directory: "/"
     schedule:
       interval: "weekly"
     open-pull-requests-limit: 5
+    groups:
+      actions:
+        patterns: ["*"]
+  - package-ecosystem: "npm"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+    open-pull-requests-limit: 10
+    groups:
+      npm-minor-and-patch:
+        update-types: ["minor", "patch"]
+    ignore:
+      # Must stay on the Next major in package.json (eslint-config-next 16 is for Next 16) and on the Node runtime CI and Vercel run (20 / 22).
+      - dependency-name: "eslint-config-next"
+        update-types: ["version-update:semver-major"]
+      - dependency-name: "@types/node"
+        update-types: ["version-update:semver-major"]
+      # Framework migrations: React and Tailwind majors change build configuration and rendering, and move the bundle budget.
+      - dependency-name: "react"
+        update-types: ["version-update:semver-major"]
+      - dependency-name: "react-dom"
+        update-types: ["version-update:semver-major"]
+      - dependency-name: "@types/react"
+        update-types: ["version-update:semver-major"]
+      - dependency-name: "@types/react-dom"
+        update-types: ["version-update:semver-major"]
+      - dependency-name: "tailwindcss"
+        update-types: ["version-update:semver-major"]
+  - package-ecosystem: "pip"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+    open-pull-requests-limit: 10
