@@ -19,8 +19,8 @@ jobs:
       matrix:
         python-version: ['3.11', '3.12', '3.13']
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
         with:
           python-version: ${{ matrix.python-version }}
       - name: Install test dependency only
@@ -51,8 +51,8 @@ jobs:
   deliverables:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
         with:
           python-version: '3.13'
       - name: Blank intake must survive every command
@@ -194,7 +194,7 @@ jobs:
           assert all(t['returns'] for t in d['tools'])
           print('catalogue ok:', len(d['tools']), 'tools')
           "
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: sample-deliverables
           path: |
@@ -207,8 +207,8 @@ jobs:
     # they pay. If it drifts from the engine, we are showing a promise we no
     # longer keep. Regenerate it here and fail on any byte of difference.
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
         with:
           python-version: '3.13'
       - name: Regenerate the published worked example
@@ -327,8 +327,8 @@ jobs:
     # public/observatory/scenarios.json must be the current output of the repository's own request handlers, so
     # regenerate it here (same discipline as the `reference` job) and fail on any byte of difference.
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
         with:
           python-version: '3.13'
       - name: Install test dependency only
@@ -354,8 +354,8 @@ jobs:
   api:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
         with:
           python-version: '3.13'
       - name: Start the engine
@@ -504,8 +504,8 @@ jobs:
   site:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
         with:
           node-version: '20'
           cache: npm
@@ -625,7 +625,7 @@ jobs:
           }
           console.log('token-addressed pages are closed');
           "
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@v7
         with:
           python-version: '3.13'
       - name: Every purchased deliverable has a generation path
@@ -717,11 +717,11 @@ jobs:
       GRIDFORGE_REQUIRE_DB: "1"
       GF_REQUIRE_REALDB: "1"
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
         with:
           python-version: '3.13'
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v7
         with:
           node-version: '20'
           cache: npm
@@ -834,11 +834,11 @@ jobs:
       GF_REQUIRE_REALDB: "1"
       GF_REQUIRE_REAL_STORAGE: "1"
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
         with:
           python-version: '3.13'
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v7
         with:
           node-version: '20'
           cache: npm

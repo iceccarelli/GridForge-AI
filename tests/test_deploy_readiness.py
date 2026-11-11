@@ -56,7 +56,7 @@ def test_the_upload_is_gated_on_the_anchor_step_having_run_and_publishes_only_th
     t = step("deploy-engine.yml", "Upload the rollback anchors")
     assert "if: ${{ !cancelled() && steps.anchors.conclusion != 'skipped' }}" in t
     assert "id: anchors" in step("deploy-engine.yml", "Record rollback anchors (read-only)")
-    assert "uses: actions/upload-artifact@v4" in t and "retention-days: 14" in t
+    assert "uses: actions/upload-artifact@v7" in t and "retention-days: 14" in t
     assert "name: engine-before-${{ github.run_id }}-${{ github.run_attempt }}" in t
     paths = re.search(r"path: \|\n((?:            .*\n?)+)", t).group(1).split()
     assert paths == ["engine-before.json", "anchors.json"], "the repository is public: raw flyctl output must never be uploaded"
