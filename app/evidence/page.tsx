@@ -13,6 +13,7 @@ import { MARKET_EVIDENCE, isPublishable, verificationLabel } from "@/lib/market-
 import { CalibrationTransparency } from "@/components/CalibrationTransparency";
 import { GATE_COUNT_WORD, VIEW_CONDITION_COUNT } from "@/lib/calibration-gates";
 import { readLiveResiduals } from "@/lib/calibration-residuals";
+import { GridForgeVisual } from "@/components/GridForgeVisual";
 
 // The live residual status is read from the engine, so this page re-renders without a site redeploy (the pattern of lib/engine-capabilities.ts
 // pages). A build with no network renders the "could not be read" state and is replaced at the first revalidation; it never invents a number.
@@ -97,6 +98,12 @@ export default async function EvidencePage() {
         A capacity figure for a data hall is only as good as what stands behind it. Every number the engine returns carries an
         evidence class and a provenance digest, and a computed value is never stronger than the weakest input it came from.
       </p>
+      <div className="mt-12">
+        <GridForgeVisual
+          slug="evidence-grading-scale-e0-to-e7"
+          alt="Eight-tier evidence ladder from E0 default heuristic to E7 continuous telemetry, with pilot-stage calibration ledger note of zero field rows."
+        />
+      </div>
 
       <div className="mt-8 overflow-x-auto rounded border border-line" role="region" aria-label="Evidence classes" tabIndex={0}>
         <table className="w-full min-w-[560px] text-sm">

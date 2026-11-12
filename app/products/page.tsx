@@ -5,6 +5,7 @@ import { PRODUCT_PAGES, productForPage } from "@/lib/product-pages";
 import { OG_BASE } from "@/lib/site";
 import { pageImages } from "@/lib/page-cards";
 import { eurFromCents, priceLine, PRODUCTS } from "@/lib/products";
+import { GridForgeVisual } from "@/components/GridForgeVisual";
 
 const DESCRIPTION = `Engagements for owners of existing AI data halls: the ${eurFromCents(
   PRODUCTS.density_screen.amountCents

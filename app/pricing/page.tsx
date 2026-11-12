@@ -17,6 +17,7 @@ import { CAPABILITY_REGISTRY } from "@/lib/capability-registry";
 import { callableRates } from "@/lib/payg-pricing";
 import { engineServes } from "@/lib/engine-capabilities";
 import { estimateEndpointServed, readToolRatesWithAvailability } from "@/lib/tool-rates";
+import { GridForgeVisual } from "@/components/GridForgeVisual";
 
 const PRICING_TITLE = "Pricing: free check, API, engagements";
 const PRICING_DESCRIPTION = `A free capacity check, a metered API with a free allowance, engagements from the ${eurFromCents(PRODUCTS.density_screen.amountCents)} Density Screen, and a market intelligence subscription.`;
@@ -89,6 +90,13 @@ export default async function PricingPage() {
 
           <div className="mt-10">
             <ThreePaths />
+
+          <div className="mt-12">
+            <GridForgeVisual
+              slug="commercial-model-three-paths"
+              alt="Three architectural monolith cards for free capacity check, metered engine API, and fixed-fee density screen engagements."
+            />
+          </div>
           </div>
 
           <TtpPhoto

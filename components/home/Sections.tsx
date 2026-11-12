@@ -14,6 +14,7 @@ import { QUALIFY_LINK } from "@/lib/nav";
 import { PAYG, PRODUCTS, eurFromCents } from "@/lib/products";
 import { MARKET_STATS, SITE, TECH, serviceCards } from "@/lib/site";
 import { loadWorkedResult, referenceLimitSentence } from "@/lib/worked-result";
+import { GridForgeVisual } from "@/components/GridForgeVisual";
 
 const SPINE = [
   { icon: Building2, label: "SITE", body: "The hall you already have: racks, cooling, busway, transformer, grid connection. The facts, assembled once." },
@@ -27,6 +28,12 @@ const SPINE = [
 export function Problem() {
   return (
     <section id="market" className="border-y border-line bg-[#060912] py-16">
+      <div className="mt-10">
+        <GridForgeVisual
+          slug="critical-path-time-to-power-gantt"
+          alt="Dual timeline comparing 36-60 month greenfield substation queue against weeks-scale GridForge brownfield headroom path to energized racks."
+        />
+      </div>
       <div className="mx-auto max-w-7xl px-6">
         <div className="eyebrow eyebrow-queue mb-3">HOW THE ANSWER IS BUILT</div>
         <h2 className="section-title max-w-2xl">
@@ -182,6 +189,12 @@ export function Services() {
   const cards = serviceCards();
   return (
     <section id="services" className="mx-auto max-w-7xl px-6 py-20">
+      <div className="mt-10">
+        <GridForgeVisual
+          slug="density-screen-four-stage-workflow"
+          alt="Four-stage workflow pipeline: operator intake of drawings, GridForge deterministic solve, senior engineer review, and decision deliverable cards."
+        />
+      </div>
       <div className="mb-12 flex flex-col justify-between gap-6 md:flex-row md:items-end">
         <div className="max-w-xl">
           <div className="eyebrow mb-3">WHAT YOU CAN BUY TODAY</div>
@@ -243,6 +256,12 @@ export function Services() {
 export function Technology() {
   return (
     <section id="technology" className="mx-auto max-w-5xl px-6 py-20">
+      <div className="mt-10">
+        <GridForgeVisual
+          slug="headroom-ladder-capex-relief-steps"
+          alt="Stepped capacity staircase from 12-rack baseline bound by 63 A tap-off through successive CapEx relief rungs to the transformer hard ceiling."
+        />
+      </div>
       <div className="mb-12 max-w-2xl">
         <div className="eyebrow mb-3">DETERMINISTIC · PHYSICS-INFORMED</div>
         <h2 className="section-title">Technology rooted in first principles.</h2>
@@ -264,6 +283,12 @@ export function Technology() {
 export function Evidence() {
   return (
     <section id="evidence" className="border-y border-line bg-[#060912] py-20">
+      <div className="mt-10 max-w-4xl mx-auto">
+        <GridForgeVisual
+          slug="evidence-grading-scale-e0-to-e7"
+          alt="Eight-tier evidence ladder from E0 default heuristic to E7 continuous telemetry, with pilot-stage calibration ledger note of zero field rows."
+        />
+      </div>
       <div className="mx-auto max-w-5xl px-6">
         <div className="grid items-center gap-10 lg:grid-cols-2">
           <div className="max-w-xl">
