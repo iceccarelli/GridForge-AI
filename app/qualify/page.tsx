@@ -9,6 +9,8 @@ import { TtpPhoto } from "@/components/TtpPhoto";
 import { loadWorkedResult, referenceLimitSentence } from "@/lib/worked-result";
 import { QUALIFY_ASSUMED_FIELDS_FLAG, engineHas } from "@/lib/engine-capabilities";
 import { engineConfigured } from "@/lib/qualify";
+import { constraintReference } from "@/lib/constraints";
+import { constraintSlugsByName } from "@/lib/constraint-links";
 
 // Whether the reference-template selector is shown follows the DEPLOYED engine (its /v1/version `capabilities`), not the last build of this site.
 export const revalidate = 300;
@@ -35,6 +37,8 @@ export default async function QualifyPage() {
   const presetsAvailable = engineConfigured() && (await engineHas(QUALIFY_ASSUMED_FIELDS_FLAG));
   // About our synthetic reference hall only, read from the engine's committed output (lib/worked-result.ts); never a claim about halls in general.
   const limit = referenceLimitSentence(loadWorkedResult());
+  // Constraint name -> page slug, from the published reference, so the answer's constraint names link to their pages. A name the map lacks is shown as text.
+  const constraintSlugs = constraintSlugsByName(await constraintReference());
   return (
     <div className="mx-auto w-full max-w-6xl px-5 pb-24 pt-28 sm:px-8">
       <PageJsonLd
@@ -60,7 +64,7 @@ export default async function QualifyPage() {
 
       <div className="grid lg:grid-cols-[1.5fr_1fr] gap-8 items-start">
         <div>
-          <CapacityQualifier presetsAvailable={presetsAvailable} />
+          <CapacityQualifier presetsAvailable={presetsAvailable} constraintSlugs={constraintSlugs} />
 
           <p className="mt-6 text-sm text-mute">
             Want to see what the paid study looks like before you ask?{" "}

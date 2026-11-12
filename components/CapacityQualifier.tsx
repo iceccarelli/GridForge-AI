@@ -1,7 +1,9 @@
 "use client";
 
 import React, { useEffect, useRef, useState } from "react";
+import Link from "next/link";
 import { ArrowRight, CircleAlert, Loader2 } from "lucide-react";
+import { constraintHref, type ConstraintSlugs } from "@/lib/constraint-links";
 import type { QualifyResult } from "@/lib/qualify";
 import { assumedText } from "@/lib/assumed-text";
 import { PRODUCTS } from "@/lib/products";
@@ -130,7 +132,16 @@ function TemplateTag({ id, preset, fieldKey, value }: { id: string; preset: Hall
   );
 }
 
-export function CapacityQualifier({ presetsAvailable = false, initialTemplateId = null }: { presetsAvailable?: boolean; initialTemplateId?: string | null } = {}) {
+export function CapacityQualifier({
+  presetsAvailable = false,
+  initialTemplateId = null,
+  constraintSlugs,
+}: {
+  presetsAvailable?: boolean;
+  initialTemplateId?: string | null;
+  /** Constraint name -> page slug (lib/constraint-links.ts), read by the server page from the published reference. A name not in it renders as plain text. */
+  constraintSlugs?: ConstraintSlugs;
+} = {}) {
   // `initialTemplateId` starts the form as if that template had been chosen (server-rendered tests only; the page never passes it).
   const start = presetsAvailable ? presetById(initialTemplateId) : null;
   const [templateId, setTemplateId] = useState<string | null>(start?.id ?? null);
@@ -477,9 +488,30 @@ export function CapacityQualifier({ presetsAvailable = false, initialTemplateId 
           qualificationId={qualificationId}
           qualificationToken={qualificationToken}
           template={templateUsed}
+          constraintSlugs={constraintSlugs}
         />
       ) : null}
     </div>
+  );
+}
+
+/**
+ * A constraint's name, linked to its engineering reference when the page knows it (the name is in the map the server page passed) and plain text
+ * otherwise. Underlined, so the link is not signalled by colour alone, and 44 px tall for a thumb. The hidden suffix tells a screen reader where it goes.
+ */
+function ConstraintName({ name, slugs }: { name: string; slugs?: ConstraintSlugs }) {
+  const href = constraintHref(slugs, name);
+  if (!href) return <span>{name}</span>;
+  return (
+    <Link
+      href={href}
+      className="inline-flex min-h-11 items-center underline decoration-power/60 underline-offset-2 hover:text-power focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-power/60"
+    >
+      <span>
+        {name}
+        <span className="sr-only"> (engineering reference)</span>
+      </span>
+    </Link>
   );
 }
 
@@ -492,6 +524,7 @@ export function QualifyReadout({
   qualificationId,
   qualificationToken,
   template,
+  constraintSlugs,
 }: {
   result: QualifyResult;
   headline: string;
@@ -500,6 +533,7 @@ export function QualifyReadout({
   qualificationId: string | null;
   qualificationToken: string | null;
   template: TemplateUsed | null;
+  constraintSlugs?: ConstraintSlugs;
 }) {
   const { as_found: found, after_relief: after, intake } = result;
   return (
@@ -518,7 +552,9 @@ export function QualifyReadout({
         <p className="font-mono text-[10px] uppercase tracking-[0.14em] text-queue">
           Binding constraint · {found.domain}
         </p>
-        <p className="text-ghost font-semibold mt-1">{found.binding_constraint}</p>
+        <p className="text-ghost font-semibold mt-1">
+          <ConstraintName name={found.binding_constraint} slugs={constraintSlugs} />
+        </p>
         <p className="text-mute text-sm mt-1">{found.basis}</p>
       </div>
 
@@ -531,10 +567,12 @@ export function QualifyReadout({
             {result.first_three_constraints.map((c, i) => (
               <li
                 key={`${c.name}-${i}`}
-                className="flex gap-3 rounded border border-line bg-panel-2 px-3 py-2 text-sm"
+                className="flex min-h-11 items-center gap-3 rounded border border-line bg-panel-2 px-3 py-1 text-sm"
               >
                 <span className="font-mono text-faint">{i + 1}</span>
-                <span className="text-ghost">{c.name}</span>
+                <span className="text-ghost">
+                  <ConstraintName name={c.name} slugs={constraintSlugs} />
+                </span>
                 <span className="text-faint ml-auto text-right">{c.relief ?? "—"}</span>
               </li>
             ))}

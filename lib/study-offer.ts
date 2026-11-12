@@ -7,7 +7,8 @@
 // where its Commission button already is.
 
 import { creditedEarlier, depositTerms } from "@/lib/engagement-state";
-import { PRODUCT_PAGES, productPageHref } from "@/lib/product-pages";
+import { PRODUCT_PAGES } from "@/lib/product-pages";
+import { productPageHref } from "@/lib/product-links";
 import { PRODUCT_BY_KIND, PRODUCTS, priceLine } from "@/lib/products";
 
 export interface StudyOffer {
