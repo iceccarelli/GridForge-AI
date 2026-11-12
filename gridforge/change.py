@@ -19,6 +19,7 @@ from __future__ import annotations
 import copy
 import hashlib
 import json
+from collections.abc import Collection
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -62,8 +63,10 @@ def declared_evidence(doc: Any, prefix: str = "") -> dict[str, str]:
 
 
 def evidence_digest(doc: dict) -> str:
-    ev = declared_evidence(doc)
-    return _digest(sorted(ev.items())) if ev else ""
+    """Fingerprint of the evidence classes a document declares. A document that declares none has the digest of the EMPTY set, not "":
+    "" used to mean both "none declared" and "not recorded", so neither a first declaration (a real change) nor an older record that
+    kept no fingerprint (not a change) could be judged. "" now means only "not recorded"."""
+    return _digest(sorted(declared_evidence(doc).items()))
 
 
 #: A capex movement this large is a change to the investment case even when the (wide, screening-class)
@@ -265,6 +268,12 @@ class EnvelopeDiff:
     evidence_changes: list[str] = field(default_factory=list)
     #: Evidence digest differs between two recorded states (paths unknown when only digests were kept).
     evidence_digest_changed: bool = False
+    #: The earlier record kept no evidence fingerprint (a blank digest), so the declared evidence classes could not be compared.
+    #: That is unknown, not "changed": the first scheduled run of a watch recorded by an older engine must not cry wolf.
+    evidence_unrecorded: bool = False
+    #: Optional fields the earlier record did not carry (so they were filled with a default, which is never a claim). They are not
+    #: compared: reading an absent ``schedule_complete`` as "true" would turn every older watch's first run into a finding.
+    unrecorded: frozenset[str] = frozenset()
 
     @property
     def racks_delta(self) -> int:
@@ -322,20 +331,116 @@ class EnvelopeDiff:
                     or (self.before.capex_class and self.after.capex_class
                         and self.before.capex_class != self.after.capex_class))
 
+    # --- what else can make an answer different without moving the rack count after the ladder ----------------------------
+    @property
+    def date_vanished(self) -> bool:
+        """The earlier answer carried a date and this one does not (``weeks_delta`` is None unless BOTH sides have one)."""
+        return self.before.weeks_to_full is not None and self.after.weeks_to_full is None
+
+    @property
+    def date_appeared(self) -> bool:
+        return self.before.weeks_to_full is None and self.after.weeks_to_full is not None
+
+    @property
+    def schedule_flipped(self) -> bool:
+        return "schedule_complete" not in self.unrecorded and self.before.schedule_complete != self.after.schedule_complete
+
+    @property
+    def capex_completeness_flipped(self) -> bool:
+        return "capex_complete" not in self.unrecorded and self.before.capex_complete != self.after.capex_complete
+
+    @property
+    def as_found_moved(self) -> bool:
+        """Racks usable today, before any relief works. The racks after the ladder can hold while this changes (the same end point
+        reached from a different start), which changes what the customer can do before the works are done."""
+        return self.before.racks_as_found != self.after.racks_as_found
+
+    @property
+    def material_reasons(self) -> list[str]:
+        """Every reason this change is material, in a fixed order. Empty: nothing that changes the answer was found."""
+        checks = (
+            ("racks", bool(self.racks_delta)),
+            ("racks_as_found", self.as_found_moved),
+            ("binding", self.binding_moved),
+            ("date_moved", bool(self.weeks_delta or 0)),
+            ("date_vanished", self.date_vanished),
+            ("date_appeared", self.date_appeared),
+            ("schedule_completeness", self.schedule_flipped),
+            ("recommendation", bool(self.recommendation_changed)),
+            ("capex", self.capex_moved),
+            ("capex_completeness", self.capex_completeness_flipped),
+            ("evidence", self.evidence_moved),
+        )
+        return [name for name, hit in checks if hit]
+
     @property
     def material(self) -> bool:
-        return bool(self.racks_delta or self.binding_moved
-                    or (self.weeks_delta or 0) or self.recommendation_changed
-                    or self.capex_moved or self.evidence_moved)
+        return bool(self.material_reasons)
+
+    @property
+    def not_compared(self) -> list[str]:
+        """What could not be compared because the earlier record does not carry it: said, never read as 'no change'."""
+        out = []
+        if self.evidence_unrecorded:
+            out.append("declared evidence classes (no earlier evidence record to compare)")
+        names = {"schedule_complete": "schedule completeness", "capex_complete": "capex completeness"}
+        out.extend(f"{names[n]} (the earlier record does not carry it)" for n in sorted(self.unrecorded) if n in names)
+        return out
+
+    @staticmethod
+    def date_note(st: EnvelopeState) -> str:
+        """What a figure of weeks rests on, when it is only an assumption: it is never printed bare."""
+        return "" if st.date_basis()["date_basis"] == "supported" else "assumed lead time, not a date"
+
+    def why_no_date(self, st: EnvelopeState, *, earlier: bool) -> str:
+        """Why a state carries no date, from its own figures. `earlier`: the recorded side, in the past tense, whose schedule flag may
+        not have been recorded (then it is not guessed)."""
+        if st.racks_after_ladder == 0:
+            return "no rack was deployable" if earlier else "no rack is deployable on the new inputs"
+        if st.schedule_complete is False and not (earlier and "schedule_complete" in self.unrecorded):
+            return ("a relief on the path had no lead time on record, or an equipment bank was not declared" if earlier else
+                    "a lead time, or a declared equipment bank, that the earlier date rested on is no longer on record")
+        return "no date was recorded" if earlier else "no date could be derived from the lead times on the path"
+
+    def compared_text(self) -> str:
+        """Precisely what was compared, for an answer that says nothing changed: a bare 'all hold' cannot be checked."""
+        b, a = self.before, self.after
+        note = self.date_note(a)
+        w = "no date given" if a.weeks_to_full is None else f"{a.weeks_to_full:.0f} weeks" + (f", {note}" if note else "")
+        items =[f"racks as found ({a.racks_as_found})", f"racks after works ({a.racks_after_ladder})",
+                 f"what binds first ({a.binding_name})", f"the date ({w})"]
+        if "schedule_complete" not in self.unrecorded:
+            items.append("whether every relief has a lead time (" + ("yes" if a.schedule_complete else "no") + ")")
+        if "capex_complete" not in self.unrecorded:
+            items.append("whether capex is complete (" + ("yes" if a.capex_complete else "no, a lower bound") + ")")
+        items.append("indicative capex (" + ("unchanged" if not self.capex_delta else
+                                             f"EUR {b.capex_eur / 1e6:.1f} M to {a.capex_eur / 1e6:.1f} M, "
+                                             f"under the {CAPEX_MATERIAL_FRACTION:.0%} that counts as a change") + ")")
+        if not self.evidence_unrecorded:
+            items.append("the declared evidence classes (unchanged)")
+        text = f"Compared with the earlier answer on {b.scenario_name}: " + ", ".join(items[:-1]) + f" and {items[-1]}."
+        if self.not_compared:
+            text += " Not compared: " + "; ".join(self.not_compared) + "."
+        return text
 
     def headline(self) -> str:
         if not self.material:
             return ("Nothing that changes the answer. The envelope, the binding constraint "
-                    "and the date all hold.")
+                    "and the date all hold. " + self.compared_text())
         bits = []
         if self.racks_delta:
             bits.append(f"{self.racks_delta:+d} racks "
                         f"({self.before.racks_after_ladder} to {self.after.racks_after_ladder})")
+        if self.as_found_moved:
+            bf, af = self.before.racks_as_found, self.after.racks_as_found
+            if af > bf:
+                effect = "some of the capacity no longer waits on the relief works"
+            elif af == 0:
+                effect = "the first racks now wait for the relief works"
+            else:
+                effect = "less of the capacity can be used before the relief works are done"
+            holds = "" if self.racks_delta else f", while the capacity after works holds at {self.after.racks_after_ladder}"
+            bits.append(f"racks usable as found, before any works, {'rose' if af > bf else 'fell'} from {bf} to {af} ({effect}){holds}")
         if self.binding_moved:
             bits.append(f"what binds first moved from {self.before.binding_name.lower()} "
                         f"to {self.after.binding_name.lower()}")
@@ -344,14 +449,34 @@ class EnvelopeDiff:
             # never a bare number of weeks while either side's lead time is an assumption
             tail = "" if self.date_basis()["date_basis"] == "supported" else " (assumed lead time, not a date)"
             bits.append(f"{w:+.0f} weeks to full capacity{tail}")
+        # A date that is only an assumed lead time is never printed as a number of weeks in the headline (the figure is in the
+        # record and in the note, each with its basis); one the lead times support is.
+        if self.date_vanished:
+            was = ("the earlier date rested on an assumed lead time, not a date" if self.date_note(self.before) else
+                   f"it was {self.before.weeks_to_full:.0f} weeks")
+            bits.append(f"the date has gone: {self.why_no_date(self.after, earlier=False)}, so the answer no longer carries a "
+                        f"delivery date ({was})")
+        if self.date_appeared:
+            now = ("resting on an assumed lead time, not a date" if self.date_note(self.after) else
+                   f"{self.after.weeks_to_full:.0f} weeks to full capacity")
+            bits.append(f"a date now exists, {now}, where the earlier answer carried none ({self.why_no_date(self.before, earlier=True)})")
+        if self.schedule_flipped and not (self.date_vanished or self.date_appeared):
+            bits.append("every relief on the path now has a lead time on record" if self.after.schedule_complete else
+                        "a relief on the path no longer has a lead time on record (or an equipment bank is not declared), "
+                        "so any date would understate the schedule")
         if self.recommendation_changed:
-            bits.append("the recommended architecture changed to "
-                        f"{self.recommendation_changed[1]}")
+            bits.append("the recommended architecture changed from "
+                        f"{self.recommendation_changed[0]} to {self.recommendation_changed[1]}")
         if self.capex_moved:
             like = "" if self.before.capex_complete and self.after.capex_complete else (
                 " -- not like for like: at least one side is a lower bound, so this is not a saving")
             bits.append(f"indicative capex moved {self.capex_delta / 1e6:+.1f} M EUR "
                         f"({self.before.capex_eur / 1e6:.1f} to {self.after.capex_eur / 1e6:.1f}){like}")
+        if self.capex_completeness_flipped:
+            bits.append("indicative capex is no longer a lower bound: every cost on the path is now priced, so a higher figure "
+                        "may reflect better coverage, not a price rise" if self.after.capex_complete else
+                        "indicative capex is now a lower bound: a cost on the path is unpriced or an equipment bank is not declared, "
+                        "so it no longer covers everything the earlier figure did")
         if self.evidence_moved:
             bits.append("the evidence behind the answer changed (an input was upgraded or downgraded)")
         head = "; ".join(bits)
@@ -444,8 +569,13 @@ def _by_id(results: list[ScenarioResult], scenario_id: str) -> ScenarioResult | 
     return next((r for r in results if r.spec.id == scenario_id), None)
 
 
+#: Fields of a recorded state that older records may not carry. Their dataclass defaults ("complete") are not claims about the earlier answer.
+_OPTIONAL_FLAGS = ("schedule_complete", "capex_complete")
+
+
 def diff_from_state(previous: EnvelopeState, after_doc: dict, *,
-                    objective: Objective = Objective.MAX_COMPUTE) -> EnvelopeDiff:
+                    objective: Objective = Objective.MAX_COMPUTE,
+                    recorded: Collection[str] | None = None) -> EnvelopeDiff:
     """Compare a recorded answer against the hall solved today.
 
     A watch needs this: when nothing in the intake has moved but our own libraries
@@ -453,20 +583,31 @@ def diff_from_state(previous: EnvelopeState, after_doc: dict, *,
     entitled to hear that from us rather than discover it. With no changed inputs
     there are no drivers, and the change note says plainly that the movement came
     from our side.
+
+    ``recorded`` is the set of field names the earlier record actually carried (the keys of the posted record). A field absent from it was
+    filled with a default, which is not a claim about the earlier answer, so it is not compared. None: the state was built by this
+    product, every field is a record.
     """
-    _, all_after = _solve(after_doc, objective)
+    rec_after, all_after = _solve(after_doc, objective)
     same = _by_id(all_after, previous.scenario_id)
     if same is None:
-        rec, _ = _solve(after_doc, objective)
-        same = rec
+        same = rec_after
     now = EnvelopeState.of(same, after_doc)
     d = EnvelopeDiff(before=previous, after=now)
+    if rec_after.spec.id != previous.scenario_id:
+        # The recorded scenario is the one that was recommended then. If another is recommended now (or the recorded one is gone), the
+        # architecture the customer was told to build has changed, which is news in its own right.
+        d.recommendation_changed = (previous.scenario_name, rec_after.spec.name)
+    if recorded is not None:
+        d.unrecorded = frozenset(n for n in _OPTIONAL_FLAGS if n not in recorded)
     if previous.intake_digest:
         d.inputs = "unchanged" if previous.intake_digest == now.intake_digest else "changed"
-    if previous.evidence_digest or now.evidence_digest:
-        if previous.evidence_digest != now.evidence_digest:
-            d.evidence_digest_changed = True
-            d.inputs = "changed"
+    if not previous.evidence_digest:
+        # Blank is "not recorded", never "no evidence declared" (a document that declares none has the digest of the empty set).
+        d.evidence_unrecorded = True
+    elif previous.evidence_digest != now.evidence_digest:
+        d.evidence_digest_changed = True
+        d.inputs = "changed"
     if d.inputs == "unchanged" and previous.price_basis_digest and previous.relief_path_digest:
         # The customer's inputs are verifiably the same, so any movement is ours. Say which part differs.
         d.drift_known = True

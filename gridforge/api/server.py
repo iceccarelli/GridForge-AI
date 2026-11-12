@@ -817,7 +817,7 @@ def handle_diff(body: dict, tier: Tier) -> dict:
             state = EnvelopeState.from_record(prev)
         except StateError as exc:
             raise ApiError(422, f"previous_state is not a recorded envelope state: {exc}")
-        d = diff_from_state(state, after, objective=objective)
+        d = diff_from_state(state, after, objective=objective, recorded=set(prev))
     else:
         before = body.get("before")
         if not isinstance(before, dict):
@@ -828,6 +828,8 @@ def handle_diff(body: dict, tier: Tier) -> dict:
     payload = {
         "headline": d.headline(),
         "material": d.material,
+        "material_reasons": d.material_reasons,
+        "not_compared": d.not_compared,
         "before": d.before.__dict__,
         "after": d.after.__dict__,
         "racks_delta": d.racks_delta,

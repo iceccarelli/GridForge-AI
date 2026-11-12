@@ -101,6 +101,68 @@ _DRIFT_TEXT = {
 }
 
 
+def _effects(d: EnvelopeDiff) -> list:
+    """One block per way the basis of the answer moved without a rack count showing it: what it means for the decision, and what is
+    not claimed. A field changing is not a finding; what the customer can no longer rely on is."""
+    out: list = []
+    if d.date_vanished:
+        was = d.date_note(d.before)
+        out.append(Callout("warning",
+            f"The date has gone. {d.why_no_date(d.after, earlier=False).capitalize()}, so the answer no longer carries a delivery "
+            f"date. The earlier {d.before.weeks_to_full:.0f} weeks" + (f" ({was})" if was else "")
+            + " cannot be carried forward, and a missing lead time is not zero weeks, so none has been filled in."))
+    if d.date_appeared:
+        now = d.date_note(d.after)
+        out.append(Callout("note",
+            f"The answer now carries a date, {d.after.weeks_to_full:.0f} weeks to full capacity"
+            + (f" ({now})" if now else "") + f"; the earlier answer carried none ({d.why_no_date(d.before, earlier=True)}). "
+            "Check the lead times it rests on before quoting it."))
+    if d.as_found_moved:
+        bf, af = d.before.racks_as_found, d.after.racks_as_found
+        same = "" if d.racks_delta else f" The capacity after the relief works is unchanged at {d.after.racks_after_ladder} racks, so the end point holds; the start does not."
+        if af > bf:
+            out.append(Callout("note",
+                f"Racks usable as found, before any works, rose from {bf} to {af}: part of the capacity no longer waits on the "
+                f"relief works and can be switched on without them.{same}"))
+        else:
+            out.append(Callout("warning",
+                f"Racks usable as found, before any works, fell from {bf} to {af}: "
+                + ("no rack can be switched on until the relief works are done." if af == 0
+                   else f"only {af} can be switched on before the relief works are done.") + same))
+    if d.schedule_flipped and not (d.date_vanished or d.date_appeared):
+        out.append(Callout("note",
+            "Every relief on the path now has a lead time on record." if d.after.schedule_complete else
+            "A relief on the path no longer has a lead time on record (or an equipment bank is not declared), so any date would "
+            "understate the schedule."))
+    if d.capex_completeness_flipped:
+        out.append(Callout("note",
+            "Indicative capex is no longer a lower bound: every cost on the path is now priced. A higher figure than before may be better "
+            "coverage, not a price rise." if d.after.capex_complete else
+            "Indicative capex is now a lower bound: a cost on the path is unpriced or an equipment bank is not declared. It no longer "
+            "covers everything the earlier figure did, so it is not a saving against it."))
+    return out
+
+
+def _effect_actions(d: EnvelopeDiff) -> list[str]:
+    out: list[str] = []
+    if d.date_vanished:
+        out.append("Do not quote the earlier date. Find the item that lost its lead time (a relief on the path, or an equipment bank that "
+                   "is no longer declared) and supply a quotation or a stated lead time; until then the schedule is unknown, not zero.")
+    if d.date_appeared:
+        out.append("Treat the new date as " + ("supported by the lead times it rests on."
+                                                if not d.date_note(d.after) else
+                                                "an assumed lead time, not a delivery date, until the item that sets it has a quotation."))
+    if d.as_found_moved:
+        bf, af = d.before.racks_as_found, d.after.racks_as_found
+        out.append(f"Re-check anything planned to go live before the relief works: only {af} rack{'s' if af != 1 else ''} can now be used as found "
+                   f"(was {bf})." if af < bf else
+                   f"Check whether racks planned to wait for the relief works can now be switched on earlier: {af} can be used as found "
+                   f"(was {bf}).")
+    if d.capex_completeness_flipped:
+        out.append("Do not read the capex difference as a saving or an overrun: the two figures do not cover the same things.")
+    return out
+
+
 def build(d: EnvelopeDiff, *, site: str, hall: str, client: str,
           period: str = "") -> Report:
     today = report_date_iso()
@@ -123,9 +185,8 @@ def build(d: EnvelopeDiff, *, site: str, hall: str, client: str,
     s.blocks.append(Para(d.headline()))
     if not d.material:
         s.blocks.append(Callout("answer",
-            "No action. The envelope, the binding constraint and the date are unchanged on the "
-            "inputs we hold. We would rather tell you that in three lines than manufacture a "
-            "finding."))
+            "No action. Everything listed above was compared and holds on the inputs we hold. We "
+            "would rather tell you that in three lines than manufacture a finding."))
         if d.capex_delta:
             s.blocks.append(Para(
                 f"Indicative capex moved from EUR {d.before.capex_eur:,.0f} to EUR {d.after.capex_eur:,.0f}"
@@ -175,6 +236,7 @@ def build(d: EnvelopeDiff, *, site: str, hall: str, client: str,
             s.blocks.append(Callout("warning",
                 f"The recommended architecture changed from {d.recommendation_changed[0]} to "
                 f"{d.recommendation_changed[1]}."))
+        s.blocks.extend(_effects(d))
     r.sections.append(s)
 
     s = Section("2. What moved it")
@@ -241,6 +303,11 @@ def build(d: EnvelopeDiff, *, site: str, hall: str, client: str,
             s.blocks.append(Callout("note",
                 f"{len(d.unprobeable)} changed input(s) have no individual contribution because they were "
                 f"removed or cannot be solved alone: {', '.join(label_for(x) for x in d.unprobeable)}."))
+    if d.not_compared:
+        s.blocks.append(Callout("note",
+            "Not compared, because the earlier record does not hold it: " + "; ".join(d.not_compared) + ". This is unknown, not "
+            "unchanged: an upgraded or downgraded evidence class, or a schedule or capex that stopped being complete, would not show "
+            "here. The values themselves were compared."))
     r.sections.append(s)
 
     s = Section("3. What to do about it")
@@ -269,6 +336,7 @@ def build(d: EnvelopeDiff, *, site: str, hall: str, client: str,
             actions.append(f"The {'assumed lead time' if _assumed_weeks(d) else 'date'} moved by {d.weeks_delta:.0f} weeks. Lead time, not "
                            "construction, usually governs — look at the item that sets it before "
                            "anything else.")
+        actions.extend(_effect_actions(d))
         actions.append("If more than a handful of inputs have moved, commission a fresh study "
                        "rather than stacking change notes on an ageing model.")
     s.blocks.append(Bullets(actions))
