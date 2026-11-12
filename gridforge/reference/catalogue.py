@@ -195,14 +195,21 @@ CONSTRAINT_DOCS: tuple[ConstraintDoc, ...] = (
         slug="chilled-water-plant-capacity",
         headline="Direct liquid cooling does not remove the air load — it shrinks it, and the "
                  "remainder still needs the plant you already have.",
-        limits="Chilled-water capacity available for the residual air load that liquid "
-               "cooling does not capture.",
-        relation="Residual air load per rack = rack kW × (1 − liquid capture fraction). At a "
-                 "0.85 capture fraction a 132 kW rack still rejects about 20 kW to air — "
-                 "more than a whole rack in the hall's original design.",
-        binds_when="Multiply your target rack count by rack power by (1 − capture fraction) "
-                   "and compare against plant headroom at your site's summer design dry bulb, "
-                   "not at a standard rating condition.",
+        limits="Chilled-water capacity available for the heat the existing plant has to remove: "
+               "the whole rack load when the plant also carries the liquid (hybrid direct liquid "
+               "cooling, rear-door heat exchangers, retained air), or only the residual air load "
+               "when the liquid goes to a dedicated high-temperature loop (full direct liquid "
+               "cooling).",
+        relation="Load on the plant per rack = rack kW (hybrid DLC, rear-door, retained air) or "
+                 "residual air load = rack kW × (1 − liquid capture fraction) (full DLC). Racks "
+                 "supported = plant headroom ÷ that load. At a 0.85 capture fraction a 132 kW "
+                 "rack still rejects about 20 kW to air — more than a whole rack in the hall's "
+                 "original design.",
+        binds_when="Multiply your target rack count by the load each rack puts on the plant — the "
+                   "full rack power if the plant also carries the liquid, or rack power × (1 − "
+                   "capture fraction) if the liquid has its own high-temperature loop — and "
+                   "compare against plant headroom (plant capacity less the load already on it) "
+                   "at your site's summer design dry bulb, not at a standard rating condition.",
         relief="Additional plant, adiabatic assist, or a trim chiller on a high-temperature "
                "loop. Raising the loop temperature is often worth more than raising duty.",
         relief_risk="Retaining low-temperature plant for the residual air load forgoes most "

@@ -16,7 +16,7 @@ import math
 
 from ..compute.library import PLATFORMS, UNPUBLISHED_PLATFORMS
 from ..costs import CostLibrary, DECLARED_UNITS
-from ..thermal.library import PUE_BY_ARCHITECTURE
+from ..thermal.library import PUE_BY_ARCHITECTURE, RESIDUAL_AIR_CAPACITY_LEGACY_kW
 from ..validation import EvidenceClass
 from .catalogue import CONSTRAINT_DOCS, RELIEF_LEAD_TIMES, ConstraintDoc
 
@@ -68,11 +68,16 @@ def _worked_example(doc: ConstraintDoc) -> dict | None:
                 "consequence": "At N+1 the installed capacity has to carry that with one "
                                "unit out of service."}
     if doc.id == "plant_capacity":
+        # What the engine charges the existing plant per rack (thermal/constraints.py plant_capacity): the whole rack when the plant also
+        # carries the liquid (hybrid DLC, rear-door, retained air), the residual air load only when the liquid has its own loop (full DLC).
         residual = plat.residual_air_kW().value
-        return {"question": "How much air load remains after direct liquid cooling?",
-                "working": f"{rack_kW:.0f} kW × (1 − {plat.liquid_fraction.value:.2f})",
-                "answer": f"{residual:.0f} kW per rack, still to air",
-                "consequence": "More than two racks' worth in a hall designed for 8 kW."}
+        legacy = RESIDUAL_AIR_CAPACITY_LEGACY_kW.value
+        return {"question": f"What load does one {plat.name} rack put on the existing chilled-water plant?",
+                "working": f"Hybrid DLC, where the plant also carries the liquid: {rack_kW:.0f} kW. "
+                           f"Full DLC, where the liquid has its own loop: {rack_kW:.0f} kW × (1 − {plat.liquid_fraction.value:.2f})",
+                "answer": f"{rack_kW:.0f} kW per rack in hybrid DLC; {residual:.0f} kW per rack, still to air, in full DLC",
+                "consequence": f"In full DLC that is still about {residual / legacy:.1f} times the {legacy:.0f} kW per rack a legacy hall "
+                               f"is designed for; in hybrid DLC the existing plant carries the whole rack, about {rack_kW / legacy:.0f} times."}
     if doc.id == "cdu_capacity":
         from ..thermal.library import TCS_SUPPLY_DESIGN_C as _tcs
         tcs = _tcs.value

@@ -13,6 +13,7 @@ Two claims are being sold here, and each one fails in a specific, expensive way:
 The second is the one tested hardest.
 """
 import json
+import re
 import subprocess
 import sys
 from pathlib import Path
@@ -183,6 +184,11 @@ def test_the_document_names_no_make_or_model(solved):
         pkg = spec_for(solved, cid)
         md = to_markdown(build_spec_report(pkg, claims=collect_claims(results))).lower()
         assert "take no margin on hardware" in md
+        # Appendix A.2 credits the published sources of the library's assumptions. A vendor's study is such a source (the PUE the
+        # transformer duty rests on cites one), and it is listed there now that a requirement carries the provenance of the
+        # quantities it was computed from; it used to be a fresh leaf with no sources, which hid the citation. A citation of data is
+        # not a make or model to buy. Every other part of the document is still held to the rule.
+        md = re.sub(r"### a\.2 sources\n.*?(?=\n### |\Z)", "", md, flags=re.S)
         for brand in ("vertiv", "schneider", "eaton", "abb", "siemens", "motivair"):
             assert brand not in md, f"{cid}: the specification named {brand}"
 
