@@ -186,11 +186,28 @@ def test_the_document_names_no_make_or_model(solved):
         assert "take no margin on hardware" in md
         # Appendix A.2 credits the published sources of the library's assumptions. A vendor's study is such a source (the PUE the
         # transformer duty rests on cites one), and it is listed there now that a requirement carries the provenance of the
-        # quantities it was computed from; it used to be a fresh leaf with no sources, which hid the citation. A citation of data is
-        # not a make or model to buy. Every other part of the document is still held to the rule.
-        md = re.sub(r"### a\.2 sources\n.*?(?=\n### |\Z)", "", md, flags=re.S)
+        # quantities it was computed from. A bibliography entry is data provenance, not a make or model to buy, so ONLY such
+        # lines are exempt: a list item in A.2 that ends in a four-digit year with an optional evidence-class tag, e.g.
+        # "- Author, title, 2023 [V]". Everything else, including every other line of A.2, is still held to the rule, so a
+        # brand in a requirement or in prose still fails.
+        citation = re.compile(r"^- [^\n]*\b(19|20)\d{2}(?: \[[a-z]+\])?$", re.M)
+        a2 = re.search(r"### a\.2 sources\n(.*?)(?=\n### |\Z)", md, flags=re.S)
+        if a2:
+            md = md[:a2.start(1)] + citation.sub("", a2.group(1)) + md[a2.end(1):]
         for brand in ("vertiv", "schneider", "eaton", "abb", "siemens", "motivair"):
             assert brand not in md, f"{cid}: the specification named {brand}"
+
+
+def test_the_brand_guard_still_bites_inside_appendix_a2():
+    """The carve-out above is for bibliography lines only. Prove the exemption does not swallow a brand in prose or in a list item
+    that is not a dated citation, so the guard has not been weakened to nothing."""
+    citation = re.compile(r"^- [^\n]*\b(19|20)\d{2}(?: \[[a-z]+\])?$", re.M)
+    ok = "- vertiv, quantifying pue when introducing liquid cooling (modelled), 2023 [v]"
+    assert "vertiv" not in citation.sub("", ok)
+    for bad in ("- use vertiv units for this duty",
+                "- vertiv, quantifying pue, 2023 [v] and then specify vertiv",
+                "the supplier shall be schneider"):
+        assert "vertiv" in citation.sub("", bad) or "schneider" in citation.sub("", bad), bad
 
 
 # --- bid evaluation --------------------------------------------------------
