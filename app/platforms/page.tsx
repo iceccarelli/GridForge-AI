@@ -81,6 +81,11 @@ export default async function PlatformsPage() {
       </header>
 
       <div className="mt-12 space-y-8">
+        <GridForgeVisual slug="liquid-cooling-residual-air-trap" alt="Isometric cutaway of a 132 kW liquid-cooled rack showing 80-82% cyan direct-to-chip liquid to CDU and 18-20% residual air heat overwhelming legacy CRAHs." />
+        <GridForgeVisual slug="platform-benchmark-gb200-vs-50kw-rack" alt="Side-by-side forensic schematic of NVIDIA GB200 NVL72-class liquid rack versus generic 50 kW air/rear-door rack with mass and power telemetry." />
+      </div>
+
+      <div className="mt-12 space-y-8">
         <GridForgeVisual
           slug="liquid-cooling-residual-air-trap"
           alt="Isometric cutaway of a 132 kW liquid-cooled rack showing 80-82% cyan direct-to-chip liquid to CDU and 18-20% residual air heat overwhelming legacy CRAHs."

@@ -134,6 +134,9 @@ export function Qualifier() {
   const limit = referenceLimitSentence(loadWorkedResult());
   return (
     <section id="qualify" className="mx-auto max-w-5xl px-6 py-28 sm:py-32">
+      <div className="mt-10">
+        <GridForgeVisual slug="free-qualifier-seven-inputs-ui" alt="Dark product UI showing seven hall input fields feeding the GridForge solver and an instant binding-constraint output card." />
+      </div>
       <div className="mb-10 flex flex-col justify-between gap-6 md:flex-row md:items-end">
         <div className="max-w-xl">
           <div className="eyebrow mb-3 text-power">RUN IT ON YOUR OWN HALL</div>

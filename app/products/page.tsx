@@ -64,3 +64,8 @@ export default function ProductsIndex() {
     </div>
   );
 }
+
+      <div className="mt-12 space-y-10">
+        <GridForgeVisual slug="synthetic-hall-worked-floorplan" alt="Isometric floorplan of a synthetic 2.0 MW hall with three aisles: cyan active 120 kW, amber 36 kW capped, and dark stranded wireframes." />
+        <GridForgeVisual slug="portfolio-multi-hall-triage-matrix" alt="Executive dashboard of six synthetic halls ranked by unlockable headroom, lead time and evidence class, highlighting fastest ROI and deferred transformer-bound halls." />
+      </div>
