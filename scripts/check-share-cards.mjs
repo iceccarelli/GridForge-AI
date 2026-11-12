@@ -114,5 +114,18 @@ for (const path of ["/products/density-screen", `/constraints/${slugs[0]}`, `/pl
   check(orgFull(docs).length === 0, `${path}: no second full Organization (it references the shared one)`);
   check(JSON.stringify(docs).includes(`${BASE}/#organization`), `${path}: points at the shared organisation @id`);
 }
+// a missing URL (unmatched, and one a dynamic route refuses with notFound()): HTTP 404, a title of its own, and ONE robots tag. Next writes
+// `noindex` on every not-found response; the root layout's `index, follow` must not be repeated beside it (app/not-found.tsx).
+const titleOf = (html) => [...html.matchAll(/<title>([^<]*)<\/title>/g)].map((m) => decode(m[1]));
+const homeTitle = titleOf(home)[0];
+for (const path of ["/this-page-does-not-exist", "/products/not-a-product"]) {
+  const res = await fetch(BASE + path, { redirect: "manual" });
+  const html = await res.text();
+  const titles = titleOf(html);
+  const robots = prop(metas(html), "robots");
+  check(res.status === 404, `${path}: a missing page answers 404 (${res.status})`);
+  check(titles.length === 1 && titles[0] !== homeTitle && /not found/i.test(titles[0]), `${path}: the 404 has its own title, not the home page's (${titles.join(" | ")})`);
+  check(robots.length === 1 && robots[0] === "noindex", `${path}: the 404 carries exactly one robots tag, noindex (${robots.join(" | ")})`);
+}
 console.log(failures.length ? `\n${failures.length} of ${n}+ checks FAILED` : `\nshare cards, icons and entity: all checks passed (${n} tag checks across ${PAGES.length} pages)`);
 process.exit(failures.length ? 1 : 0);
