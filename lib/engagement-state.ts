@@ -92,6 +92,20 @@ export interface DepositTerms {
 export const DEPOSIT_CLOCK_START = "from a complete intake and the scoping call";
 
 /**
+ * The sentence about an EARLIER purchase that credits against this deposit's engagement (today: the Density Screen against the Envelope
+ * Study), or null when nothing does. The conditions it states are the ones lib/deposits.ts and lib/deliverables.ts creditsToward enforce:
+ * the same address, once, after the operator confirms it is the same buyer. One wording, read by depositTerms below and by the offer a
+ * buyer sees after a Density Screen is released (lib/study-offer.ts).
+ */
+export function creditedEarlier(depositKind: string): string | null {
+  const p = PRODUCT_BY_KIND[depositKind];
+  if (!p?.opensBandCents) return null;
+  const crediting = Object.values(PRODUCTS).filter((x) => x.creditsAgainst === p.id);
+  if (!crediting.length) return null;
+  return crediting.map((x) => `A ${x.name} you have already paid for (same email address, ${eurFromCents(x.amountCents)} each) is credited once against the same fee, after we confirm it is the same buyer (the address typed at checkout is not verified).`).join(" ");
+}
+
+/**
  * What a deposit states, exactly, from the catalogue. Returns null for a kind that is not a deposit (the caller then says
  * nothing rather than guess). Every figure is read from lib/products.ts; nothing is typed here.
  */
@@ -100,10 +114,8 @@ export function depositTerms(kind: string): DepositTerms | null {
   if (!p?.opensBandCents) return null;
   const [lo, hi] = p.opensBandCents;
   const band = `${eurFromCents(lo)} to ${eurFromCents(hi)}`;
-  const crediting = Object.values(PRODUCTS).filter((x) => x.creditsAgainst === p.id);
-  const alsoCredited = crediting.length
-    ? ` ${crediting.map((x) => `A ${x.name} you have already paid for (same email address, ${eurFromCents(x.amountCents)} each) is credited once against the same fee, after we confirm it is the same buyer (the address typed at checkout is not verified).`).join(" ")}`
-    : "";
+  const earlier = creditedEarlier(kind);
+  const alsoCredited = earlier ? ` ${earlier}` : "";
   return {
     reserves:
       `This ${eurFromCents(p.amountCents)} deposit reserves engineering time for one ${p.name.replace(/ — deposit$/, "")}. ` +

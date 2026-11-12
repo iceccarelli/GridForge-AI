@@ -160,6 +160,12 @@ export function productPageBySlug(slug: string): ProductPage | undefined {
   return PRODUCT_PAGES.find((p) => p.slug === slug);
 }
 
+/** The page that sells a product (the existing purchase path: its Commission button), or null when the product has none. */
+export function productPageHref(id: ProductId): string | null {
+  const page = PRODUCT_PAGES.find((p) => p.productId === id);
+  return page ? `/products/${page.slug}` : null;
+}
+
 export function productForPage(page: ProductPage): Product {
   return PRODUCTS[page.productId];
 }
