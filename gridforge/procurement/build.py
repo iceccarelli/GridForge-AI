@@ -14,12 +14,16 @@ procurement without a conflict to declare.
 from __future__ import annotations
 
 import math
+from dataclasses import replace
+from typing import Iterable
 
-from ..common import V
+from ..common import ESTIMATED, V
 from ..constraints import EnvelopeContext
-from ..envelope.solver import LadderStep
+from ..envelope.solver import LadderStep, rack_evidence
 from ..scenario.run import ScenarioResult
-from ..validation import EvidenceClass, Quantity
+from ..thermal.library import PUE_BY_ARCHITECTURE
+from ..thermal.schema import Architecture
+from ..validation import EvidenceClass, Provenance, Quantity
 from .schema import (INFORMATIVE, MANDATORY, PREFERRED, SC_ASSUMED, SC_LIBRARY, SC_NOT_MODELLED,
                      SC_SUPPLIED, AssumedInput, EvaluationCriterion, ProcurementError,
                      Requirement, ResponseField, ScopeItem, SiteCondition, SpecPackage)
@@ -49,13 +53,51 @@ def relief_steps(result: ScenarioResult) -> list[LadderStep]:
             if s.taken and s.cost_key not in (None, "", "not-capital")]
 
 
-def _q(value: float, unit: str, label: str, ev: EvidenceClass, model: str) -> Quantity:
-    return Quantity.given(value, unit, label, ev).relabel(label, model)
+#: The strongest class any figure this module computes may claim: an engineering estimate.
+SPEC_CEILING = ESTIMATED
+
+
+def _q(value: float, unit: str, label: str, model: str, inputs: Iterable[Quantity],
+       ceiling: EvidenceClass = SPEC_CEILING) -> Quantity:
+    """A requirement value, carrying the provenance of the quantities it was computed from.
+
+    Its evidence class is the MINIMUM of ``ceiling`` and the class of every input (arithmetic carries the weakest input,
+    docs/01 section 6): racks x a platform figure that is a library assumption (E0) is E0, whatever class the specification
+    would like to claim. The class is never raised above an input's, and a figure with no input at all is refused: it would
+    be a class asserted from nothing, which is what this function used to build for every requirement. A value that is
+    itself an input (the client's facility-water temperature, say) is passed through as the Quantity it is, not wrapped here.
+    The result is a point value: a "not less than" figure is one number, and its inputs' bands stay in the basis."""
+    ins = [q.prov for q in inputs]
+    if not ins:
+        raise ProcurementError(f"{label}: a requirement value must name the quantities it was computed from")
+    return Quantity(float(value), unit, Provenance.derive(label, model, ins, step_evidence=ceiling), float(value), float(value))
+
+
+def _count(n: int, ev: EvidenceClass = SPEC_CEILING) -> Quantity:
+    """The rack count the duties are sized for, as an input. Its class is that of the rack count the capacity model reached
+    (the weakest constraint behind it), capped at the engineering-estimate ceiling."""
+    return Quantity.given(float(n), "racks", "rack positions the duties are sized for", min(ev, SPEC_CEILING))
+
+
+def scenario_context(intake, result: ScenarioResult) -> EnvelopeContext:
+    """The hall AS FOUND in the scenario being tendered: its cooling architecture, PUE and any equipment the scenario assumed,
+    before a single relief on the ladder was applied. That is what "installed" means in a requirement's basis.
+
+    Not ``intake.context`` (the intake's DEFAULT architecture, with no scenario overrides applied) and not ``result.context``
+    (the hall AFTER the ladder: its plant is already uprated). The ladder keeps the first for exactly this purpose."""
+    ctx = result.ladder.initial_context
+    if ctx is not None:
+        return ctx
+    # A result assembled without a ladder context: rebuild the scenario the way scenario.run.run() does.
+    c = intake.context.copy()
+    c.architecture = result.spec.architecture
+    c.pue = PUE_BY_ARCHITECTURE[result.spec.architecture]
+    return result.spec.overrides(c) if result.spec.overrides is not None else c
 
 
 # --- per-constraint requirement generators ----------------------------------
 
-def _tapoff(ctx: EnvelopeContext, racks: int) -> list[Requirement]:
+def _tapoff(ctx: EnvelopeContext, racks: int, count_ev: EvidenceClass = SPEC_CEILING) -> list[Requirement]:
     plat = ctx.cluster.platform
     lv = ctx.power.lv
     need_A = plat.rack_feed_current_A
@@ -77,8 +119,7 @@ def _tapoff(ctx: EnvelopeContext, racks: int) -> list[Requirement]:
         Requirement(
             id="E-02", clause="Quantity",
             statement=f"The supply shall cover {racks} rack positions.",
-            value=_q(float(racks), "racks", "tap-off units required",
-                     EvidenceClass.E3_ENGINEERING_ESTIMATE, "spec.quantity"),
+            value=_q(float(racks), "racks", "tap-off units required", "spec.quantity", [_count(racks, count_ev)]),
             unit="racks", derived_from="rack_feed_tapoff",
             basis="Racks unlocked by this relief in the capacity model.",
             verification="Bill of quantities in the response."),
@@ -104,7 +145,7 @@ def _tapoff(ctx: EnvelopeContext, racks: int) -> list[Requirement]:
     return reqs
 
 
-def _busway(ctx: EnvelopeContext, racks: int) -> list[Requirement]:
+def _busway(ctx: EnvelopeContext, racks: int, count_ev: EvidenceClass = SPEC_CEILING) -> list[Requirement]:
     lv = ctx.power.lv
     plat = ctx.cluster.platform
     # Required ampacity per run for the target rack count, at the site's own
@@ -119,8 +160,8 @@ def _busway(ctx: EnvelopeContext, racks: int) -> list[Requirement]:
             statement=("Each busway run shall have a continuous ampacity not less than the "
                        "figure stated, at the hall's design ambient and installed "
                        "configuration."),
-            value=_q(required, "A", "required busway ampacity per run",
-                     EvidenceClass.E3_ENGINEERING_ESTIMATE, "spec.busway_ampacity"),
+            value=_q(required, "A", "required busway ampacity per run", "spec.busway_ampacity",
+                     [plat.rack_kW, lv.voltage_V, lv.busway_utilisation_limit, _count(racks, count_ev)]),
             unit="A", derived_from="busway_ampacity",
             basis=(f"{racks} racks at {plat.rack_kW.render()} over {per_run} run(s) at "
                    f"{lv.voltage_V.render()}, three phase, power factor 0.95, derated to "
@@ -144,7 +185,7 @@ def _busway(ctx: EnvelopeContext, racks: int) -> list[Requirement]:
     ]
 
 
-def _transformer(ctx: EnvelopeContext, racks: int) -> list[Requirement]:
+def _transformer(ctx: EnvelopeContext, racks: int, count_ev: EvidenceClass = SPEC_CEILING) -> list[Requirement]:
     plat = ctx.cluster.platform
     pue = ctx.pue
     facility_kW = plat.rack_kW.value * racks * pue.value
@@ -156,8 +197,8 @@ def _transformer(ctx: EnvelopeContext, racks: int) -> list[Requirement]:
             id="E-20", clause="Transformer rating",
             statement=("Transformer capacity shall be not less than the figure stated, after "
                        "the site's derating policy and at the specified redundancy."),
-            value=_q(mva, "MVA", "required transformer capacity",
-                     EvidenceClass.E3_ENGINEERING_ESTIMATE, "spec.transformer_rating"),
+            value=_q(mva, "MVA", "required transformer capacity", "spec.transformer_rating",
+                     [plat.rack_kW, pue, _count(racks, count_ev)]),
             unit="MVA", derived_from="transformer_capacity",
             basis=(f"{racks} racks at {plat.rack_kW.render()}, PUE {pue.render()}, power "
                    f"factor 0.95. Site derating {derate}."),
@@ -189,7 +230,7 @@ def _transformer(ctx: EnvelopeContext, racks: int) -> list[Requirement]:
     ]
 
 
-def _ups(ctx: EnvelopeContext, racks: int) -> list[Requirement]:
+def _ups(ctx: EnvelopeContext, racks: int, count_ev: EvidenceClass = SPEC_CEILING) -> list[Requirement]:
     plat = ctx.cluster.platform
     kW = plat.rack_kW.value * racks
     blocks = ctx.power.ups
@@ -198,8 +239,8 @@ def _ups(ctx: EnvelopeContext, racks: int) -> list[Requirement]:
         Requirement(
             id="E-30", clause="Protected capacity",
             statement="Additional protected capacity shall be not less than the figure stated.",
-            value=_q(kW, "kW", "additional protected load",
-                     EvidenceClass.E3_ENGINEERING_ESTIMATE, "spec.ups_capacity"),
+            value=_q(kW, "kW", "additional protected load", "spec.ups_capacity",
+                     [plat.rack_kW, _count(racks, count_ev)]),
             unit="kW", derived_from="ups_capacity",
             basis=f"{racks} racks at {plat.rack_kW.render()}.",
             verification="Rating and factory test certificate."),
@@ -221,24 +262,41 @@ def _ups(ctx: EnvelopeContext, racks: int) -> list[Requirement]:
     ]
 
 
-def _cdu(ctx: EnvelopeContext, racks: int) -> list[Requirement]:
+def _cdu(ctx: EnvelopeContext, racks: int, count_ev: EvidenceClass = SPEC_CEILING) -> list[Requirement]:
     plat = ctx.cluster.platform
     plant = ctx.thermal.plant
-    duty = plat.liquid_kW().value * racks
-    flow = plat.flow_l_per_min_per_rack.value * racks
-    approach = max(1.0, plat.max_inlet_liquid_C.value - plant.design_supply_C.value)
+    count = _count(racks, count_ev)
+    duty = plat.liquid_kW() * count
+    flow = plat.flow_l_per_min_per_rack * count
+    # The approach the capacity model derates the CDU on: the technology loop's OPERATING target less the facility-water
+    # supply (thermal/constraints.py cdu_capacity, `t.tcs_target_supply_C - fws_supply`). Not the platform's maximum liquid
+    # inlet: that is an equipment survival rating, not an operating point (docs/02 section 4). No floor is applied: a
+    # facility water that is not colder than the target leaves no approach, and the specification says so.
+    tcs = ctx.thermal.tcs_target_supply_C
+    approach = tcs - plant.design_supply_C
+    if approach.value > 0:
+        approach_note = (f"Available approach = TCS supply target {tcs.render()} less facility-water supply "
+                         f"{plant.design_supply_C.render()} = {approach.value:g} K. This is the figure the capacity model "
+                         f"derates a CDU on: its rated duty is scaled linearly by the available approach over the approach "
+                         f"it is rated at, capped at the rating. Approach at site conditions is what determines usable duty.")
+    else:
+        approach_note = (f"TCS supply target {tcs.render()} less facility-water supply {plant.design_supply_C.render()} = "
+                         f"{approach.value:g} K: the facility water is not colder than the technology-loop target, so the "
+                         f"capacity model derates a CDU to no usable duty at this site. The supply temperature or the target "
+                         f"must change before a CDU duty can be specified.")
     return [
         Requirement(
             id="T-01", clause="Rated duty at site conditions",
             statement=("CDU duty shall be not less than the figure stated WHEN RATED AT THE "
                        "SITE FACILITY WATER TEMPERATURE below, not at the manufacturer's "
                        "reference approach."),
-            value=_q(duty, "kW", "required CDU duty at site conditions",
-                     EvidenceClass.E3_ENGINEERING_ESTIMATE, "spec.cdu_duty"),
+            value=_q(duty.value, "kW", "required CDU duty at site conditions", "spec.cdu_duty", [duty]),
             unit="kW", derived_from="cdu_capacity",
-            basis=(f"{racks} racks at {plat.liquid_kW().render()} liquid load. Facility water "
-                   f"{plant.design_supply_C.render()}; platform accepts up to "
-                   f"{plat.max_inlet_liquid_C.render()} at the technology cooling loop."),
+            basis=(f"{racks} racks at {plat.liquid_kW().render()} liquid load per rack. Rated with facility water supplied "
+                   f"at {plant.design_supply_C.render()}; the design operating point of the technology loop is the TCS "
+                   f"supply target {tcs.render()}. The platform accepts liquid inlet up to "
+                   f"{plat.max_inlet_liquid_C.render()}, but that is the equipment's survival rating, not an operating "
+                   f"point: the duty is not rated there."),
             verification="Performance curve or selection output at the stated facility water temperature."),
         Requirement(
             id="T-02", clause="Facility water conditions",
@@ -246,15 +304,15 @@ def _cdu(ctx: EnvelopeContext, racks: int) -> list[Requirement]:
                        f"at {plant.design_supply_C.render()}, return "
                        f"{plant.design_return_C.render()}."),
             value=plant.design_supply_C, unit="degC", derived_from="cdu_capacity",
-            basis=("Rating a CDU at a 5 K approach and installing it on a site with a far "
-                   "wider approach is a way a liquid retrofit "
-                   "can under-deliver."),
+            basis=("A CDU is rated at a stated approach (a 5 K approach is usual). Where the approach this site's facility "
+                   "water leaves the technology loop (T-04) is NARROWER than the rated one, usable duty falls in proportion "
+                   "(available approach over rated approach), so a rating quoted at the reference approach and installed "
+                   "here under-delivers."),
             verification="Selection output at these exact conditions."),
         Requirement(
             id="T-03", clause="Technology loop flow",
             statement="Technology-side flow shall be not less than the figure stated.",
-            value=_q(flow, "l/min", "required technology loop flow",
-                     EvidenceClass.E3_ENGINEERING_ESTIMATE, "spec.tcs_flow"),
+            value=_q(flow.value, "l/min", "required technology loop flow", "spec.tcs_flow", [flow]),
             unit="l/min", derived_from="cdu_capacity",
             basis=f"{racks} racks at {plat.flow_l_per_min_per_rack.render()}.",
             verification="Pump curve and duty point."),
@@ -262,10 +320,9 @@ def _cdu(ctx: EnvelopeContext, racks: int) -> list[Requirement]:
             id="T-04", clause="Approach temperature",
             statement=("The response shall state the approach temperature achieved at the "
                        "duty point above."),
-            value=_q(approach, "K", "available approach at site conditions",
-                     EvidenceClass.E3_ENGINEERING_ESTIMATE, "spec.cdu_approach"),
+            value=_q(approach.value, "K", "available approach at site conditions", "spec.cdu_approach", [approach]),
             unit="K", derived_from="cdu_capacity",
-            basis="Approach at site conditions is what determines usable duty.",
+            basis=approach_note,
             verification="Selection output."),
         Requirement(
             id="T-05", clause="Redundancy and water quality",
@@ -277,19 +334,88 @@ def _cdu(ctx: EnvelopeContext, racks: int) -> list[Requirement]:
     ]
 
 
-def _plant(ctx: EnvelopeContext, racks: int) -> list[Requirement]:
+#: How the capacity model's plant constraint describes the route the heat takes (thermal/constraints.py `plant_capacity`, `route`).
+_ROUTE_FULL = "full rack load (rack heat rejected into the existing plant)"
+_ROUTE_RESIDUAL = "residual air load only (liquid rejected to a dedicated high-temperature loop)"
+
+
+def plant_load_per_rack(ctx: EnvelopeContext) -> tuple[Quantity, bool]:
+    """The load the capacity model charges the EXISTING chilled-water plant per rack, and whether that is the whole rack.
+
+    Replicates thermal/constraints.py: `_liquid_load_to_plant` (~line 47: hybrid DLC, rear-door and retained air put the whole
+    rack on the plant; full DLC sends the liquid to a dedicated loop) and the `per_rack = plat.rack_kW if ... else
+    plat.residual_air_kW()` choice in `plant_capacity` (~line 154). It is copied, not imported, so this module does not depend on
+    a private helper of the thermal domain; tests/test_spec_engine_consistency.py fails if the two ever disagree for any
+    architecture."""
+    plat = ctx.cluster.platform
+    whole = ctx.architecture in (Architecture.HYBRID_DLC, Architecture.RDHX, Architecture.RETAINED_AIR)
+    return (plat.rack_kW if whole else plat.residual_air_kW()), whole
+
+
+def _existing_it_kW(ctx: EnvelopeContext) -> Quantity:
+    """The IT load the existing hall already puts on the plant, in kW (the engine's `existing`, ~line 155)."""
+    return ctx.power.current_it_load_MW.convert(1000.0, "kW", "existing hall heat load on plant")
+
+
+def plant_headroom(ctx: EnvelopeContext) -> Quantity:
+    """Chilled-water plant capacity less the IT load already on it, and less any other heat the client declared the existing hall
+    puts on the plant: the headroom thermal/constraints.py `plant_capacity` divides by the per-rack load (~lines 155-165).
+
+    SIGNED, where the engine floors the headroom it DISPLAYS at zero when other heat is declared. Hosting N racks needs the plant
+    to cover the load AND make good any shortfall (an uprate scales the capacity, not the existing hall's heat), so the
+    requirement is built on the unfloored figure and is never lower than the engine's own."""
+    t = ctx.thermal
+    net = t.plant.chilled_water_capacity_kW - _existing_it_kW(ctx)
+    if t.plant.existing_non_it_heat_kW is not None:
+        net = net - t.plant.existing_non_it_heat_kW
+    return net.relabel("chilled-water plant headroom", "thermal.plant_headroom", step_evidence=ESTIMATED)
+
+
+def _plant(ctx: EnvelopeContext, racks: int, count_ev: EvidenceClass = SPEC_CEILING) -> list[Requirement]:
     plat = ctx.cluster.platform
     plant = ctx.thermal.plant
-    duty = plat.residual_air_kW().value * racks
+    per_rack, whole = plant_load_per_rack(ctx)
+    headroom = plant_headroom(ctx)
+    load = replace(per_rack * _count(racks, count_ev), unit="kW")        # kW x racks; the racks are a count, not a unit of power
+    additional = max(0.0, load.value - headroom.value)
+    existing = _existing_it_kW(ctx)
+    other = plant.existing_non_it_heat_kW
+    value = _q(additional, "kW", "required additional plant capacity", "spec.plant_duty", [load, headroom])
+    # The three numbers a supplier can check: the load for N racks, the headroom already there, and what is left to add.
+    load_text = load.render(with_band=False)
+    headroom_text = (f"{headroom.render()} = {plant.chilled_water_capacity_kW.render()} installed plant capacity less "
+                     f"{existing.render()} of IT load already on it"
+                     + (f" less {other.render()} of other heat the existing hall puts on the plant" if other is not None else ""))
+    if headroom.value < 0:
+        headroom_text += (" (negative: the existing hall already exceeds the plant, and that shortfall is part of the "
+                          "additional capacity)")
+    if additional > 0:
+        result_text = (f"Additional capacity required = {load_text} less {headroom.render(with_band=False)} = "
+                       f"{value.render(with_band=False)}.")
+    else:
+        result_text = (f"The existing headroom already covers this load ({load_text} against "
+                       f"{headroom.render(with_band=False)}), so no additional plant capacity is required for these racks.")
+    if other is None:
+        limit_text = ("Modelling limit: UPS, fan and pump heat, plant redundancy and condenser derating at the design ambient "
+                      "are not modelled, so the headroom is overstated by their share and the additional capacity is a minimum.")
+    else:
+        limit_text = ("Modelling limit: plant redundancy and condenser derating at the design ambient are not modelled, and "
+                      "only the other heat the client gave is subtracted, so the additional capacity is a minimum.")
+    if whole:
+        route, scope_note = _ROUTE_FULL, ""
+    else:
+        route = _ROUTE_RESIDUAL
+        scope_note = (f" The liquid share ({plat.liquid_kW().render()} per rack) is not charged to this plant: its heat "
+                      f"rejection is a dedicated high-temperature loop that this requirement does not size.")
     return [
         Requirement(
             id="T-20", clause="Additional cooling capacity",
-            statement="Additional plant capacity shall be not less than the figure stated.",
-            value=_q(duty, "kW", "required additional plant capacity",
-                     EvidenceClass.E3_ENGINEERING_ESTIMATE, "spec.plant_duty"),
-            unit="kW", derived_from="plant_capacity",
-            basis=(f"{racks} racks at {plat.residual_air_kW().render()} residual air load. "
-                   f"Installed plant {plant.chilled_water_capacity_kW.render()}."),
+            statement=("Additional chilled-water plant capacity, over and above the installed plant, shall be not less than "
+                       f"the figure stated, which is the plant load of {racks} racks ({load_text}) less the existing plant "
+                       f"headroom ({headroom.render(with_band=False)})."),
+            value=value, unit="kW", derived_from="plant_capacity",
+            basis=(f"Load for {racks} racks: {racks} x {per_rack.render()} per rack = {load_text} on the existing plant, "
+                   f"{route}.{scope_note} Existing plant headroom: {headroom_text}. {result_text} {limit_text}"),
             verification="Selection output at site design ambient."),
         Requirement(
             id="T-21", clause="Design ambient",
@@ -309,16 +435,15 @@ def _plant(ctx: EnvelopeContext, racks: int) -> list[Requirement]:
     ]
 
 
-def _hydraulic(ctx: EnvelopeContext, racks: int) -> list[Requirement]:
+def _hydraulic(ctx: EnvelopeContext, racks: int, count_ev: EvidenceClass = SPEC_CEILING) -> list[Requirement]:
     plat = ctx.cluster.platform
     plant = ctx.thermal.plant
-    flow = plat.flow_l_per_min_per_rack.value * racks
+    flow = plat.flow_l_per_min_per_rack * _count(racks, count_ev)
     return [
         Requirement(
             id="T-40", clause="Pumped flow",
             statement="Available pumped flow shall be not less than the figure stated.",
-            value=_q(flow, "l/min", "required pumped flow",
-                     EvidenceClass.E3_ENGINEERING_ESTIMATE, "spec.pumped_flow"),
+            value=_q(flow.value, "l/min", "required pumped flow", "spec.pumped_flow", [flow]),
             unit="l/min", derived_from="hydraulic_flow",
             basis=(f"{racks} racks at {plat.flow_l_per_min_per_rack.render()}. Installed "
                    f"capacity {plant.pump_flow_capacity_l_per_min.render()} at "
@@ -334,7 +459,8 @@ def _hydraulic(ctx: EnvelopeContext, racks: int) -> list[Requirement]:
     ]
 
 
-def _generic(ctx: EnvelopeContext, racks: int, step: LadderStep) -> list[Requirement]:
+def _generic(ctx: EnvelopeContext, racks: int, step: LadderStep,
+             count_ev: EvidenceClass = SPEC_CEILING) -> list[Requirement]:
     """A constraint with no specialist generator yet.
 
     Produces an honest skeleton rather than an invented specification: the duty is
@@ -347,8 +473,7 @@ def _generic(ctx: EnvelopeContext, racks: int, step: LadderStep) -> list[Require
             id="G-01", clause="Duty",
             statement=(f"The works shall relieve the following constraint: "
                        f"{step.binding_name}. {step.relief_description or ''}".strip()),
-            value=_q(float(racks), "racks", "rack positions to be unlocked",
-                     EvidenceClass.E3_ENGINEERING_ESTIMATE, "spec.quantity"),
+            value=_q(float(racks), "racks", "rack positions to be unlocked", "spec.quantity", [_count(racks, count_ev)]),
             unit="racks", derived_from=step.binding_id,
             basis=step.basis,
             verification="Method statement demonstrating how the constraint is relieved."),
@@ -568,7 +693,8 @@ def build_spec(intake, result: ScenarioResult, *, step: LadderStep | None = None
         else:
             step = default_step(steps)
 
-    ctx = result.envelope.context if hasattr(result.envelope, "context") else intake.context
+    # The scenario being tendered, as found (see scenario_context): never the intake's default context.
+    ctx = scenario_context(intake, result)
 
     # Size against the END STATE, not the marginal racks this rung unlocks.
     #
@@ -578,8 +704,10 @@ def build_spec(intake, result: ScenarioResult, *, step: LadderStep | None = None
     # the rung's own delta produces a specification that is technically traceable
     # and commercially absurd, which is worse than one that is neither.
     racks = max(result.unlocked_racks, step.racks_after, 1)
+    # The rack count is itself a result of the capacity model, so it is no better evidenced than the weakest constraint behind it.
+    count_ev = rack_evidence(result.ladder.final or result.envelope)
     gen = GENERATORS.get(step.binding_id)
-    reqs = gen(ctx, racks) if gen else _generic(ctx, racks, step)
+    reqs = gen(ctx, racks, count_ev) if gen else _generic(ctx, racks, step, count_ev)
 
     conds = site_conditions(intake, ctx)
     pkg = SpecPackage(
