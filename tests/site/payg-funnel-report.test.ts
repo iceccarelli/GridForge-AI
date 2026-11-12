@@ -521,6 +521,32 @@ describe("economics: measured revenue beside measured compute, no margin claimed
     expect(j.revenue_per_compute_second_cents).toBeNull();
   });
 
+  it("reads the engine's real answer shape: `endpoints` is an object keyed by route (gridforge/api/server.py economics_report)", async () => {
+    const row = (calls: number, units: number, wall: number, rev: number, free: number) => ({
+      calls, units, units_per_call: calls ? units / calls : null, payg_units: units - free, free_units: free, subscription_units: 0,
+      revenue_cents_at_payg_price: rev, timed_calls: calls, wall_ms_total: wall, wall_ms_mean: wall / calls, wall_ms_p50: 3000, wall_ms_p95: 6000, wall_ms_max: 7000,
+      process_cpu_ms_total: 1, wall_ms_histogram: {}, wall_ms_per_unit: wall / units,
+    });
+    const e = engineAnswers(200, {
+      month: "2026-09", currency: "eur", unit_price_cents: 200,
+      endpoints: { "/v1/study": row(10, 50, 40_000, 9_000, 5), "/v1/screen": row(20, 20, 10_000, 4_000, 0) },
+      totals: {}, durable: true, basis: "b",
+    });
+    const j = await call();
+    e.restore();
+    expect(j.compute.available).toBe(true);
+    expect(j.compute.endpoints.map((x: { endpoint: string }) => x.endpoint).sort()).toEqual(["/v1/screen", "/v1/study"]);
+    expect(j.compute.endpoints.find((x: { endpoint: string }) => x.endpoint === "/v1/study")).toMatchObject({ calls: 10, units: 50, free_units: 5 });
+  });
+
+  it("refuses an `endpoints` that is neither an object nor a list", async () => {
+    const e = engineAnswers(200, { month: "2026-09", endpoints: "nope", basis: "b", durable: true });
+    const j = await call();
+    e.restore();
+    expect(j.compute).toMatchObject({ available: false });
+    expect(j.compute.reason).toMatch(/not understood/);
+  });
+
   it("drops malformed endpoint rows rather than guessing them", async () => {
     const e = engineAnswers(200, { ...ENGINE_BODY, endpoints: [ENGINE_BODY.endpoints[0], { endpoint: "/v1/x", calls: "many" }, null, { calls: 1 }] });
     const j = await call();

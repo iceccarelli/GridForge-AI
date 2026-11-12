@@ -140,12 +140,12 @@ describe("the capabilities the registry used to omit", () => {
     const c = cap("calibration_capture");
     expect(c.rest_endpoint).toBe("/v1/calibration/residuals");
     expect(c.production_status).toBe("live");
-    expect(c.notes).toMatch(/dated 2026-11-10/);
+    expect(c.notes).toMatch(/dated 2026-11-11/);
     expect(c.notes).toMatch(/no difference between the deployed engine and this repository/);
     expect(c.notes).toMatch(/the route, not a claim that the ledger holds evidence: it holds none/);
     expect(snapshot.endpoints).toContain("/v1/calibration/residuals");
     expect(snapshot.endpoints).toHaveLength(24);
-    expect(snapshot.snapshot_date).toBe("2026-11-10");
+    expect(snapshot.snapshot_date).toBe("2026-11-11");
   });
 
   it("states the calibration gate as the view alone, names its two admin routes and tables, and says the migrations are not applied", () => {

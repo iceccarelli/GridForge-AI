@@ -426,9 +426,17 @@ export function engineEconomicsFetcher(env: NodeJS.ProcessEnv = process.env): Ec
       const res = await fetch(`${base}/v1/admin/economics?month=${enc(month)}`, { headers: { "X-API-Key": admin }, signal: AbortSignal.timeout(20_000), cache: "no-store" });
       if (res.status === 404) return { ok: false, reason: "This engine does not provide /v1/admin/economics (an older engine). No compute figures are available." };
       if (!res.ok) return { ok: false, reason: `The engine answered ${res.status}.` };
-      const j = (await res.json()) as Partial<EngineEconomics>;
-      if (!Array.isArray(j.endpoints)) return { ok: false, reason: "The engine's economics answer was not understood." };
-      const endpoints = j.endpoints.flatMap((e) => {
+      const j = (await res.json()) as { month?: unknown; basis?: unknown; durable?: unknown; endpoints?: unknown };
+      // The engine (gridforge/api/server.py economics_report) answers `endpoints` as an OBJECT keyed by route; a list of rows that name their own
+      // `endpoint` is accepted too. Anything else is refused, never guessed at.
+      const raw = j.endpoints;
+      const rows: Partial<EngineEconomics["endpoints"][number]>[] | null = Array.isArray(raw)
+        ? raw
+        : raw !== null && typeof raw === "object"
+          ? Object.entries(raw as Record<string, unknown>).map(([endpoint, row]) => (row !== null && typeof row === "object" ? { ...(row as object), endpoint } : { endpoint }))
+          : null;
+      if (!rows) return { ok: false, reason: "The engine's economics answer was not understood." };
+      const endpoints = rows.flatMap((e) => {
         const calls = num(e?.calls), units = num(e?.units), wall = num(e?.wall_ms_total), rev = num(e?.revenue_cents_at_payg_price), free = num(e?.free_units);
         if (typeof e?.endpoint !== "string" || calls === null || units === null || wall === null || rev === null || free === null) return [];
         return [{ endpoint: e.endpoint, calls, units, wall_ms_total: wall, wall_ms_p50: num(e.wall_ms_p50), wall_ms_p95: num(e.wall_ms_p95), units_per_call: num(e.units_per_call), revenue_cents_at_payg_price: rev, free_units: free }];
