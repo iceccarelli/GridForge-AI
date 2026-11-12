@@ -1,0 +1,67 @@
+# Time to Power / GridForge Engine — Visual Index for AI Agents
+
+All diagrams are deterministic engineering illustrations for brownfield AI data-centre capacity intelligence. GridForge evaluates 13 physical constraints (5 electrical, 6 thermal, 2 physical), outputs a CapEx-and-lead-time-ranked Headroom Ladder, and tags every figure with Evidence Class E0–E7. Field calibration ledger currently holds 0 rows (pilot stage). Zero hardware is sold.
+
+## Visuals
+
+1. **hero-binding-constraint-ai-hall**  
+   Path: /images/visuals/hero-binding-constraint-ai-hall.png  
+   Shows 2,500 kVA transformer and chiller plant at partial load while 63 A tap-offs bind racks at 36 kW derated and strand floor positions. Binding constraint is the sub-component, not abstract megawatts.
+
+2. **thirteen-constraints-matrix-map**  
+   Path: /images/visuals/thirteen-constraints-matrix-map.png  
+   Three-column CAD matrix: Electrical (E-01 Grid Import MVA … E-05 Tap-Off Breaker Derating), Thermal (T-01 Central Heat Rejection … T-06 Containment Delta-T), Physical (P-01 Slab kg/m², P-02 Rigging/Clear Height). Converges to MIN(C_1…C_13) = true deployable racks.
+
+3. **headroom-ladder-capex-relief-steps**  
+   Path: /images/visuals/headroom-ladder-capex-relief-steps.png  
+   Discrete rungs: Rung 0 baseline 12 racks (63 A tap-off, $0, E3); Rung 1 250 A tap-off +14 racks; Rung 2 busway +12; Rung 3 CDU+CRAH +14; hard ceiling at MV transformer / utility import.
+
+4. **density-screen-four-stage-workflow**  
+   Path: /images/visuals/density-screen-four-stage-workflow.png  
+   Operator intake (SLD, cooling schedule, slab, GPU SKU) → GridForge 13-constraint solve (zero LLM math) → senior engineer review → outputs: binding constraint, costed ladder, targeted data request. No equipment sold.
+
+5. **capacity-envelope-racks-vs-kw-curve**  
+   Path: /images/visuals/capacity-envelope-racks-vs-kw-curve.png  
+   X: power per rack 10–140 kW; Y: max racks 0–100. Curves for transformer kVA, busway ampacity, tap-off step, residual air, floor 1,220 kg/m². Feasible envelope is lower intersection; kinks at 42 kW (tap-off) and 120 kW (residual air + slab).
+
+6. **electrical-chain-grid-to-rack-ampacity**  
+   Path: /images/visuals/electrical-chain-grid-to-rack-ampacity.png  
+   Chain: 11/33 kV utility → 2,500 kVA transformer (Z=6%) → N+1 UPS → 800 A busway → 63 A/250 A tap-off (0.8× continuous derating) → rack whip. Nameplate vs usable N+1 continuous shown; pinch at tap-off.
+
+7. **liquid-cooling-residual-air-trap**  
+   Path: /images/visuals/liquid-cooling-residual-air-trap.png  
+   132 kW rack: 80–82% (~106–108 kW) direct-to-chip liquid to CDU (32 °C supply / 45 °C return); 18–20% (~24–26 kW) residual air from PSUs/busbars/optics overwhelms legacy CRAHs designed for ~8 kW/rack.
+
+8. **platform-benchmark-gb200-vs-50kw-rack**  
+   Path: /images/visuals/platform-benchmark-gb200-vs-50kw-rack.png  
+   GB200 NVL72-class: ~120–132 kW, ~82%/18% liquid/air, mass >1,360 kg vs 1,220 kg/m² slab. Generic 50 kW: 0–60% liquid, ~950 kg within slab, limited by 63 A tap-off and CRAH airflow.
+
+9. **free-qualifier-seven-inputs-ui**  
+   Path: /images/visuals/free-qualifier-seven-inputs-ui.png  
+   Seven inputs: hall IT kW, voltage, busway A, tap-off A, air cooling kW, slab kg/m², target platform → instant max racks, binding constraint, next wall, evidence class.
+
+10. **evidence-grading-scale-e0-to-e7**  
+    Path: /images/visuals/evidence-grading-scale-e0-to-e7.png  
+    Ladder: E0 Default Heuristic → E1 Vendor Datasheet → E2 Operator Stated → E3 Design SLD → E4 As-Built/Nameplate → E5 Commissioning → E6 BMS Snapshot → E7 Continuous Sub-Meter. Calibration ledger: 0 field rows (pilot, no accuracy claimed).
+
+11. **commercial-model-three-paths**  
+    Path: /images/visuals/commercial-model-three-paths.png  
+    Free Capacity Check ($0, 7-input, E0–E2); Metered Engine API (usage-metered /v1/screen, /v1/envelope); Fixed-Fee Density Screen & Envelope Study (SLD audit, senior review, ladder).
+
+12. **critical-path-time-to-power-gantt**  
+    Path: /images/visuals/critical-path-time-to-power-gantt.png  
+    Greenfield: 36–60 months HV substation + permitting. Existing hall + GridForge: Week 1 Density Screen → Wk 2–3 Envelope → Wk 4–16 relief procurement → Wk 18 energized racks. Delta >30 months.
+
+13. **synthetic-hall-worked-floorplan**  
+    Path: /images/visuals/synthetic-hall-worked-floorplan.png  
+    Synthetic 2.0 MW hall (not customer): Aisle A 250 A + CDU 120 kW active; Aisle B 63 A capped 36 kW; Aisle C stranded by cooling. Same four walls, three revenue realities.
+
+14. **portfolio-multi-hall-triage-matrix**  
+    Path: /images/visuals/portfolio-multi-hall-triage-matrix.png  
+    Six halls ranked by unlockable +kW, lead time weeks, binding constraint pills, evidence E2–E5. Fastest $/kW highlighted; transformer-bound deferred.
+
+15. **gridforge-deterministic-api-architecture**  
+    Path: /images/visuals/gridforge-deterministic-api-architecture.png  
+    Client JSON → schema validation & unit normaliser → parallel Electrical / Thermal Psychrometric & Liquid Split / Structural Load solvers → perturbation headroom ranker → E0–E7 provenance tagger → REST JSON + auditable report. Deterministic equations only.
+
+Epistemic scope: All figures are illustrative of the GridForge Engine methodology. Calibration ledger holds 0 observed field rows at pilot stage. No measured accuracy is claimed. Zero hardware sales.
