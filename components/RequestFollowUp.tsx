@@ -73,6 +73,7 @@ export function RequestFollowUp({
         <input
           type="email"
           required
+          aria-label="Your email address"
           value={email}
           onChange={(e) => setEmail(e.target.value)}
           placeholder="you@company.com"

@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useId, useState } from "react";
 import { useRouter } from "next/navigation";
 import { Loader2, RefreshCw } from "lucide-react";
 
@@ -25,6 +25,8 @@ export function PowerDeployCaseUpdate({
   ownerEmail: string | null;
 }) {
   const router = useRouter();
+  // Unique per instance, so each visible caption is tied to its field (`htmlFor` + `id`) even with two cases on one page.
+  const uid = useId();
   const [targetMW, setTargetMW] = useState("");
   const [gridFirmMW, setGridFirmMW] = useState("");
   const [email, setEmail] = useState("");
@@ -76,10 +78,11 @@ export function PowerDeployCaseUpdate({
     <form onSubmit={submit} className="flex flex-wrap items-end gap-3 rounded border border-line bg-panel-2 p-4">
       {ownerEmail && (
         <div>
-          <label className="mb-1 block text-[11px] uppercase tracking-[0.1em] text-faint">
+          <label htmlFor={`${uid}-email`} className="mb-1 block text-[11px] uppercase tracking-[0.1em] text-faint">
             Confirm your email
           </label>
           <input
+            id={`${uid}-email`}
             type="email"
             value={email}
             onChange={(e) => setEmail(e.target.value)}
@@ -89,10 +92,11 @@ export function PowerDeployCaseUpdate({
         </div>
       )}
       <div>
-        <label className="mb-1 block text-[11px] uppercase tracking-[0.1em] text-faint">
+        <label htmlFor={`${uid}-target`} className="mb-1 block text-[11px] uppercase tracking-[0.1em] text-faint">
           New target (MW)
         </label>
         <input
+          id={`${uid}-target`}
           type="number"
           value={targetMW}
           onChange={(e) => setTargetMW(e.target.value)}
@@ -101,10 +105,11 @@ export function PowerDeployCaseUpdate({
         />
       </div>
       <div>
-        <label className="mb-1 block text-[11px] uppercase tracking-[0.1em] text-faint">
+        <label htmlFor={`${uid}-grid`} className="mb-1 block text-[11px] uppercase tracking-[0.1em] text-faint">
           New grid firm capacity (MW)
         </label>
         <input
+          id={`${uid}-grid`}
           type="number"
           value={gridFirmMW}
           onChange={(e) => setGridFirmMW(e.target.value)}

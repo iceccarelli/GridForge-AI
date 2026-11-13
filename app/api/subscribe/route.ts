@@ -5,8 +5,12 @@ import { PLANS } from "@/lib/subscriptions";
 import { identify, identityRefusal } from "@/lib/portal";
 import { activeSubscription } from "@/lib/subscribers";
 import { guardRequest } from "@/lib/rate-limit";
+import { readBoundedJson } from "@/lib/http-body";
 
 export const runtime = "nodejs";
+
+/** A plan id and an address. */
+const MAX_BODY_BYTES = 4 * 1024;
 
 // Creates a Stripe Checkout Session in subscription mode for a GridForge
 // Intelligence plan. Prices are created inline from lib/subscriptions (single
@@ -18,16 +22,14 @@ export async function POST(req: Request) {
   }
   const stripe = boundedStripeClient(key);
 
-  let body: { plan?: string; email?: string } = {};
-  try {
-    const parsedBody: unknown = await req.json();
-    if (!parsedBody || typeof parsedBody !== "object" || Array.isArray(parsedBody)) {
-      return NextResponse.json({ ok: false, error: "Invalid payload" }, { status: 400 });
-    }
-    body = parsedBody as typeof body;
-  } catch {
+  const read = await readBoundedJson(req, MAX_BODY_BYTES);
+  if (!read.ok) {
+    return NextResponse.json({ ok: false, error: read.status === 413 ? "That request is too large." : "Invalid payload" }, { status: read.status });
+  }
+  if (!read.value || typeof read.value !== "object" || Array.isArray(read.value)) {
     return NextResponse.json({ ok: false, error: "Invalid payload" }, { status: 400 });
   }
+  const body = read.value as { plan?: string; email?: string };
 
   const plan = PLANS.find((p) => p.id === body.plan);
   if (!plan) {
