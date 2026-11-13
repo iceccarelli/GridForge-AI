@@ -3,11 +3,11 @@
   "pages": {
     "/": {
       "lastmod": "2026-11-13",
-      "hash": "ff89e1df465917891fa6b87ccce1684daf71ad575fed61f1cf2cf777205be919"
+      "hash": "2e6a2ab9ce61fcb51948aa8f65d790972add2037ae4ff71b346ce62a26cf4328"
     },
     "/about": {
       "lastmod": "2026-11-13",
-      "hash": "d095d94f0e967a8f5230cbcb47e918d8ae7fab21544e3b767c0abca928d2b136"
+      "hash": "5182ae2ea87d66a4c32aa804488d79cd50ac706c693399984a4a9ca8f32ee915"
     },
     "/constraints": {
       "lastmod": "2026-11-13",
@@ -67,67 +67,67 @@
     },
     "/contact": {
       "lastmod": "2026-11-13",
-      "hash": "e71d9dd55ba953eb1adacf9114f164bd100fa279dfae865f475fc8830d80459a"
+      "hash": "0bc830f8957edc16e1ba5068e53fd1ad5f16017185e0af253fc9dd2afadd3231"
     },
     "/developers": {
       "lastmod": "2026-11-13",
-      "hash": "ce82c2b1c1ea0e42576d1a03c3f3cf7df2d639cd043b075be2c656b00d4b64f1"
+      "hash": "97f020c9b1d5e60a9cf77258cd33a85cbf7ff5f52dc9d93095e474062135a789"
     },
     "/evidence": {
-      "lastmod": "2026-11-10",
-      "hash": "b9a0b72e51930432117d60c0f2c5a11b6af728983281d961467d038e122bdfae"
+      "lastmod": "2026-11-13",
+      "hash": "902a5bb438e31d96bed2a23ccddeaef76ae054b533516c518abff45049404caa"
     },
     "/for": {
-      "lastmod": "2026-11-10",
-      "hash": "6384cbfaff41ddea0eae235614eed88fc277f69b06623cafd2057e7ad162139f"
+      "lastmod": "2026-11-13",
+      "hash": "c22b565d377921c888e59ad2a3f3285fc2258ef04234dfbe3cd167f4a10a7b91"
     },
     "/for/advisors": {
       "lastmod": "2026-11-13",
-      "hash": "f00188f44cae1168938345d81017a7231d97017c9cdd13bddff68ac8f170d602"
+      "hash": "24fbf0fddcfcc1ec20f6a1a8dd70ac161231abdef3b83c347e31d8727d0effca"
     },
     "/for/ai-operators": {
       "lastmod": "2026-11-13",
-      "hash": "f00188f44cae1168938345d81017a7231d97017c9cdd13bddff68ac8f170d602"
+      "hash": "24fbf0fddcfcc1ec20f6a1a8dd70ac161231abdef3b83c347e31d8727d0effca"
     },
     "/for/colocation": {
       "lastmod": "2026-11-13",
-      "hash": "f00188f44cae1168938345d81017a7231d97017c9cdd13bddff68ac8f170d602"
+      "hash": "24fbf0fddcfcc1ec20f6a1a8dd70ac161231abdef3b83c347e31d8727d0effca"
     },
     "/for/developers": {
       "lastmod": "2026-11-13",
-      "hash": "f00188f44cae1168938345d81017a7231d97017c9cdd13bddff68ac8f170d602"
+      "hash": "24fbf0fddcfcc1ec20f6a1a8dd70ac161231abdef3b83c347e31d8727d0effca"
     },
     "/for/engineering-teams": {
       "lastmod": "2026-11-13",
-      "hash": "f00188f44cae1168938345d81017a7231d97017c9cdd13bddff68ac8f170d602"
+      "hash": "24fbf0fddcfcc1ec20f6a1a8dd70ac161231abdef3b83c347e31d8727d0effca"
     },
     "/for/existing-owners": {
       "lastmod": "2026-11-13",
-      "hash": "f00188f44cae1168938345d81017a7231d97017c9cdd13bddff68ac8f170d602"
+      "hash": "24fbf0fddcfcc1ec20f6a1a8dd70ac161231abdef3b83c347e31d8727d0effca"
     },
     "/for/investors": {
       "lastmod": "2026-11-13",
-      "hash": "f00188f44cae1168938345d81017a7231d97017c9cdd13bddff68ac8f170d602"
+      "hash": "24fbf0fddcfcc1ec20f6a1a8dd70ac161231abdef3b83c347e31d8727d0effca"
     },
     "/guides/nameplate-vs-useful-compute": {
       "lastmod": "2026-11-13",
-      "hash": "a7dc8ddee72d9b7c0e678acfcd0fab4375bb94046a56892d815f3b6192ee2c5b"
+      "hash": "3ccc96710d0875f664125f8df6f6bac442a21ef03ef8eb98dfc21db4498c2405"
     },
     "/guides/retrofit-order-of-limits": {
       "lastmod": "2026-11-13",
-      "hash": "c0bf7785bdc57582aa0b818823634f1948950fac93153f60a9b69a40764f623e"
+      "hash": "fcf52ab428b1a9f78f4eb55817d3b848e962224d8aaf1ddfd26540f1c9e108ea"
     },
     "/intelligence": {
       "lastmod": "2026-11-13",
-      "hash": "428577be03ee78e993fce2d3d8df85960196aa67155913235544910b6786db7c"
+      "hash": "fead80e269f2bdd9191aee9f2374518dc8ec52b6c5349a50801a12b9d8c3f346"
     },
     "/lead-times": {
       "lastmod": "2026-11-13",
       "hash": "3abd06671adba3027f0a8f3656bf62e0b3e812b7dc01ccf1b973c552e2d6cc00"
     },
     "/legal/privacy": {
-      "lastmod": "2026-11-03",
-      "hash": "b69cd2ba965ca8df24139915397bdbe127098f67b66373af78162b70a908f200"
+      "lastmod": "2026-11-13",
+      "hash": "1c7c1219fffd0e0185cef74fedbbd00ee933deda3d634648fc9d86e441a456cd"
     },
     "/legal/security": {
       "lastmod": "2026-11-10",
@@ -135,11 +135,11 @@
     },
     "/legal/terms": {
       "lastmod": "2026-11-13",
-      "hash": "71f1680d7c505144f37ffb3e48d44b8e0515743c9de4c61616c69bf5bd599af2"
+      "hash": "f71703a1291cddd473e51007d9d89b2b2336b033650420fb5008a03044e179b9"
     },
     "/observatory": {
       "lastmod": "2026-11-13",
-      "hash": "9a83d1755f9a95ea67e98bc60d244c1f63bca747efaaa17d13be6836f2930a98"
+      "hash": "5788d2da1c4b355a30d45ac3d20098bd88a705a07ec94be33e10ee6e76c49d89"
     },
     "/platforms": {
       "lastmod": "2026-11-08",
@@ -163,39 +163,39 @@
     },
     "/pricing": {
       "lastmod": "2026-11-13",
-      "hash": "55193553950b6b635a12ed8c2a0ab711455e10842cd973706ed0e8f1db91f207"
+      "hash": "693e6e3d4d047ee2ec944c3270eb65a0746f1e976221b936ee08672943b03a2c"
     },
     "/products": {
       "lastmod": "2026-11-13",
-      "hash": "0ac3a00c2fd969eecae36d2aaec00d2d16e93ae30def8d30af856320454cea70"
+      "hash": "3eeefe7c7064e40fd7b0999bedb2e15fbd5d64a86520d690d013c331ab60682f"
     },
     "/products/density-screen": {
       "lastmod": "2026-11-13",
-      "hash": "22270aa57cd7bb283854869672dceec9c350962f85a0c8fb7a572d72961ca592"
+      "hash": "58be23d625a1b8fd5ae045aa29c6d8d267889c51acdfe9794bd3046c7fff61c2"
     },
     "/products/envelope-study": {
       "lastmod": "2026-11-13",
-      "hash": "22270aa57cd7bb283854869672dceec9c350962f85a0c8fb7a572d72961ca592"
+      "hash": "58be23d625a1b8fd5ae045aa29c6d8d267889c51acdfe9794bd3046c7fff61c2"
     },
     "/products/hall-watch": {
       "lastmod": "2026-11-13",
-      "hash": "22270aa57cd7bb283854869672dceec9c350962f85a0c8fb7a572d72961ca592"
+      "hash": "58be23d625a1b8fd5ae045aa29c6d8d267889c51acdfe9794bd3046c7fff61c2"
     },
     "/products/portfolio-screen": {
       "lastmod": "2026-11-13",
-      "hash": "22270aa57cd7bb283854869672dceec9c350962f85a0c8fb7a572d72961ca592"
+      "hash": "58be23d625a1b8fd5ae045aa29c6d8d267889c51acdfe9794bd3046c7fff61c2"
     },
     "/products/procurement-specification": {
       "lastmod": "2026-11-13",
-      "hash": "22270aa57cd7bb283854869672dceec9c350962f85a0c8fb7a572d72961ca592"
+      "hash": "58be23d625a1b8fd5ae045aa29c6d8d267889c51acdfe9794bd3046c7fff61c2"
     },
     "/qualify": {
       "lastmod": "2026-11-13",
-      "hash": "64a0121b1f19846ebe7bc7107ad3c12e476c27852cdf5921442602c6f99e0d2b"
+      "hash": "308db2728132a7e30794a98c9a6f65d82428f75a404c756cf327a65308e4ad43"
     },
     "/reference": {
       "lastmod": "2026-11-13",
-      "hash": "ed772aed4ed405ef57e41049d05d053982d4270f4d3c2a1f59a1dff5dbeae55e"
+      "hash": "9204c2548c4dc4d8e8cd82e20cd867db929f3657ea235b8818cd353300cb3879"
     },
     "/reference/board_summary.html": {
       "lastmod": "2026-11-13",
@@ -203,23 +203,23 @@
     },
     "/reference/density_screen.html": {
       "lastmod": "2026-11-13",
-      "hash": "9a1a98e470f774dbaa6d53f411c25697268efdf90b2165a46ebd5d997af9ca20"
+      "hash": "1932c03917891c07d32d03f7884bddb635ed607b4ffdc8d71b50b0c36d07abe4"
     },
     "/reference/envelope_study.html": {
       "lastmod": "2026-11-13",
-      "hash": "e31a9b40191879847af64fcbd913dc0ab72d83fbff5398e5029c60573378d387"
+      "hash": "873e47b8588b654dabb740308adf18934867ca203d09a66c70d06f5e4b05dd0c"
     },
     "/reference/proposal.html": {
       "lastmod": "2026-11-13",
-      "hash": "a5c05f1d57f4b574d11d3f61e8a634db23a9ad2261778ac27b384613109c5931"
+      "hash": "8310f4a9f0bf4efcea288f4b8edd675a984a0f652e5a06e6203e16e8789c6448"
     },
     "/reference/specification.html": {
       "lastmod": "2026-11-13",
-      "hash": "b65f4f10b463a7476970168e2fc9f0c2be32caf8fd28395d5e1510cb2de42dde"
+      "hash": "999fd57395ab5a808c957696fd69dd46a776533c5849a23cbf723a0c239a6163"
     },
     "/reference/walkthrough.html": {
       "lastmod": "2026-11-13",
-      "hash": "8abc1c4b303cadac897c7d07088b4dd8b3e6e6f986ca98f5e5007e09286ae4ab"
+      "hash": "a03d4dd135f57998e7fdf7ee5f4d3114876a78a3092915d6476383906b59849e"
     }
   }
 }

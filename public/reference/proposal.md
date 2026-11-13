@@ -79,7 +79,7 @@ Intake is 84% complete. Each row below is a number that moves the answer and tha
 | Fee | EUR 4,500, fixed |
 | Turnaround | 5 working days from a complete intake |
 | Payment | 100% on commissioning. The engagement opens when payment clears. |
-| Credit | Credits in full against the envelope study. |
+| Credit | The fee paid for a Density Screen is credited once against the fee agreed for an Envelope Study: for the same email address, after we confirm it is the same buyer (the address typed at checkout is not verified), applied whole and only while the deposit and the credit together stay within the agreed fee. It reduces what is owed and is never paid out as cash, and a refunded or disputed purchase carries no credit. |
 | Validity | This proposal is valid to 2026-10-14. |
 | Independence | We quote no equipment and take no margin on hardware. Nothing in the deliverable routes you to a supplier we are paid by. |
 

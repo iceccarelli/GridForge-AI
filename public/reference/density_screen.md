@@ -126,7 +126,7 @@ This document prices energy at the figure stated in its economics. For scale onl
 No required inputs are missing, so this supports a full Capacity & Density Envelope Study, but the intake is not complete: 13 optional inputs are still assumptions (listed in the data request), and the study names each one.
 
 - Capacity & Density Envelope Study — full ladder, all architectures, scenario and sensitivity analysis, economics, risk register, machine-readable model pack. 25 working days from a complete intake.
-- This screen's fee credits in full against it.
+- The fee paid for a Density Screen is credited once against the fee agreed for an Envelope Study: for the same email address, after we confirm it is the same buyer (the address typed at checkout is not verified), applied whole and only while the deposit and the credit together stay within the agreed fee. It reduces what is owed and is never paid out as cash, and a refunded or disputed purchase carries no credit.
 - Before anything else: get the DSO position in writing on firm capacity and any flexibility product. It costs nothing but time and it can end the question.
 
 ## Appendix A — Assumptions, provenance and validation status
