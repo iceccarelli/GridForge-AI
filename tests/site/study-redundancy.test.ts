@@ -39,7 +39,8 @@ describe("the sentence says what the engine does", () => {
     expect(loader).toMatch(/ups, cdu = section == "ups", section == "thermal\.cdus"/);
     // an intake with a required gap is not issuable
     const schema = fs.readFileSync("gridforge/intake/schema.py", "utf8");
-    expect(schema).toMatch(/def can_issue\(self\) -> bool:[\s\S]{0,200}return not self\.required_gaps/);
+    // (it also refuses when a required figure was sent but declared an assumption: `and not self.declared_assumed_gaps`; a required gap alone is enough)
+    expect(schema).toMatch(/def can_issue\(self\) -> bool:[\s\S]{0,700}return not self\.required_gaps/);
     // the schemes it accepts are the four the sentence lists
     const power = fs.readFileSync("gridforge/power/redundancy.py", "utf8");
     expect(power).toMatch(/SCHEMES = \("N", "N\+1", "N\+2", "2N"\)/);

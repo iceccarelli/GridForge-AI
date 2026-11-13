@@ -191,7 +191,12 @@ describe("the committed worked example carries the keys", () => {
       "160 wk (assumed lead time, not a date (E0; set by transformer capacity))"
     );
     expect(readDateBasis(by.retained_air.time_to_power).basis).toBe("none");
-    expect(NO_DATE_LABEL).toBe(by.retained_air.time_to_power.date_label);
+    // The engine now names the real cause (nothing deployable / a lead time missing) and keeps the generic sentence for stored states that
+    // predate the split; the site's constant is that generic fallback. All three are read from the engine's own file, not typed here.
+    const engineLabels = [...fs.readFileSync(path.join(ROOT, "gridforge/envelope/time_to_power.py"), "utf8").matchAll(/"(no date: [^"]+)"/g)].map((m) => m[1]);
+    expect(engineLabels).toContain(NO_DATE_LABEL);
+    expect(engineLabels.length).toBeGreaterThanOrEqual(3);
+    expect(engineLabels).toContain(by.retained_air.time_to_power.date_label);
   });
   it("the reference page prints the weeks with the label", async () => {
     const { default: Reference } = await import("@/app/reference/page");
