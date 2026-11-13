@@ -7,7 +7,7 @@
   ],
   [
    "Installed CDU schedule",
-   "[]",
+   "three 1,350 kW N+1 CDUs (2,700 kW usable) assumed as the starting point of the hybrid and full-DLC scenarios (E0); the kit is priced as a purchase and the racks that depend on it are dated",
    "CDU nameplates and the mechanical single-line diagram."
   ],
   [
@@ -44,12 +44,12 @@
   ],
   [
    "UPS schedule",
-   "[]",
+   "not evaluated: treated as no limit, so the rack count is an upper bound (E0)",
    "UPS nameplate, topology and remaining design life."
   ],
   [
    "Installed CDU schedule",
-   "[]",
+   "three 1,350 kW N+1 CDUs (2,700 kW usable) assumed as the starting point of the hybrid and full-DLC scenarios (E0); the kit is priced as a purchase and the racks that depend on it are dated",
    "CDU nameplates and the mechanical single-line diagram."
   ],
   [
@@ -101,7 +101,7 @@
  "nordic_hall": [
   [
    "Installed CDU schedule",
-   "[]",
+   "three 1,350 kW N+1 CDUs (2,700 kW usable) assumed as the starting point of the hybrid and full-DLC scenarios (E0); the kit is priced as a purchase and the racks that depend on it are dated",
    "CDU nameplates and the mechanical single-line diagram."
   ],
   [
@@ -153,7 +153,7 @@
   ],
   [
    "Installed CDU schedule",
-   "[]",
+   "three 1,350 kW N+1 CDUs (2,700 kW usable) assumed as the starting point of the hybrid and full-DLC scenarios (E0); the kit is priced as a purchase and the racks that depend on it are dated",
    "CDU nameplates and the mechanical single-line diagram."
   ],
   [

@@ -151,7 +151,10 @@ def test_qualify_expands_into_a_sparse_intake_not_a_fabricated_one():
 
 def test_qualify_assumes_connection_parity_rather_than_headroom():
     doc = qualify_to_intake({"contracted_MW": 12})
-    assert doc["grid"]["firm_capacity_MVA"] == pytest.approx(12 / 0.97)
+    # The derived figure used to be a bare number (read as customer data, E5: the defect, tests/test_intake_integrity.py E3); it is now the annotated
+    # form, class E0. The arithmetic asserted here (parity with the contract at 0.97) is unchanged.
+    firm = doc["grid"]["firm_capacity_MVA"]
+    assert firm["value"] == pytest.approx(12 / 0.97) and firm["evidence"] == "E0"
 
 
 # --- the paid tier -----------------------------------------------------------

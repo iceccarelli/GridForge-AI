@@ -157,7 +157,7 @@ INTAKE_FIELDS: tuple[FieldSpec, ...] = (
               why_it_binds=("When absent, the hybrid and full-DLC scenarios start from an ASSUMED kit of three 1,350 kW N+1 "
                             "CDUs, which supplies roughly 22 racks of liquid capacity that the hall may not have. The engine "
                             "prices that kit (a library placeholder, not a quotation) and dates the racks that depend on it, so the "
-                            "capex and the schedule include a purchase nobody declared. Declare the CDUs already installed to remove it."),
+                            "cost and the schedule include a purchase nobody declared. Declare the CDUs already installed to remove it."),
               how_to_get_it="CDU nameplates and the mechanical single-line diagram."),
     FieldSpec("compute.utilisation", "Annual average rack utilisation", "-", False,
               supplied_evidence=EvidenceClass.E3_ENGINEERING_ESTIMATE,
