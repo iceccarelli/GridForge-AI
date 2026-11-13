@@ -76,6 +76,8 @@ Inputs to the capacity model that were assumed rather than supplied (each is an 
 - Discount rate (economics.discount_rate): not supplied: assumed no value (none: the lifecycle value is undiscounted) (E0)
 - Load already on the busway (lv.existing_busway_load_kW; kW): not supplied: assumed 0 kW, nothing subtracted (busway_ampacity_A is read as the whole installed total) (E0)
 - Rack positions occupied (hall.occupied_positions; positions): not supplied: assumed no occupied count; every position not free is read as occupied for the busway check only (E0)
+- Dry-cooler approach to the design dry bulb (thermal.plant.dry_cooler_approach_K; K): not supplied: assumed dry bulb 34 + assumed 10 K approach (E0) = 44 degC facility water, the temperature the full-DLC water gate compares with what the CDUs need
+- CDU approach temperature (thermal.cdu_approach_K; K): not supplied: assumed 5 K assumed (library, E0)
 
 ## 3. Technical requirements
 
@@ -151,6 +153,7 @@ Price is one criterion of five. The item being bought exists to unlock compute o
 - Return the response schedule in section 6, completed. An incomplete schedule is not evaluated.
 - State compliance against every requirement in section 3 as C (compliant), CD (complies with deviation, deviation described) or N (non-compliant).
 - Quote duties at the site conditions stated in section 2A, not at a reference condition. A duty at a reference condition is not a response to this document.
+- The figures in section 6 are held to the numeric 'shall' clauses they answer (the duty to its minimum in section 3, the price validity to C-02). A figure that falls short is not compliant on that clause, whatever code is returned for it. Scores are relative to the bids compared together, not absolute.
 - List exclusions explicitly and price them separately where you can.
 - State which long-lead component governs your delivery date.
 
@@ -164,8 +167,8 @@ Return these figures in these units. They feed a comparison the client can check
 | Weeks from order to delivered on site | weeks | yes |  |
 | Weeks from delivery to energised | weeks | no |  |
 | Outage required per unit or per run | hours | no |  |
-| Duty achieved at the site conditions stated | kW or A | no | At OUR conditions. A figure at a reference condition is not a bid. |
-| Price validity | days | no |  |
+| Duty achieved at the site conditions stated | A | no | At OUR conditions, in A. A figure at a reference condition is not a bid. Held to E-10 (Busway continuous ampacity): not less than 1,990 A; a figure below it is not compliant on E-10 whatever code is returned for it. |
+| Price validity | days | no | Held to C-02: not less than 60 days. |
 
 *Machine-readable template: `gridforge spec … --template` writes a JSON file with these keys, which `gridforge bids` reads back.*
 

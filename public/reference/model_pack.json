@@ -276,6 +276,24 @@
         "assumed": "no occupied count; every position not free is read as occupied for the busway check only",
         "why_it_binds": "Only the busway check against the load already in the hall reads it: the racks already installed are counted from this figure at the hall's design density. When absent the engine does not know how many positions are occupied; it reads every position that is not free (hall.rack_positions less hall.positions_available) as occupied, an assumption (E0) that is only as good as the total, and says so. Zero is a statement (nothing is occupied) and is asked for when free positions equal the total. It changes no rack count, cost or date.",
         "how_to_get_it": "The tenancy schedule or the floor plan's rack register: racks physically installed, which is not the same as positions sold."
+      },
+      {
+        "path": "thermal.plant.dry_cooler_approach_K",
+        "label": "Dry-cooler approach to the design dry bulb",
+        "unit": "K",
+        "required": false,
+        "assumed": "dry bulb 34 + assumed 10 K approach (E0) = 44 degC facility water, the temperature the full-DLC water gate compares with what the CDUs need",
+        "why_it_binds": "Under full direct-to-chip cooling the facility water the dedicated loop can hold without chillers is the design dry bulb PLUS the dry coolers' approach to it, and that water is compared with the temperature the CDUs need (the water gate). A 4 K approach and a 10 K approach differ by 6 K of facility water, which is the difference between a loop that passes the gate and one that does not. When absent the full-DLC scenarios assume 10 K (band 8-12), an assumption (E0).",
+        "how_to_get_it": "The dry-cooler selection or schedule: the approach between leaving-water temperature and ambient dry bulb at the design condition."
+      },
+      {
+        "path": "thermal.cdu_approach_K",
+        "label": "CDU approach temperature",
+        "unit": "K",
+        "required": false,
+        "assumed": "5 K assumed (library, E0)",
+        "why_it_binds": "The water gate asks how warm the facility water may be: the TCS supply target less the temperature the CDU's heat exchanger needs between the two loops (its approach). A larger approach means colder facility water is required, so it moves the achievable-water-temperature limit and with it the racks a dry-cooler loop can hold. When absent the library 5 K is used, an assumption (E0), not a vendor figure for your CDU.",
+        "how_to_get_it": "The CDU datasheet: the liquid-to-liquid approach at the rated duty and flow (vendor ratings are typically 4-5 K)."
       }
     ],
     "warnings": [
@@ -288,7 +306,7 @@
       "site.design_wetbulb_C was declared, but no constraint reads it: it changes no rack count, cost or date. The wet-bulb temperature is not modelled (dry coolers are taken to dry bulb); the figure appears in the procurement specification's site conditions only.",
       "thermal.plant.pump_flow_capacity_l_per_min (9,000 l/min) moves about 3,760 kW at the plant's design delta-T of 6 K (water, 0.997 kg/l x 4.19 kJ/kg/K), less than the 4,900 kW of IT load the existing hall already puts on the plant. If 9,000 l/min is the plant's TOTAL pumped flow, the existing hall already uses most of it, and the hydraulic_flow limit, which counts all of it for the new racks, OVERSTATES the racks the pumps can serve. Give thermal.plant.existing_flow_l_per_min (the flow the existing hall draws) and it is subtracted. No result has been changed by this warning"
     ],
-    "engagement_recommendation": "No required inputs are missing, so this supports a full Capacity & Density Envelope Study, but the intake is not complete: 11 optional inputs are still assumptions (listed in the data request), and the study names each one."
+    "engagement_recommendation": "No required inputs are missing, so this supports a full Capacity & Density Envelope Study, but the intake is not complete: 13 optional inputs are still assumptions (listed in the data request), and the study names each one."
   },
   "scenarios": [
     {
@@ -366,7 +384,7 @@
         "date_basis": "none",
         "date_evidence_class": null,
         "date_binding_item": null,
-        "date_label": "no date: nothing is deployable or a lead time on the path is missing",
+        "date_label": "no date: nothing is deployable in this scenario",
         "date_record": {
           "status": "no_deployable_racks",
           "controlling_component": null,
@@ -488,7 +506,7 @@
         "date_basis": "none",
         "date_evidence_class": null,
         "date_binding_item": null,
-        "date_label": "no date: nothing is deployable or a lead time on the path is missing",
+        "date_label": "no date: nothing is deployable in this scenario",
         "basis": "n/a: nothing deployable (no capex to classify)",
         "decision_grade": false,
         "limitations": [
@@ -925,7 +943,7 @@
         "date_basis": "none",
         "date_evidence_class": null,
         "date_binding_item": null,
-        "date_label": "no date: nothing is deployable or a lead time on the path is missing",
+        "date_label": "no date: nothing is deployable in this scenario",
         "date_record": {
           "status": "no_deployable_racks",
           "controlling_component": null,
@@ -1047,7 +1065,7 @@
         "date_basis": "none",
         "date_evidence_class": null,
         "date_binding_item": null,
-        "date_label": "no date: nothing is deployable or a lead time on the path is missing",
+        "date_label": "no date: nothing is deployable in this scenario",
         "basis": "n/a: nothing deployable (no capex to classify)",
         "decision_grade": false,
         "limitations": [
@@ -1609,7 +1627,7 @@
           "scope": "2,400 kW added",
           "cost_basis": "library_default",
           "unpriced_components": [],
-          "basis_note": null,
+          "basis_note": "Each step buys 2 modules in total (2 x 1200 kW = 2400 kW), put in one block (UPS-1): the fewest blocks that can host them, chosen as the block whose added modules carry the most usable kW (then the larger module, then the id). The price follows the kW added, so the same plant listed as one block or as several is priced and dated the same; a block declared with no units is ignored.",
           "not_taken_reason": null
         },
         {
@@ -1696,7 +1714,7 @@
           "racks_before": 22,
           "racks_after": 25,
           "taken": true,
-          "relief": "Add CDU capacity (one further unit per bank)",
+          "relief": "Add CDU capacity (one further usable unit, in one bank)",
           "capex_eur": {
             "value": 180000.0,
             "low": 90000.0,
@@ -1736,7 +1754,7 @@
               "quantity": 1.0
             }
           ],
-          "basis_note": null,
+          "basis_note": "Each step buys 1 CDU unit(s) in total (one further usable unit), put in one bank (CDU-ROW-assumed): the fewest banks that can host it, chosen as the bank whose added unit carries the most heat at the site's water temperature (then the most declared flow, the larger rating, the id). The price follows the units added, so the same CDUs listed as one bank or as several are priced the same; a bank declared with no units is ignored.",
           "not_taken_reason": null
         },
         {
@@ -1774,7 +1792,7 @@
           "scope": "2,400 kW added",
           "cost_basis": "library_default",
           "unpriced_components": [],
-          "basis_note": null,
+          "basis_note": "Each step buys 2 modules in total (2 x 1200 kW = 2400 kW), put in one block (UPS-1): the fewest blocks that can host them, chosen as the block whose added modules carry the most usable kW (then the larger module, then the id). The price follows the kW added, so the same plant listed as one block or as several is priced and dated the same; a block declared with no units is ignored.",
           "not_taken_reason": null
         },
         {
@@ -1938,7 +1956,7 @@
         "capex_complete": false,
         "unpriced_components": [
           {
-            "where": "step 7: Add CDU capacity (one further unit per bank)",
+            "where": "step 7: Add CDU capacity (one further usable unit, in one bank)",
             "component": "CDU hydraulic integration and controls",
             "key": "cdu.integration",
             "unit": "EUR/unit",
@@ -1946,7 +1964,7 @@
             "scope": "1 CDU unit(s) added"
           },
           {
-            "where": "step 7: Add CDU capacity (one further unit per bank)",
+            "where": "step 7: Add CDU capacity (one further usable unit, in one bank)",
             "component": "CDU commissioning and flushing",
             "key": "cdu.commissioning",
             "unit": "EUR/unit",
@@ -2254,7 +2272,7 @@
           "racks_permitted": 22,
           "basis": "2,700 [2,070\u20132,970] kW (E0) usable against 122 [112\u2013131] kW (E0) of liquid load per rack; 24 [21\u201326] degC (E0) approach available",
           "relief": {
-            "description": "Add CDU capacity (one further unit per bank)",
+            "description": "Add CDU capacity (one further usable unit, in one bank)",
             "capex_eur": {
               "value": 180000.0,
               "low": 90000.0,
@@ -2664,7 +2682,7 @@
           "scope": "2,400 kW added",
           "cost_basis": "library_default",
           "unpriced_components": [],
-          "basis_note": null,
+          "basis_note": "Each step buys 2 modules in total (2 x 1200 kW = 2400 kW), put in one block (UPS-1): the fewest blocks that can host them, chosen as the block whose added modules carry the most usable kW (then the larger module, then the id). The price follows the kW added, so the same plant listed as one block or as several is priced and dated the same; a block declared with no units is ignored.",
           "not_taken_reason": null
         },
         {
@@ -2713,7 +2731,7 @@
           "racks_before": 22,
           "racks_after": 25,
           "taken": true,
-          "relief": "Add CDU capacity (one further unit per bank)",
+          "relief": "Add CDU capacity (one further usable unit, in one bank)",
           "capex_eur": {
             "value": 180000.0,
             "low": 90000.0,
@@ -2753,7 +2771,7 @@
               "quantity": 1.0
             }
           ],
-          "basis_note": null,
+          "basis_note": "Each step buys 1 CDU unit(s) in total (one further usable unit), put in one bank (CDU-ROW-assumed): the fewest banks that can host it, chosen as the bank whose added unit carries the most heat at the site's water temperature (then the most declared flow, the larger rating, the id). The price follows the units added, so the same CDUs listed as one bank or as several are priced the same; a bank declared with no units is ignored.",
           "not_taken_reason": null
         },
         {
@@ -2791,7 +2809,7 @@
           "scope": "2,400 kW added",
           "cost_basis": "library_default",
           "unpriced_components": [],
-          "basis_note": null,
+          "basis_note": "Each step buys 2 modules in total (2 x 1200 kW = 2400 kW), put in one block (UPS-1): the fewest blocks that can host them, chosen as the block whose added modules carry the most usable kW (then the larger module, then the id). The price follows the kW added, so the same plant listed as one block or as several is priced and dated the same; a block declared with no units is ignored.",
           "not_taken_reason": null
         },
         {
@@ -2945,7 +2963,7 @@
         "capex_complete": false,
         "unpriced_components": [
           {
-            "where": "step 7: Add CDU capacity (one further unit per bank)",
+            "where": "step 7: Add CDU capacity (one further usable unit, in one bank)",
             "component": "CDU hydraulic integration and controls",
             "key": "cdu.integration",
             "unit": "EUR/unit",
@@ -2953,7 +2971,7 @@
             "scope": "1 CDU unit(s) added"
           },
           {
-            "where": "step 7: Add CDU capacity (one further unit per bank)",
+            "where": "step 7: Add CDU capacity (one further usable unit, in one bank)",
             "component": "CDU commissioning and flushing",
             "key": "cdu.commissioning",
             "unit": "EUR/unit",
@@ -3139,7 +3157,7 @@
           "name": "Achievable facility water temperature",
           "gate": true,
           "racks_permitted": 0,
-          "basis": "TCS target 30 [27\u201332] degC (E0) needs facility water at or below 25 [21\u201328] degC (E0); dry coolers at design dry-bulb is estimated to supply 44 [42\u201346] degC (E0)",
+          "basis": "TCS target 30 [27\u201332] degC (E0) needs facility water at or below 25 [21\u201328] degC (E0); dry coolers at design dry-bulb (34 degC) plus an approach of 10 K (E0) is estimated to supply 44 [42\u201346] degC (E0)",
           "relief": {
             "description": "Adiabatic assist plus trim chiller on the high-temperature loop",
             "capex_eur": {
@@ -3438,7 +3456,7 @@
           "racks_permitted": null,
           "basis": "not assessed here: the facility water the dry coolers can supply (44 [42\u201346] degC (E0)) leaves a CDU no approach against the TCS target (30 [27\u201332] degC (E0)) to carry a rack (-14 K available), and the water-temperature gate (tcs_supply_achievable) already holds this hall at zero racks. CDU capacity is assessed once that gate is relieved",
           "relief": {
-            "description": "Add CDU capacity (one further unit per bank)",
+            "description": "Add CDU capacity (one further usable unit, in one bank)",
             "capex_eur": {
               "value": 180000.0,
               "low": 90000.0,
@@ -3679,7 +3697,7 @@
           "scope": "2,400 kW added",
           "cost_basis": "library_default",
           "unpriced_components": [],
-          "basis_note": null,
+          "basis_note": "Each step buys 2 modules in total (2 x 1200 kW = 2400 kW), put in one block (UPS-1): the fewest blocks that can host them, chosen as the block whose added modules carry the most usable kW (then the larger module, then the id). The price follows the kW added, so the same plant listed as one block or as several is priced and dated the same; a block declared with no units is ignored.",
           "not_taken_reason": null
         },
         {
@@ -3728,7 +3746,7 @@
           "racks_before": 22,
           "racks_after": 25,
           "taken": true,
-          "relief": "Add CDU capacity (one further unit per bank)",
+          "relief": "Add CDU capacity (one further usable unit, in one bank)",
           "capex_eur": {
             "value": 180000.0,
             "low": 90000.0,
@@ -3768,7 +3786,7 @@
               "quantity": 1.0
             }
           ],
-          "basis_note": null,
+          "basis_note": "Each step buys 1 CDU unit(s) in total (one further usable unit), put in one bank (CDU-ROW-assumed): the fewest banks that can host it, chosen as the bank whose added unit carries the most heat at the site's water temperature (then the most declared flow, the larger rating, the id). The price follows the units added, so the same CDUs listed as one bank or as several are priced the same; a bank declared with no units is ignored.",
           "not_taken_reason": null
         },
         {
@@ -3806,7 +3824,7 @@
           "scope": "2,400 kW added",
           "cost_basis": "library_default",
           "unpriced_components": [],
-          "basis_note": null,
+          "basis_note": "Each step buys 2 modules in total (2 x 1200 kW = 2400 kW), put in one block (UPS-1): the fewest blocks that can host them, chosen as the block whose added modules carry the most usable kW (then the larger module, then the id). The price follows the kW added, so the same plant listed as one block or as several is priced and dated the same; a block declared with no units is ignored.",
           "not_taken_reason": null
         },
         {
@@ -3893,7 +3911,7 @@
           "racks_before": 33,
           "racks_after": 34,
           "taken": true,
-          "relief": "Add CDU capacity (one further unit per bank)",
+          "relief": "Add CDU capacity (one further usable unit, in one bank)",
           "capex_eur": {
             "value": 180000.0,
             "low": 90000.0,
@@ -3933,7 +3951,7 @@
               "quantity": 1.0
             }
           ],
-          "basis_note": null,
+          "basis_note": "Each step buys 1 CDU unit(s) in total (one further usable unit), put in one bank (CDU-ROW-assumed): the fewest banks that can host it, chosen as the bank whose added unit carries the most heat at the site's water temperature (then the most declared flow, the larger rating, the id). The price follows the units added, so the same CDUs listed as one bank or as several are priced the same; a bank declared with no units is ignored.",
           "not_taken_reason": null
         },
         {
@@ -4085,7 +4103,7 @@
           "scope": "2,400 kW added",
           "cost_basis": "library_default",
           "unpriced_components": [],
-          "basis_note": null,
+          "basis_note": "Each step buys 2 modules in total (2 x 1200 kW = 2400 kW), put in one block (UPS-1): the fewest blocks that can host them, chosen as the block whose added modules carry the most usable kW (then the larger module, then the id). The price follows the kW added, so the same plant listed as one block or as several is priced and dated the same; a block declared with no units is ignored.",
           "not_taken_reason": null
         },
         {
@@ -4096,7 +4114,7 @@
           "racks_before": 44,
           "racks_after": 47,
           "taken": true,
-          "relief": "Add CDU capacity (one further unit per bank)",
+          "relief": "Add CDU capacity (one further usable unit, in one bank)",
           "capex_eur": {
             "value": 180000.0,
             "low": 90000.0,
@@ -4136,7 +4154,7 @@
               "quantity": 1.0
             }
           ],
-          "basis_note": null,
+          "basis_note": "Each step buys 1 CDU unit(s) in total (one further usable unit), put in one bank (CDU-ROW-assumed): the fewest banks that can host it, chosen as the bank whose added unit carries the most heat at the site's water temperature (then the most declared flow, the larger rating, the id). The price follows the units added, so the same CDUs listed as one bank or as several are priced the same; a bank declared with no units is ignored.",
           "not_taken_reason": null
         },
         {
@@ -4223,7 +4241,7 @@
           "racks_before": 55,
           "racks_after": 61,
           "taken": true,
-          "relief": "Add CDU capacity (one further unit per bank)",
+          "relief": "Add CDU capacity (one further usable unit, in one bank)",
           "capex_eur": {
             "value": 180000.0,
             "low": 90000.0,
@@ -4263,7 +4281,7 @@
               "quantity": 1.0
             }
           ],
-          "basis_note": null,
+          "basis_note": "Each step buys 1 CDU unit(s) in total (one further usable unit), put in one bank (CDU-ROW-assumed): the fewest banks that can host it, chosen as the bank whose added unit carries the most heat at the site's water temperature (then the most declared flow, the larger rating, the id). The price follows the units added, so the same CDUs listed as one bank or as several are priced the same; a bank declared with no units is ignored.",
           "not_taken_reason": null
         },
         {
@@ -4301,7 +4319,7 @@
           "scope": "2,400 kW added",
           "cost_basis": "library_default",
           "unpriced_components": [],
-          "basis_note": null,
+          "basis_note": "Each step buys 2 modules in total (2 x 1200 kW = 2400 kW), put in one block (UPS-1): the fewest blocks that can host them, chosen as the block whose added modules carry the most usable kW (then the larger module, then the id). The price follows the kW added, so the same plant listed as one block or as several is priced and dated the same; a block declared with no units is ignored.",
           "not_taken_reason": null
         },
         {
@@ -4510,7 +4528,7 @@
         "capex_complete": false,
         "unpriced_components": [
           {
-            "where": "step 7: Add CDU capacity (one further unit per bank)",
+            "where": "step 7: Add CDU capacity (one further usable unit, in one bank)",
             "component": "CDU hydraulic integration and controls",
             "key": "cdu.integration",
             "unit": "EUR/unit",
@@ -4518,7 +4536,7 @@
             "scope": "1 CDU unit(s) added"
           },
           {
-            "where": "step 7: Add CDU capacity (one further unit per bank)",
+            "where": "step 7: Add CDU capacity (one further usable unit, in one bank)",
             "component": "CDU commissioning and flushing",
             "key": "cdu.commissioning",
             "unit": "EUR/unit",
@@ -4526,7 +4544,7 @@
             "scope": "1 CDU unit(s) added"
           },
           {
-            "where": "step 11: Add CDU capacity (one further unit per bank)",
+            "where": "step 11: Add CDU capacity (one further usable unit, in one bank)",
             "component": "CDU hydraulic integration and controls",
             "key": "cdu.integration",
             "unit": "EUR/unit",
@@ -4534,7 +4552,7 @@
             "scope": "1 CDU unit(s) added"
           },
           {
-            "where": "step 11: Add CDU capacity (one further unit per bank)",
+            "where": "step 11: Add CDU capacity (one further usable unit, in one bank)",
             "component": "CDU commissioning and flushing",
             "key": "cdu.commissioning",
             "unit": "EUR/unit",
@@ -4542,7 +4560,7 @@
             "scope": "1 CDU unit(s) added"
           },
           {
-            "where": "step 16: Add CDU capacity (one further unit per bank)",
+            "where": "step 16: Add CDU capacity (one further usable unit, in one bank)",
             "component": "CDU hydraulic integration and controls",
             "key": "cdu.integration",
             "unit": "EUR/unit",
@@ -4550,7 +4568,7 @@
             "scope": "1 CDU unit(s) added"
           },
           {
-            "where": "step 16: Add CDU capacity (one further unit per bank)",
+            "where": "step 16: Add CDU capacity (one further usable unit, in one bank)",
             "component": "CDU commissioning and flushing",
             "key": "cdu.commissioning",
             "unit": "EUR/unit",
@@ -4558,7 +4576,7 @@
             "scope": "1 CDU unit(s) added"
           },
           {
-            "where": "step 19: Add CDU capacity (one further unit per bank)",
+            "where": "step 19: Add CDU capacity (one further usable unit, in one bank)",
             "component": "CDU hydraulic integration and controls",
             "key": "cdu.integration",
             "unit": "EUR/unit",
@@ -4566,7 +4584,7 @@
             "scope": "1 CDU unit(s) added"
           },
           {
-            "where": "step 19: Add CDU capacity (one further unit per bank)",
+            "where": "step 19: Add CDU capacity (one further usable unit, in one bank)",
             "component": "CDU commissioning and flushing",
             "key": "cdu.commissioning",
             "unit": "EUR/unit",
@@ -4785,7 +4803,7 @@
           "name": "Achievable facility water temperature",
           "gate": true,
           "racks_permitted": 0,
-          "basis": "TCS target 30 [27\u201332] degC (E0) needs facility water at or below 25 [21\u201328] degC (E0); dry coolers at design dry-bulb is estimated to supply 44 [42\u201346] degC (E0)",
+          "basis": "TCS target 30 [27\u201332] degC (E0) needs facility water at or below 25 [21\u201328] degC (E0); dry coolers at design dry-bulb (34 degC) plus an approach of 10 K (E0) is estimated to supply 44 [42\u201346] degC (E0)",
           "relief": {
             "description": "Adiabatic assist plus trim chiller on the high-temperature loop",
             "capex_eur": {
@@ -5084,7 +5102,7 @@
           "racks_permitted": null,
           "basis": "not assessed here: the facility water the dry coolers can supply (44 [42\u201346] degC (E0)) leaves a CDU no approach against the TCS target (30 [27\u201332] degC (E0)) to carry a rack (-14 K available), and the water-temperature gate (tcs_supply_achievable) already holds this hall at zero racks. CDU capacity is assessed once that gate is relieved",
           "relief": {
-            "description": "Add CDU capacity (one further unit per bank)",
+            "description": "Add CDU capacity (one further usable unit, in one bank)",
             "capex_eur": {
               "value": 180000.0,
               "low": 90000.0,

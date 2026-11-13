@@ -220,6 +220,18 @@
         "label": "Rack positions occupied",
         "unit": "positions",
         "assumed": "no occupied count; every position not free is read as occupied for the busway check only (E0)"
+      },
+      {
+        "path": "thermal.plant.dry_cooler_approach_K",
+        "label": "Dry-cooler approach to the design dry bulb",
+        "unit": "K",
+        "assumed": "dry bulb 34 + assumed 10 K approach (E0) = 44 degC facility water, the temperature the full-DLC water gate compares with what the CDUs need"
+      },
+      {
+        "path": "thermal.cdu_approach_K",
+        "label": "CDU approach temperature",
+        "unit": "K",
+        "assumed": "5 K assumed (library, E0)"
       }
     ]
   },

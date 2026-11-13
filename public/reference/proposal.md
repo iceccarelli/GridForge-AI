@@ -53,6 +53,8 @@ Intake is 84% complete. Each row below is a number that moves the answer and tha
 | Discount rate | optional | none: the lifecycle value is undiscounted | The client's hurdle rate. |
 | Load already on the busway | optional | 0 kW, nothing subtracted (busway_ampacity_A is read as the whole installed total) | Branch-circuit or busway monitoring (peak kW over a representative month), or the sum of the metered rack loads on the busway. |
 | Rack positions occupied | optional | no occupied count; every position not free is read as occupied for the busway check only | The tenancy schedule or the floor plan's rack register: racks physically installed, which is not the same as positions sold. |
+| Dry-cooler approach to the design dry bulb | optional | dry bulb 34 + assumed 10 K approach (E0) = 44 degC facility water, the temperature the full-DLC water gate compares with what the CDUs need | The dry-cooler selection or schedule: the approach between leaving-water temperature and ambient dry bulb at the design condition. |
+| CDU approach temperature | optional | 5 K assumed (library, E0) | The CDU datasheet: the liquid-to-liquid approach at the rated duty and flow (vendor ratings are typically 4-5 K). |
 
 > ℹ️ BTM option BESS-2MW-8MWh: it is credited as firm capacity with NO declared energy rating. A battery is firm only for what its stored energy can sustain, and recharge is not modelled, so the racks this adds are unverified.
 

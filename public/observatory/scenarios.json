@@ -3,9 +3,9 @@
     "state": "empty",
     "statement": "Model accuracy against instrumented sites has not been established: 0 reconciled observations across 0 sites, covering 0 of 20 model outputs. Every figure in this report is modelled. The uncertainty ranges shown come from input uncertainty propagated through the model, not from the difference between this engine's predictions and site data — no such difference has been recorded yet."
   },
-  "contentSha256": "68f6d4b577a5c2747397ce4bf14bfb0aadbd94ea2fd65b1ab36cf58ef1e23712",
+  "contentSha256": "073c9374a83256319344a944ca202f7c4fe5093bd384b4d4c890affc86c4cf08",
   "engine": {
-    "codeSha256": "cd7472a1340d06e8b021fe850ea152a31057f67b557721f1c58126cbf7ddfdcf",
+    "codeSha256": "0894e8b3a37e3bbde090e4d43d940ac6aa93aa0039f548091f2dce95525f59aa",
     "routes": [
       "/v1/compare",
       "/v1/screen"
@@ -641,7 +641,7 @@
     {
       "constraints": [
         {
-          "basis": "TCS target 30 [27–32] degC (E0) needs facility water at or below 25 [21–28] degC (E0); dry coolers at design dry-bulb is estimated to supply 36 [34–38] degC (E0)",
+          "basis": "TCS target 30 [27–32] degC (E0) needs facility water at or below 25 [21–28] degC (E0); dry coolers at design dry-bulb (26 degC) plus an approach of 10 K (E0) is estimated to supply 36 [34–38] degC (E0)",
           "binds": true,
           "domain": "thermal",
           "evidence": "E0",
