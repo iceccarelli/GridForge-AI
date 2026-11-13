@@ -89,6 +89,15 @@ async function answer(req: Request): Promise<Response> {
       return unreachable();
     }
     // Only rows whose address, normalised, IS this buyer's: another address that merely fits the pattern is never shown.
+    //
+    // KNOWN LIMITATION (non-ASCII addresses; pinned in tests/site/engagements-email-case.test.ts). The narrowing above is the DATABASE's `ilike`,
+    // whose case folding is its collation's, per character; this comparison is JavaScript's toLowerCase(). For ASCII they agree. For some non-ASCII
+    // letters (a dotted capital İ, ß against SS, final sigma) they differ, so:
+    //   - a database that folds LESS than JS does not return the buyer's own row, and the buyer sees "no purchases" for it (a false negative,
+    //     not told apart from an empty account here: the buyer is told on /dashboard to write in);
+    //   - a database that folds MORE than JS returns a look-alike address, and the exact comparison below drops it.
+    // Both directions only ever show FEWER rows. This filter is the decision, the database only narrows, so a row can never reach a person whose
+    // normalised address is not the row's: never a leak, only a possible miss. Fixing the miss needs the address stored normalised (a migration).
     engagements = ((await d.json()) as Row[]).filter((r) => normalisedEmail(r.email) === mine);
     watches = ((await w.json()) as WatchRow[]).filter((r) => normalisedEmail(r.email) === mine);
   } catch (err) {
