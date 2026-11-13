@@ -865,7 +865,7 @@ function EvidenceSection({ m }: { m: GuideModel }) {
         </table>
       </Scroll>
       <p className={P}>
-        <strong className="text-ghost">No engineer reviewed this synthetic hall.</strong> {fmt(e3)} of {fmt(order.length)} limits name E3 in their basis. The definition above is what the class means in the engine&rsquo;s list; it is not what happened here. Read the E3 rows as the engine&rsquo;s own estimate: arithmetic on supplied ratings and estimated inputs, in a hall whose inputs are invented, with the engine capping a threshold comparison at E3. Nobody checked them against practice.
+        <strong className="text-ghost">No engineer reviewed this synthetic hall.</strong> {fmt(e3)} of {fmt(order.length)} limits name E3 in their basis. The definition above is what the class means in the engine&rsquo;s list: the engine&rsquo;s own estimate, never an engineer&rsquo;s sign-off on a hall, in this example or in any other. Read the E3 rows as the engine&rsquo;s own estimate: arithmetic on supplied ratings and estimated inputs, in a hall whose inputs are invented, with the engine capping a threshold comparison at E3. No one has checked them.
       </p>
       <ul className="mt-4 list-disc space-y-2 pl-5 text-[15px] leading-relaxed text-mute">
         <li>
@@ -873,7 +873,7 @@ function EvidenceSection({ m }: { m: GuideModel }) {
           them as validated performance.
         </li>
         <li>
-          <strong className="text-ghost">What would raise a class.</strong> The hall&rsquo;s own drawings and ratings make a hall-side figure E5, supplied by the client and not measured by us. A review by a qualified engineer against practice is what the class E3 is defined to mean, and none was done here. Only a measurement
+          <strong className="text-ghost">What would raise a class.</strong> The hall&rsquo;s own drawings and ratings make a hall-side figure E5, supplied by the client and not measured by us. The engine&rsquo;s own arithmetic cannot take a computed figure above E3, and a named engineer&rsquo;s review of a released document is recorded with the release and does not raise a figure&rsquo;s class. Only a measurement
           reconciled with the model reaches E6.
         </li>
         <li>

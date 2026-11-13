@@ -5,6 +5,7 @@
 // states a customer, a result, a saving or a date: each describes the buyer's situation and what the deliverable would and would not tell them.
 // tests/site/audiences.test.ts holds the records to that, and to being genuinely different from each other.
 
+import { PORTFOLIO_SOLD_RANGE } from "@/lib/portfolio-scope";
 import type { ProductId } from "@/lib/products";
 
 export type AudienceSlug =
@@ -229,7 +230,7 @@ export const AUDIENCES: Audience[] = [
     ],
     path: [
       { kind: "density_screen", why: "One asset: a defensible read of what binds it and which inputs the seller has not evidenced." },
-      { kind: "portfolio_screen_deposit", why: "Five to fifteen assets ranked under one methodology, so the comparison is between halls and not between spreadsheets." },
+      { kind: "portfolio_screen_deposit", why: `Sold for ${PORTFOLIO_SOLD_RANGE}, ranked under one methodology, so the comparison is between halls and not between spreadsheets.` },
     ],
     askUs: [
       "How much of each result is assumed, and what is the weakest evidence class behind the headline figure?",

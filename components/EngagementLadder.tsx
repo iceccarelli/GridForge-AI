@@ -5,7 +5,9 @@ import Link from "next/link";
 import { ArrowRight, Loader2 } from "lucide-react";
 import { eur } from "@/lib/commerce";
 import { PRODUCT_PAGE_SLUGS } from "@/lib/product-page-slugs";
+import { PORTFOLIO_FEWER_SENTENCE, PORTFOLIO_MORE_SENTENCE, PORTFOLIO_SOLD_RANGE } from "@/lib/portfolio-scope";
 import { LADDER_PRODUCTS, eurFromCents, type Product, type ProductId } from "@/lib/products";
+import { STUDY_REDUNDANCY_SENTENCE } from "@/lib/study-needs";
 
 /**
  * The engagement ladder: what can be bought now, in the order clients climb it.
@@ -21,8 +23,14 @@ const NOTE: Partial<Record<ProductId, string>> = {
   density_screen: "Credits in full against the study.",
   envelope_study_deposit: "scoped before we start.",
   procurement_spec: "One relief per engagement. Your bids come back comparable.",
-  portfolio_screen_deposit: "five to fifteen halls.",
+  portfolio_screen_deposit: `${PORTFOLIO_SOLD_RANGE}.`,
   hall_watch: "Cancel any time; no minimum term.",
+};
+
+/** Said under a rung's description, before the visitor pays: what the catalogue's one-line description has no room for. */
+const SCOPE: Partial<Record<ProductId, string>> = {
+  envelope_study_deposit: STUDY_REDUNDANCY_SENTENCE,
+  portfolio_screen_deposit: `${PORTFOLIO_FEWER_SENTENCE} ${PORTFOLIO_MORE_SENTENCE}`,
 };
 
 /** The page that explains a rung in full (buyer, inputs, limits), when it has one. */
@@ -195,6 +203,7 @@ export function EngagementLadder() {
                 </span>
               </div>
               <p className="mt-3 text-[14px] leading-relaxed text-mute">{p.description}</p>
+              {SCOPE[id] ? <p className="mt-2 text-[13px] leading-relaxed text-mute">{SCOPE[id]}</p> : null}
               <p className="mt-3 text-[13px] leading-relaxed text-faint">
                 <span className="font-mono text-[10px] uppercase tracking-[0.14em]">
                   You receive

@@ -12,7 +12,10 @@ class EvidenceClass(IntEnum):
     E0_ASSUMPTION = 0            # no data; engineering judgement or library default
     E1_MODEL = 1                 # computed from a documented model on assumed inputs
     E2_SIMULATION = 2            # numerical simulation (hydraulic / thermal network / time series)
-    E3_ENGINEERING_ESTIMATE = 3  # model + reviewed by a qualified engineer against practice
+    # E3 is the highest class the engine's own arithmetic can carry (common.ESTIMATED, procurement SPEC_CEILING, intake supplied_evidence).
+    # It is not a named engineer's sign-off on a hall. A named engineer's review of a released document is recorded with the release
+    # and does not raise a figure's class. The member name says "estimate", not "reviewed".
+    E3_ENGINEERING_ESTIMATE = 3  # estimated by the engine's documented method from the stated inputs; the highest class the engine's own arithmetic can carry
     E4_EXPERIMENTAL = 4          # compared against lab / rig / vendor test data
     E5_CUSTOMER_DATA = 5         # customer's own measured trend data, as supplied
     E6_FIELD_VALIDATED = 6       # our model reconciled against measured site performance

@@ -3,6 +3,7 @@
 import React, { useMemo, useState } from "react";
 import { CircleAlert, CircleCheck, Download, Loader2 } from "lucide-react";
 import { PORTFOLIO_COLUMNS, parsePortfolioCsv, portfolioTemplate } from "@/lib/portfolio-csv";
+import { PORTFOLIO_MORE_SENTENCE } from "@/lib/portfolio-scope";
 
 /**
  * The hall list of a Portfolio Screen. One row per hall; the form shows what it understood before anything is sent, and the server
@@ -30,7 +31,7 @@ export function PortfolioIntake({ token, minHalls, maxHalls }: { token: string; 
     if (!parsed) return;
     const local = [...parsed.errors];
     if (parsed.halls.length < minHalls) local.push(`A ranking needs at least ${minHalls} halls (you have ${parsed.halls.length}).`);
-    if (parsed.halls.length > maxHalls) local.push(`One portfolio is scoped for up to ${maxHalls} halls (you have ${parsed.halls.length}).`);
+    if (parsed.halls.length > maxHalls) local.push(`One portfolio is scoped for up to ${maxHalls} halls (you have ${parsed.halls.length}). ${PORTFOLIO_MORE_SENTENCE}`);
     setProblems(local);
     if (local.length) return;
     setBusy(true);

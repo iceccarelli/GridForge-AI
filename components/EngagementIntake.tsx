@@ -5,6 +5,7 @@ import { CircleAlert, CircleCheck, Loader2, Plus, Trash2 } from "lucide-react";
 import { IntakeEvidence } from "@/components/IntakeEvidence";
 import { SPEC_RELIEF_CONSTRAINTS } from "@/lib/project-spec-relief";
 import { ENGINE_LIBRARY_DEFAULTS } from "@/lib/engagement-intake";
+import { STUDY_REDUNDANCY_SENTENCE } from "@/lib/study-needs";
 
 /**
  * The intake a client fills in after commissioning an engagement.
@@ -24,6 +25,15 @@ interface Row {
 }
 
 const REDUNDANCY = ["N", "N+1", "N+2", "2N"];
+
+/** Shown on a Study's intake, above the schedules it applies to. The sentence is lib/study-needs.ts, the one the Study's page and offer print. */
+export function StudyRedundancyNote() {
+  return (
+    <p data-testid="study-redundancy" className="mb-3 rounded border border-line bg-panel/60 p-3 text-xs leading-relaxed text-mute">
+      {STUDY_REDUNDANCY_SENTENCE}
+    </p>
+  );
+}
 /** The row's scheme when the visitor has not chosen one. It is not sent as theirs: the engine still computes with its own default (ENGINE_LIBRARY_DEFAULTS.redundancy),
  *  labelled an assumption, but it NAMES the scheme as a required input nobody declared, so a Study cannot be issued on it until it is given. */
 const REDUNDANCY_UNSTATED = `Not stated (engine assumes ${ENGINE_LIBRARY_DEFAULTS.redundancy}; a Study needs yours)`;
@@ -357,6 +367,7 @@ export function EngagementIntake({
 
       <div>
         <h2 className="text-sm font-semibold text-ghost">Transformer schedule</h2>
+        {meta?.kind === "envelope_study_deposit" ? <div className="mt-2"><StudyRedundancyNote /></div> : null}
         <p className="mb-3 mt-1 text-xs text-faint">
           Often the schedule driver: transformer lead times are long and vary by type. Enter the quoted figure if you have one; otherwise the engine uses a labelled assumption.
         </p>

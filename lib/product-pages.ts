@@ -7,7 +7,9 @@
 
 import { AUDIENCES, type Audience } from "@/lib/audiences";
 import { depositTerms } from "@/lib/engagement-state";
+import { PORTFOLIO_FEWER_SENTENCE, PORTFOLIO_MORE_SENTENCE, PORTFOLIO_SOLD_RANGE_CAP, PORTFOLIO_SOLD_SENTENCE } from "@/lib/portfolio-scope";
 import { PRODUCTS, type Product, type ProductId } from "@/lib/products";
+import { STUDY_REDUNDANCY_SENTENCE } from "@/lib/study-needs";
 
 export interface ProductPage {
   slug: string;
@@ -74,6 +76,7 @@ export const PRODUCT_PAGES: ProductPage[] = [
     inputs: [
       "The scope, agreed with you in the scoping call after the deposit, because it depends on the hall and the questions that matter to you.",
       "Then the hall's full numbers through a private intake link we email you: grid, busway and tap-off, floor, plant, and the transformer and UPS schedules. Anything you cannot supply is named as an assumption in the study.",
+      STUDY_REDUNDANCY_SENTENCE,
     ],
     limits: [
       "The deposit is not the price of the study. It opens a scoped engagement in the band shown above, agreed with you before the work starts.",
@@ -112,17 +115,18 @@ export const PRODUCT_PAGES: ProductPage[] = [
   {
     slug: "portfolio-screen",
     metaDescription:
-      "Five to fifteen halls ranked on deliverable compute, time to power and capital cost per rack under one methodology. Opened by a deposit.",
+      `${PORTFOLIO_SOLD_RANGE_CAP} ranked on deliverable compute, time to power and capital cost per rack under one methodology. Opened by a deposit.`,
     sample: null,
     productId: "portfolio_screen_deposit",
     buyer: "A fund, operator or lender ranking several halls for investment or upgrade.",
     decision: "Which halls to put capital into first, ranked under one methodology.",
     inputs: [
-      "The list of halls, agreed in the scoping call after the deposit.",
+      `The list of halls, agreed in the scoping call after the deposit. ${PORTFOLIO_FEWER_SENTENCE}`,
       "Then a private intake link we email you: one row per hall (site, hall, contracted capacity, current peak and IT load, busway and tap-off, rack positions, plant supply temperature, and optionally firm capacity, floor loading and plant capacity), pasted from a spreadsheet or loaded as a CSV. A figure left blank is named as an assumption for that hall.",
     ],
     limits: [
       "The deposit is not the price of the screen. It opens a scoped engagement in the band shown above.",
+      `${PORTFOLIO_SOLD_SENTENCE} ${PORTFOLIO_MORE_SENTENCE}`,
       "A ranking is only as good as the inputs per hall; the document shows the evidence class behind each.",
     ],
     flow: [

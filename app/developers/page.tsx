@@ -22,6 +22,10 @@ import { availabilityIn, deployedEngineRoutes, mcpAvailabilityIn, type Availabil
 import { estimateEndpointServed } from "@/lib/tool-rates";
 import { ENGINE_DISCOVERY, ENGINE_ESTIMATE_GET, ERROR_STATUSES, MAX_MCP_BATCH, MCP_ERRORS, corsStatement, idempotencyStatement, retryStatement, schemaVersionStatement } from "@/lib/openapi";
 import { endpointReference } from "@/lib/api-reference";
+import { API_CHANGELOG, API_VERSIONING_POLICY, type ApiChangelogEntry } from "@/lib/api-policy";
+import { PORTFOLIO_ENGINE_SENTENCE } from "@/lib/portfolio-scope";
+
+const CHANGELOG_KIND: Record<ApiChangelogEntry["kind"], string> = { policy: "Commitment", additive: "Added", deprecation: "Deprecated" };
 
 // What is callable follows the DEPLOYED engine (its /v1/version), which changes when the engine is redeployed, not when
 // this site is: regenerate at most every five minutes rather than freezing the answer at build time.
@@ -274,6 +278,11 @@ export default async function DevelopersPage() {
             callable once the release that serves them is live.
           </p>
         ) : null}
+        {tools.some((t) => t.endpoint === "/v1/portfolio") && state("/v1/portfolio") === "available" ? (
+          <p className="mt-3 max-w-3xl text-xs text-faint" data-testid="portfolio-scope">
+            <span className="font-mono text-ghost">gridforge_portfolio</span>: {PORTFOLIO_ENGINE_SENTENCE}
+          </p>
+        ) : null}
         <h3 className="mt-8 text-sm font-semibold text-ghost">Also served, not tools</h3>
         <ul className="mt-2 max-w-3xl list-disc space-y-1 pl-5 text-sm text-mute" data-testid="engine-other-routes">
           {deckUnits !== null && state("/v1/deck") === "available" ? (
@@ -402,6 +411,22 @@ export default async function DevelopersPage() {
         <p className="mt-2 max-w-3xl text-sm text-mute" data-testid="cors-statement">{corsStatement()}</p>
         <h3 className="mt-6 text-sm font-semibold text-ghost">Response version</h3>
         <p className="mt-2 max-w-3xl text-sm text-mute" data-testid="schema-version-statement">{schemaVersionStatement()}</p>
+      </section>
+
+      <section id="versioning" className="mt-12 scroll-mt-24">
+        <h2 className="text-xl font-semibold text-ghost">Versioning and deprecation</h2>
+        <p className="mt-2 max-w-3xl text-sm text-mute" data-testid="versioning-policy">{API_VERSIONING_POLICY}</p>
+        <h3 className="mt-6 text-sm font-semibold text-ghost">Changelog</h3>
+        <ol className="mt-3 max-w-3xl divide-y divide-line/60 rounded border border-line bg-panel-2 text-sm" data-testid="api-changelog">
+          {API_CHANGELOG.map((e, i) => (
+            <li key={i} className="px-4 py-3">
+              <p className="font-mono text-[11px] text-faint">
+                <time dateTime={e.date} className="text-power">{e.date}</time> · {CHANGELOG_KIND[e.kind]}
+              </p>
+              <p className="mt-1 text-mute">{e.text}</p>
+            </li>
+          ))}
+        </ol>
       </section>
 
       <section className="mt-12">

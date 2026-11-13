@@ -13,6 +13,7 @@ import Stripe from "stripe";
 import { siteUrl } from "@/lib/site";
 import { depositTerms } from "@/lib/engagement-state";
 import { SCOPING_PREPARATION, engagementIntakeSchema } from "@/lib/engagement-intake";
+import { PORTFOLIO_FEWER_SENTENCE, PORTFOLIO_MORE_SENTENCE } from "@/lib/portfolio-scope";
 import { PostgrestFake } from "./postgrest-fake";
 import { paidSession } from "./checkout-fixture";
 
@@ -91,6 +92,9 @@ describe("the deposit receipt", () => {
     const [m] = toBuyer();
     expect(m.text).toContain("The list of halls");
     expect(m.text).not.toMatch(/Density Screen/);
+    // The hall count it is sold for, the fewer-than-five case and what lies beyond fifteen: the canonical sentences, with no price for the fewer case.
+    expect(m.text).toContain(PORTFOLIO_FEWER_SENTENCE);
+    expect(m.text).toContain(PORTFOLIO_MORE_SENTENCE);
   });
 
   it("is sent once however often Stripe redelivers, and is one obligation", async () => {

@@ -3,7 +3,7 @@ import fs from "node:fs/promises";
 import path from "node:path";
 import Link from "next/link";
 import { PageJsonLd } from "@/components/PageJsonLd";
-import { CLAIM_FLOORS, EVIDENCE_CLASSES } from "@/lib/evidence-classes";
+import { CLAIM_FLOORS, E3_MEANING, EVIDENCE_CLASSES } from "@/lib/evidence-classes";
 import { breadcrumbJsonLd, webPageJsonLd } from "@/lib/jsonld";
 import { OG_BASE } from "@/lib/site";
 import { pageImages } from "@/lib/page-cards";
@@ -67,6 +67,10 @@ export default async function EvidencePage() {
     {
       q: "What does an evidence class mean?",
       a: "It is a claim about how much the world has tested a number, from E0 (an assumption or library default) to E7 (an outcome observed in operation). Classes are ordered, and arithmetic takes the minimum: a result is never stronger than the weakest input it came from.",
+    },
+    {
+      q: "Does an engineer's review make a figure E3?",
+      a: `No. E3 means: ${E3_MEANING.charAt(0).toLowerCase()}${E3_MEANING.slice(1)} That review is a separate, recorded step: each engagement document is reviewed and released by a named engineer, and the name and date are recorded with the release and shown on the private deliverable page.`,
     },
     {
       q: "Can I quote an E0 or E1 figure as a property of a physical asset?",

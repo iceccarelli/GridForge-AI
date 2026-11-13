@@ -7,6 +7,7 @@ import engineDeployed from "@/lib/engine-deployed.json";
 import honesty from "@/lib/openapi-honesty.json";
 import discovery from "@/lib/openapi-discovery.json";
 import { requestExamplesFor } from "@/lib/openapi-examples";
+import { API_VERSIONING_POLICY } from "@/lib/api-policy";
 import { PER_HALL_ENDPOINTS } from "@/lib/payg-pricing";
 import { SITE_URL } from "@/lib/site";
 import { DATA_ORIGINS, EVIDENCE_CLASS_CODES, ORIGINS, ROLES } from "@/lib/site-registry-fields";
@@ -931,7 +932,8 @@ export function buildOpenApi(file: ToolsFile, serverUrl: string, siteOrigin: str
         " Every figure is modelled from the inputs supplied and carries an evidence class; where the calibration block (GET /v1/calibration, and on the responses that carry it) says uncalibrated, it means uncalibrated. " +
         "This document states no price: it gives each operation's weight in units, and the unit price, free allowance, minimum invoice and cap behaviour are the engine's own `payg` object at GET /v1/version. " +
         idempotencyStatement() +
-        ` ${schemaVersionStatement()} ${retryStatement()} ${corsStatement()}` +
+        ` ${schemaVersionStatement()} Versioning and deprecation: ${API_VERSIONING_POLICY} The dated changelog is at ${siteOrigin}/developers#versioning.` +
+        ` ${retryStatement()} ${corsStatement()}` +
         " The paths under /api/orgs, /api/sites and /api/halls are the website's signed-in site and hall registry: they are served by the website (see each path's server), take a signed-in person's session token instead of an API key, are never metered, and answer 503 until their database migrations are applied.",
     },
     servers: [{ url: serverUrl }],

@@ -33,6 +33,7 @@
 //   not_deployed  a concrete rest_endpoint that the snapshot does NOT list and that nothing else proves live. A route that is in the
 //                 snapshot can never be not_deployed (the entry is stale).
 
+import { PORTFOLIO_SOLD_RANGE } from "@/lib/portfolio-scope";
 import { PRODUCTS, INTELLIGENCE_PLANS, type ProductId, type IntelligencePlanId } from "@/lib/products";
 
 export type CapabilityStatus =
@@ -154,7 +155,7 @@ export const CAPABILITY_REGISTRY: Capability[] = [
     capability_id: "portfolio_screen",
     family: "engagement",
     name: "Portfolio Screen",
-    description: "5-15 halls ranked by deployable compute, time to power and capex per rack.",
+    description: `Sold for ${PORTFOLIO_SOLD_RANGE}, ranked by deployable compute, time to power and capex per rack.`,
     product_id: "portfolio_screen_deposit",
     engine_capability: "gridforge/reporting/portfolio.py",
     rest_endpoint: "/v1/portfolio",
@@ -166,7 +167,7 @@ export const CAPABILITY_REGISTRY: Capability[] = [
     entitlement:
       "Stripe checkout (deposit) -> engagement_deposits row (paid) -> a named person contacts and scopes it -> POST " +
       "/api/admin/deposits/[id]/open-intake creates one deliverables row and emails the buyer's intake link -> the buyer's hall list " +
-      "(2 to 15 halls) -> /v1/portfolio -> named engineer's review -> release (marks the deposit delivered). See engagement_deposit_flow.",
+      "(the range its form takes and the most one /v1/portfolio request may rank are in lib/portfolio-scope.ts; neither is the scope sold) -> /v1/portfolio -> named engineer's review -> release (marks the deposit delivered). See engagement_deposit_flow.",
     stripe_product_or_price: "checkout.session, metadata.kind=portfolio_screen_deposit",
     deliverable: "Portfolio Screen document + one model_pack.json per hall",
     status: "commercial",

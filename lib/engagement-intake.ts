@@ -36,6 +36,7 @@
 
 import { z } from "zod";
 import { PRODUCT_BY_KIND } from "@/lib/products";
+import { PORTFOLIO_FORM_MAX_HALLS, PORTFOLIO_FORM_MIN_HALLS } from "@/lib/portfolio-scope";
 
 const num = (max: number) => z.coerce.number().nonnegative().max(max);
 
@@ -254,11 +255,12 @@ export function intakeSchemaFor(kind: string) {
 
 /**
  * The Portfolio Screen: several halls ranked under one methodology. Each hall is a Density Screen's intake (what the free qualifier
- * proves is enough to rank on), so the same three optional figures per hall become named assumptions, hall by hall. Sold for five to
- * fifteen halls; two is the least a ranking means anything for, and fifteen is the most one engagement is scoped for.
+ * proves is enough to rank on), so the same three optional figures per hall become named assumptions, hall by hall. These two numbers are what
+ * the FORM accepts (the least a ranking means anything for, and the most one engagement is scoped for); how many halls the
+ * engagement is SOLD for, and how many one engine request may rank, are different numbers, all stated in lib/portfolio-scope.ts.
  */
-export const PORTFOLIO_MIN_HALLS = 2;
-export const PORTFOLIO_MAX_HALLS = 15;
+export const PORTFOLIO_MIN_HALLS = PORTFOLIO_FORM_MIN_HALLS;
+export const PORTFOLIO_MAX_HALLS = PORTFOLIO_FORM_MAX_HALLS;
 export const OBJECTIVES = ["max_compute", "min_cost", "fastest"] as const;
 
 export const portfolioIntakeSchema = z
