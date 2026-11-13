@@ -37,6 +37,16 @@ class LoadProfileError(ValueError):
 #: change._STATE_MAX_KW: a load above it is a unit slip or an overflow, not a hall. `nan` and `inf` parse as floats and would reach the response as
 #: the literals NaN / Infinity, which are not JSON.
 LOAD_PROFILE_MAX_kW = 5_000_000.0
+#: The fewest readings, and the shortest span, a profile may have before its ramp, step and shape figures mean anything: one daily cycle (24 h), seen
+#: at least once an hour on average. Below either, every sizing figure derived from the profile is a directional read, and the assessment says so in its
+#: next action instead of only in a warning list. Judgement constants, not engineering ones: a 24 h cycle is the shortest window that shows a day's swing,
+#: and a reading every hour is the coarsest that shows its shape; a meter export at 15 minutes has 96 in a day and clears both with room.
+MIN_SAMPLES_FOR_SIZING = 24
+MIN_SPAN_HOURS_FOR_SIZING = 24.0
+#: How far a profile's peak may sit from the stated target and the grid capacity before it is called a probable unit slip. A kW column filled with MW
+#: figures (or W read as kW) is off by a factor of 1,000, while a measured peak and a stated target for the same site are within one order of magnitude
+#: of each other; 100 leaves room for a site still ramping toward its target and catches every thousandfold slip whose true peak is within 10x of the target.
+PEAK_PLAUSIBILITY_FACTOR = 100.0
 #: The longest flat profile one request may ask for (a leap year of hours): `flat` builds one sample per interval, so an unbounded duration is an unbounded allocation.
 LOAD_PROFILE_MAX_HOURS = 8_784.0
 
@@ -187,6 +197,19 @@ class LoadProfile:
                 out.append(Gap(a.timestamp, b.timestamp, missing))
         return out
 
+    def span_hours(self) -> float:
+        """The time the profile covers: first reading to last, plus the interval the last one stands for. One reading covers one interval."""
+        return ((self.samples[-1].timestamp - self.samples[0].timestamp).total_seconds() / 60.0 + self.interval_minutes) / 60.0
+
+    def directional_reason(self) -> str:
+        """Why this profile is too short to size from, or "" when it is not. See MIN_SAMPLES_FOR_SIZING / MIN_SPAN_HOURS_FOR_SIZING."""
+        n, span = len(self.samples), self.span_hours()
+        if n >= MIN_SAMPLES_FOR_SIZING and span >= MIN_SPAN_HOURS_FOR_SIZING - 1e-9:
+            return ""
+        return (f"only {n} sample(s) covering {span:.1f} h supplied — a profile needs at least {MIN_SAMPLES_FOR_SIZING} samples covering "
+                f"{MIN_SPAN_HOURS_FOR_SIZING:g} h (one daily cycle) before its ramp and step figures mean anything; "
+                f"sizing figures are directional, not final.")
+
     def duplicate_timestamps(self) -> list[datetime]:
         seen: dict[datetime, int] = {}
         for s in self.samples:
@@ -205,10 +228,9 @@ class LoadProfile:
         if dupes:
             warnings.append(f"{len(dupes)} duplicate timestamp(s) — check the export for "
                             f"overlapping meters or a DST fold.")
-        if len(self.samples) < 96:  # under 24h at 15-minute resolution
-            warnings.append(
-                f"only {len(self.samples)} sample(s) supplied — a full daily cycle needs at "
-                f"least 96 at 15-minute resolution; sizing figures are directional, not final.")
+        directional = self.directional_reason()
+        if directional:
+            warnings.append(directional)
         if self.evidence < CUSTOMER:
             warnings.append(
                 "this profile is not customer-measured data — every figure derived from it "
@@ -216,7 +238,7 @@ class LoadProfile:
         return LoadProfileReport(
             samples=len(self.samples), interval_minutes=self.interval_minutes,
             gaps=gaps, duplicate_timestamps=dupes, warnings=warnings,
-            evidence=self.evidence)
+            evidence=self.evidence, directional_reason=directional)
 
 
 @dataclass
@@ -227,6 +249,12 @@ class LoadProfileReport:
     duplicate_timestamps: list[datetime]
     warnings: list[str]
     evidence: EvidenceClass
+    #: Why the profile is too short to size from ("" when it is not): the assessment's next action carries it, not only the warning list.
+    directional_reason: str = ""
+
+    @property
+    def directional(self) -> bool:
+        return bool(self.directional_reason)
 
     @property
     def usable(self) -> bool:
@@ -235,6 +263,28 @@ class LoadProfileReport:
         alone do not block use; they just mean the summary covers less than the
         full window."""
         return not self.duplicate_timestamps
+
+
+def peak_plausibility_problem(peak_kW: float, target_MW: float, grid_MW: float) -> str:
+    """"" when the profile's peak is plausible against the stated target and grid capacity, else a sentence naming what to check.
+
+    A peak more than PEAK_PLAUSIBILITY_FACTOR times smaller than BOTH the target and the grid capacity, or more than that times larger than both, is
+    far more likely a unit slip than a site: MW figures under a kW header read as a 0.032 MW load against a 35 MW target, and 'GRID ONLY' then passed.
+    Only a figure above zero is compared (a site with no grid has no grid capacity to be far from)."""
+    refs = [(name, v) for name, v in (("target", target_MW), ("grid firm capacity", grid_MW)) if math.isfinite(v) and v > 0]
+    peak_MW = peak_kW / 1000.0
+    if not refs or not math.isfinite(peak_MW):
+        return ""
+    stated = " and ".join(f"{name} {v:g} MW" for name, v in refs)
+    if peak_MW > 0 and all(peak_MW * PEAK_PLAUSIBILITY_FACTOR < v for _, v in refs):
+        return (f"the profile's peak is {peak_kW:g} kW ({peak_MW:g} MW), more than {PEAK_PLAUSIBILITY_FACTOR:g} times below the stated {stated}. "
+                f"That is usually a unit slip, not a site: check the unit of the kW column in the file. If it holds MW, the peak is "
+                f"{peak_kW * 1000:g} kW; if the target or grid capacity is mistyped, correct that instead")
+    if all(peak_MW > v * PEAK_PLAUSIBILITY_FACTOR for _, v in refs):
+        return (f"the profile's peak is {peak_kW:g} kW ({peak_MW:g} MW), more than {PEAK_PLAUSIBILITY_FACTOR:g} times above the stated {stated}. "
+                f"That is usually a unit slip, not a site: check the unit of the kW column in the file. If it holds W, the peak is "
+                f"{peak_kW / 1000:g} kW; if the target or grid capacity is mistyped, correct that instead")
+    return ""
 
 
 # --- construction ------------------------------------------------------------
