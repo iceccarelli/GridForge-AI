@@ -2,16 +2,16 @@
   "note": "Maintained by scripts/page-lastmod.mjs; do not edit dates by hand.",
   "pages": {
     "/": {
-      "lastmod": "2026-11-10",
-      "hash": "b01c6cef88753d53f1fd05a6a7c46e0c89ae796dfcc1ad00e1861b4fe064ae89"
+      "lastmod": "2026-11-13",
+      "hash": "ed17cac11e8b36a2cb87dfb2ec35c0f1d072d8394487e31d1db12075480c27c2"
     },
     "/about": {
       "lastmod": "2026-11-10",
       "hash": "4658d09ff6d5f4fc331181440c33c6e2266d151283a21df573d23ea3cbdddb3c"
     },
     "/constraints": {
-      "lastmod": "2026-11-10",
-      "hash": "aea2af07a03a1f1ab4bbf9e37b0f38db887669fb36aabcec158d26f510115a76"
+      "lastmod": "2026-11-13",
+      "hash": "6e99d7f9c9a735fd58e6bc3f112449db19e8e919d5c05da610f64e4a12c08dda"
     },
     "/constraints/achievable-facility-water-temperature": {
       "lastmod": "2026-11-08",
@@ -70,12 +70,12 @@
       "hash": "10f7921f758fafc8c434568fa7145dc4ba30a660296dc843a92bf55269364c27"
     },
     "/developers": {
-      "lastmod": "2026-11-10",
-      "hash": "0352b4ccb127e733e24127308f20f044b73edab429ec933a034dcbc2f9988eb1"
+      "lastmod": "2026-11-13",
+      "hash": "db53cbc82d8e356112d4edff01057c562d5a7dab5f1f07342a00d680ece6e33d"
     },
     "/evidence": {
-      "lastmod": "2026-11-10",
-      "hash": "b9a0b72e51930432117d60c0f2c5a11b6af728983281d961467d038e122bdfae"
+      "lastmod": "2026-11-13",
+      "hash": "192d75ec89382afd6c4c64ff38acd35668c7024b892c62a32fd4fcfacf1a2382"
     },
     "/for": {
       "lastmod": "2026-11-10",
@@ -138,8 +138,8 @@
       "hash": "fcf69a74dca630eda0022ea4a907597296e221a0d574027e6a6b21962550a3c3"
     },
     "/platforms": {
-      "lastmod": "2026-11-08",
-      "hash": "c28b0d69afe1849f543aba0ba96c2461fd6263044451fd172bf56e7538ec41e5"
+      "lastmod": "2026-11-13",
+      "hash": "32fd4f2a8a331cba2eac7811344301a9edfa01b84dec722c56b21a577fd98769"
     },
     "/platforms/gb200_nvl72": {
       "lastmod": "2026-11-08",
@@ -158,12 +158,12 @@
       "hash": "ae774d42a4757c67891d347a52fbce215afb98a19e426666c5619e64db058dd2"
     },
     "/pricing": {
-      "lastmod": "2026-11-10",
-      "hash": "1ec58c6fffc02864b72123d069eb2a77c1825e0369dd97518cc19cee9a5cd502"
+      "lastmod": "2026-11-13",
+      "hash": "b6225a6fb15d5094ce981e160a5bb36dce407bab05cf2db230264d5620003535"
     },
     "/products": {
-      "lastmod": "2026-11-10",
-      "hash": "afe9d06a6cc2f374b1ce17ca69fe528e2b73b0c1083042093564e863bb296023"
+      "lastmod": "2026-11-13",
+      "hash": "949a32de808465c03b8defbea1b704d5e3d4ecdb4d501ad9bcf11fd392d4a764"
     },
     "/products/density-screen": {
       "lastmod": "2026-11-10",
