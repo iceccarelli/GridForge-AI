@@ -12,6 +12,7 @@ import { PAYG } from "@/lib/products";
 import { formatSetsTheDate } from "@/lib/date-basis";
 import FreeAllowanceForm from "@/components/FreeAllowanceForm";
 import { NEXT_STEP_HREFS } from "@/lib/qualify-next-steps";
+import { joinNames, rackNoun, upperBoundInputs } from "@/lib/qualify-readout";
 import { assumedRecordMatches, type QualifyAssumable } from "@/lib/qualify-assumed";
 import {
   HALL_PRESETS,
@@ -538,6 +539,8 @@ export function QualifyReadout({
   constraintSlugs?: ConstraintSlugs;
 }) {
   const { as_found: found, after_relief: after, intake } = result;
+  // The inputs the engine treated as "no limit": the rack counts are then upper bounds, and the page says so beside them.
+  const unevaluated = upperBoundInputs(result);
   return (
     <div className="mt-8 animate-slide-up">
       {template ? <TemplateNotice template={template} recorded={result.inputs_declared_assumed ?? []} /> : null}
@@ -545,10 +548,15 @@ export function QualifyReadout({
       {share ? <ShareLink href={share} /> : null}
 
       <div className="mt-5 grid gap-3 sm:grid-cols-3">
-        <Readout label="Deployable today" value={String(found.racks)} suffix="racks" tone="ghost" />
-        <Readout label="After the ladder" value={String(after.racks)} suffix="racks" tone="power" />
+        <Readout label={`Deployable today${unevaluated.length ? " · upper bound" : ""}`} value={String(found.racks)} suffix={rackNoun(found.racks)} tone="ghost" />
+        <Readout label={`After the ladder${unevaluated.length ? " · upper bound" : ""}`} value={String(after.racks)} suffix={rackNoun(after.racks)} tone="power" />
         <SetsTheDate after={after} />
       </div>
+      {unevaluated.length ? (
+        <p data-testid="qualify-upper-bound" className="mt-2 max-w-3xl text-[11px] leading-snug text-queue">
+          Upper bound: {joinNames(unevaluated)} {unevaluated.length === 1 ? "was" : "were"} not evaluated (treated as no limit), so the hall may carry fewer racks than this.
+        </p>
+      ) : null}
 
       <div className="mt-5 rounded border border-line bg-panel-2 p-4">
         <p className="font-mono text-[10px] uppercase tracking-[0.14em] text-queue">

@@ -14,6 +14,7 @@ import { storeFault } from "@/lib/safe-log";
 import { engineFetch } from "@/lib/rate-limit";
 
 import { QUALIFY_ASSUMABLE, type QualifyAssumable } from "@/lib/qualify-assumed";
+import { rackCountIsUpperBound, rackNoun } from "@/lib/qualify-readout";
 export { QUALIFY_ASSUMABLE, type QualifyAssumable };
 const QUALIFY_ASSUMABLE_KEYS = Object.keys(QUALIFY_ASSUMABLE) as [QualifyAssumable, ...QualifyAssumable[]];
 
@@ -196,16 +197,20 @@ export async function callEngine(input: QualifyInput): Promise<EngineOutcome> {
 }
 
 /** One sentence a salesperson can say out loud. Built from the engine's answer,
- *  never from the form, so it cannot drift from the model. */
+ *  never from the form, so it cannot drift from the model.
+ *
+ *  A count is "about" only when nothing was left out of it. The engine treats an equipment bank nobody declared as "no limit" (the most
+ *  favourable reading), which it states in the gap's own text: the count is then an upper bound and is said as "at most". */
 export function headline(r: QualifyResult): string {
   const { as_found: found, after_relief: after } = r;
+  const atMost = rackCountIsUpperBound(r);
   if (found.racks === 0 && after.racks === 0) {
     return `This hall cannot host ${r.platform.name} racks on these inputs. ${found.binding_constraint} is what stops it.`;
   }
   if (found.racks === 0) {
-    return `Nothing deployable today — ${found.binding_constraint.toLowerCase()} stops it. Clear the ladder and the hall carries about ${after.racks} ${r.platform.name} racks.`;
+    return `Nothing deployable today — ${found.binding_constraint.toLowerCase()} stops it. Clear the ladder and the hall carries ${atMost ? "at most" : "about"} ${after.racks} ${r.platform.name} ${rackNoun(after.racks)}.`;
   }
-  return `About ${found.racks} ${r.platform.name} racks today, rising to roughly ${after.racks} once ${found.binding_constraint.toLowerCase()} is relieved.`;
+  return `${atMost ? "At most" : "About"} ${found.racks} ${r.platform.name} ${rackNoun(found.racks)} today, rising to ${atMost ? "at most" : "roughly"} ${after.racks} once ${found.binding_constraint.toLowerCase()} is relieved.`;
 }
 
 
