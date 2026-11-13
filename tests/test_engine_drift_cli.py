@@ -14,7 +14,7 @@ from pathlib import Path
 import pytest
 
 from gridforge.api.metering import UNIT_COST
-from gridforge.api.server import ROUTES, VERSION
+from gridforge.api.server import VERSION, public_endpoints
 from gridforge.api.tools import catalogue
 from gridforge.provenance import code_sha256
 
@@ -26,7 +26,8 @@ spec.loader.exec_module(mod)
 
 
 def current():
-    return {"version": VERSION, "endpoints": sorted(ROUTES) + ["/health"], "unit_rates": dict(UNIT_COST),
+    # what GET /v1/version lists: every route but the operator-only one (/v1/revoke), which is in no listing
+    return {"version": VERSION, "endpoints": public_endpoints() + ["/health"], "unit_rates": dict(UNIT_COST),
             "provenance": {"code_sha256": code_sha256()}, "metering": {"durable": True, "ledger_durable": True}}
 
 
@@ -52,7 +53,7 @@ def run_main(argv, version, capsys, **kw):
 # ---- grouping ------------------------------------------------------------------------------------------------------
 def stale():
     d = current()
-    d["endpoints"] = [e for e in d["endpoints"] if e not in ("/v1/compare", "/v1/revoke")]
+    d["endpoints"] = [e for e in d["endpoints"] if e not in ("/v1/compare", "/v1/diff")]
     d["unit_rates"] = {k: v for k, v in d["unit_rates"].items() if k != "/v1/compare"}
     d["unit_rates"]["/v1/study"] = 99
     d["version"] = "0.0.1"
@@ -63,7 +64,7 @@ def stale():
 
 def test_every_difference_lands_in_its_group():
     g = mod.drift_grouped(stale())
-    assert any("/v1/compare" in p for p in g["routes"]) and any("/v1/revoke" in p for p in g["routes"])
+    assert any("/v1/compare" in p for p in g["routes"]) and any("/v1/diff" in p for p in g["routes"])
     assert any("/v1/study" in p for p in g["unit_rates"])
     assert g["version"] and "0.0.1" in g["version"][0]
     assert g["provenance"] and "no code digest" in g["provenance"][0]
