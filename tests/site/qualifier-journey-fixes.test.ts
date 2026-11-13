@@ -12,9 +12,10 @@
  */
 import React from "react";
 import { renderToStaticMarkup } from "react-dom/server";
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import fs from "node:fs";
 import path from "node:path";
+import { spawnSync } from "node:child_process";
 import { siteUrl } from "@/lib/site";
 import { headline, qualifySchema, toEngineBody, type QualifyResult } from "@/lib/qualify";
 import { engagementAdvice } from "@/lib/qualify-engagement";
@@ -24,9 +25,12 @@ import { studyOffer } from "@/lib/study-offer";
 import { workingDays } from "@/lib/turnaround";
 import { CapacityQualifier, FIELDS, QualifyReadout, fieldProblem } from "@/components/CapacityQualifier";
 import { resetMemoryLimiter } from "@/lib/rate-limit";
+import { engineAvailable } from "./_engine-guard";
 
 vi.mock("@/lib/funnel", async (orig) => ({ ...(await orig<typeof import("@/lib/funnel")>()), recordFunnelEvent: async () => true }));
 
+const ROOT = path.resolve(__dirname, "../..");
+const hasPython = spawnSync("python3", ["--version"]).status === 0;
 /** Rendered markup as the words a reader sees. */
 const text = (html: string) =>
   html.replace(/<!-- -->/g, "").replace(/<[^>]+>/g, " ").replace(/&#x27;/g, "'").replace(/&quot;/g, '"').replace(/&lt;/g, "<").replace(/&gt;/g, ">").replace(/&amp;/g, "&").replace(/\s+/g, " ").trim();
@@ -510,5 +514,90 @@ describe("J1-2: the paid step is described to the buyer from the catalogue, neve
     );
     expect(t).not.toContain(ENGINE_NOTES_TO_SALES[3]);
     expect(t).not.toContain("Commission the");
+  });
+});
+
+// ================================================================================================ the real engine
+/**
+ * The helpers above read the engine's WORDING (the "(MW, MVA, kW)" hint, "treated as no limit", the order of its gaps). These run the engine in this
+ * repository (gridforge.api.server.handle_qualify, the function POST /v1/qualify calls) and fail where its wording or counts stop matching them.
+ * Without python3 they are skipped, except where GRIDFORGE_REQUIRE_ENGINE=1 or CI=true says they must run (the last test).
+ */
+function realEngineAnswers(): Record<string, QualifyResult> {
+  const code = [
+    "import json, sys",
+    `sys.path.insert(0, ${JSON.stringify(ROOT)})`,
+    "from gridforge.api.server import Tier, handle_qualify",
+    "base = {'busway_ampacity_A': 400, 'contracted_MW': 12, 'current_it_load_MW': 4.9, 'current_site_peak_MW': 7.4, 'plant_supply_C': 6, 'positions_available': 180, 'tapoff_max_A': 63, 'platform': 'gb300_nvl72'}",
+    "cases = {'example': {}, 'unit_slip': {'current_it_load_MW': 40}, 'zero_positions': {'positions_available': 0, 'contracted_MW': 100, 'current_site_peak_MW': 20, 'current_it_load_MW': 10, 'busway_ampacity_A': 4000, 'tapoff_max_A': 800, 'plant_supply_C': 20}}",
+    "print(json.dumps({k: handle_qualify({**base, **v}, Tier.PUBLIC) for k, v in cases.items()}))",
+  ].join("\n");
+  const run = spawnSync("python3", ["-c", code], { cwd: ROOT, encoding: "utf8", maxBuffer: 64 * 1024 * 1024 });
+  if (run.status !== 0) throw new Error(`the engine did not answer: ${run.stderr}`);
+  return JSON.parse(run.stdout.split("\n").filter((l) => l.startsWith("{")).pop()!);
+}
+
+describe.runIf(hasPython)("through the real engine", () => {
+  let real: Record<string, QualifyResult>;
+  beforeAll(() => { real = realEngineAnswers(); }, 60_000);
+
+  it("the shipped example: five required gaps, all of them on the page, counted once; the engine's note to sales is not", () => {
+    const r = real.example;
+    const starred = r.intake.gaps.filter((g) => g.required);
+    expect(starred.length).toBeGreaterThanOrEqual(5);
+    expect(r.intake.gaps.length).toBeGreaterThan(8);
+    const html = readout(r);
+    const visible = rowsIn(beforeDisclosure(html)).filter((row) => row.endsWith("*")).map((row) => row.replace(/ \*$/, ""));
+    expect(visible).toEqual(starred.map((g) => g.input));
+    expect(text(html)).toContain(`${starred.length} required inputs assumed.`);
+    // the defect: the engine's order put the chilled-water plant outside the first eight rows
+    const plant = r.intake.gaps.findIndex((g) => g.input === "Chilled-water plant capacity");
+    expect(plant).toBeGreaterThanOrEqual(8);
+    expect(visible).toContain("Chilled-water plant capacity");
+    expect(r.intake.recommended_engagement.length).toBeGreaterThan(20);
+    expect(text(html)).not.toContain(r.intake.recommended_engagement);
+  });
+
+  it("the shipped example: transformers and UPS are 'treated as no limit', so the count is said as an upper bound, and the page names them", () => {
+    const r = real.example;
+    expect(r.intake.gaps.some((g) => /treated as no limit/.test(g.assumed))).toBe(true);
+    expect(r.after_relief.racks).toBeGreaterThan(0);
+    const h = headline(r);
+    expect(h).toMatch(/at most \d+ NVIDIA GB300 NVL72 racks/i);
+    expect(h).not.toMatch(/\babout\b/i);
+    expect(text(readout(r))).toMatch(/Upper bound: .*(Transformer|UPS).* not evaluated \(treated as no limit\)/);
+    // routine warnings are not input problems: the example does not start with a check-your-inputs line
+    expect(h).not.toContain("Check your inputs first");
+    expect(r.intake.warnings.length).toBeGreaterThan(0);
+    for (const w of r.intake.warnings) expect(text(readout(r))).toContain(text(w));
+  });
+
+  it("a unit slip: the engine says so in its own words, the page puts that first and the verdict is provisional", () => {
+    const r = real.unit_slip;
+    expect(r.as_found.racks).toBe(0);
+    const problems = r.intake.warnings.filter((w) => /Check the units \(MW, MVA, kW\)|wrong unit/.test(w));
+    expect(problems.length).toBeGreaterThanOrEqual(1);
+    const h = headline(r);
+    expect(h.startsWith("Check your inputs first:")).toBe(true);
+    const t = text(readout(r));
+    for (const w of r.intake.warnings) expect(t).toContain(text(w));
+    expect(t.indexOf(text(problems[0]))).toBeLessThan(t.indexOf(text(r.intake.warnings.find((w) => !problems.includes(w))!)));
+    expect(t.indexOf(text(problems[0]))).toBeLessThan(t.indexOf("Deployable today"));
+  });
+
+  it("zero free positions: the engine answers (it does not refuse), says positions bind, and the page renders it without NaN", () => {
+    const r = real.zero_positions;
+    expect(r.as_found.racks).toBe(0);
+    expect(r.as_found.binding_constraint).toBe("Available rack positions");
+    const t = text(readout(r));
+    expect(t).toContain("Available rack positions is what stops it.");
+    expect(t).not.toMatch(/NaN|Infinity|undefined|null/);
+  });
+});
+
+describe("the real-engine suite cannot be skipped silently where it is required", () => {
+  it("python3 is present whenever GRIDFORGE_REQUIRE_ENGINE=1 or CI=true", () => {
+    const g = engineAvailable(hasPython);
+    expect(g.ok, g.reason).toBe(true);
   });
 });
