@@ -168,6 +168,10 @@ export default async function Guide() {
 
       <section className="mt-12" aria-labelledby="next-h">
         <h2 id="next-h" className="text-xl font-semibold text-ghost">Run it on your own hall</h2>
+        <p className="mt-3 text-[15px] leading-relaxed text-mute">
+          The table above shows which limit is the smallest. What binds next once it is relieved, and which relief to start first, is in{" "}
+          <Link href="/guides/retrofit-order-of-limits" className="text-power underline">The order of limits in a 100-150 kW retrofit</Link>.
+        </p>
         <PathList path={[{ kind: "qualifier", why: "Seven numbers you already know, free. It names the constraint likely to bind first and what it had to assume." }, { kind: "density_screen", why: "One hall, with the first six rungs of the ladder and the inputs nobody has measured." }]} label="Next steps" />
       </section>
     </div>

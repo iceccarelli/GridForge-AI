@@ -66,6 +66,7 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
     { url: `${base}/products`, ...lm("/products"), changeFrequency: "monthly", priority: 0.8 },
     ...productPages,
     { url: `${base}/guides/nameplate-vs-useful-compute`, ...lm("/guides/nameplate-vs-useful-compute"), changeFrequency: "monthly", priority: 0.8 },
+    { url: `${base}/guides/retrofit-order-of-limits`, ...lm("/guides/retrofit-order-of-limits"), changeFrequency: "monthly", priority: 0.8 },
     { url: `${base}/for`, ...lm("/for"), changeFrequency: "monthly", priority: 0.8 },
     ...audiencePages,
     ...platformPages,
