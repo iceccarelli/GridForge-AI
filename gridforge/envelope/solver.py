@@ -236,14 +236,34 @@ class LadderDidNotConverge(RuntimeError, ValueError):
     the rung it happened to stop on would publish a capacity that is not the ceiling.
 
     It is also a ValueError: the cause is the input (a hall so large the ladder cannot be finished inside the work one request may ask
-    for), so the API answers 422 "could not be processed as given" and refunds the call, rather than a 500 that blames the engine. The
-    message names the intake fields that set the size of the hall."""
+    for), so the API answers a NAMED 422 (the message below, with the figures as keys) and refunds the call, rather than a 500 that blames the
+    engine or a 422 that says only "could not be processed as given". The message names the intake fields that set the size of the hall, the
+    rungs taken, the limit, the hard cap and about how many rungs the hall needs.
+
+    The figures are attributes too, for the API layer to carry as keys: ``rungs_taken``, ``step_limit`` (the budget this ladder ran with),
+    ``step_cap`` (the most any request may take), ``rungs_needed_estimate`` (an ESTIMATE, None when it cannot be made), ``racks_reached`` and
+    ``racks_ceiling`` (what the supply and the free positions could carry, None when not known) and ``supported_MW``."""
+
+    def __init__(self, message: str, *, rungs_taken: int | None = None, step_limit: int | None = None, step_cap: int | None = None,
+                 rungs_needed_estimate: int | None = None, racks_reached: int | None = None, racks_ceiling: int | None = None,
+                 supported_MW: int | None = None):
+        super().__init__(message)
+        self.rungs_taken, self.step_limit, self.step_cap = rungs_taken, step_limit, step_cap
+        self.rungs_needed_estimate, self.racks_reached, self.racks_ceiling, self.supported_MW = rungs_needed_estimate, racks_reached, racks_ceiling, supported_MW
+
+    def detail(self) -> dict:
+        """The figures that are known, as the keys an API answer carries (None entries left out)."""
+        keys = {"rungs_taken": self.rungs_taken, "step_limit": self.step_limit, "step_cap": self.step_cap,
+                "rungs_needed_estimate": self.rungs_needed_estimate, "racks_reached": self.racks_reached, "racks_ceiling": self.racks_ceiling,
+                "supported_MW": self.supported_MW}
+        return {k: v for k, v in keys.items() if v is not None}
 
 
 #: The fewest rungs the ladder may use, whatever the size of the hall (the historical fixed budget; ordinary halls never come near it).
 LADDER_STEP_FLOOR = 200
-#: Rungs allowed per MW of hall size (see ``ladder_step_budget``). Measured on the shipped intakes scaled up, a rung adds about
-#: 1 / 1.2 to 1 / 1.5 MW, so 3 per MW leaves a margin of more than two.
+#: Rungs allowed per MW of hall size (see ``ladder_step_budget``). The measured need is at most ``LADDER_STEPS_PER_MW_MEASURED`` (1.75 per MW,
+#: below), so 3 per MW is about 1.7 times what the library-sized equipment needs: a plant with smaller modules than the library's needs
+#: proportionally more rungs, and the budget says so by name when it runs out.
 LADDER_STEPS_PER_MW = 3.0
 #: The most rungs one request may demand: a deterministic bound on the work (no clock is read: the engine stays reproducible). Measured on the
 #: largest hall the loader admits (50,000 positions, 5,000 MVA, 5,000 MW of behind-the-meter capacity; Python 3.13, one core), a rung costs
@@ -251,14 +271,23 @@ LADDER_STEPS_PER_MW = 3.0
 #:     rungs   200    400    600    800    1,200  2,000   4,000
 #:     CPU s   0.36   0.70   1.20   1.63   2.49   4.25    9.80     (full_dlc_btm, the widest scenario; hybrid/full DLC run ~10% quicker)
 #:     RSS MB  33     48     62     77     106    165     312
-#: A request runs up to three liquid ladders, so 600 rungs bound a request at about 3.5 s of CPU and well under 100 MB. The provenance chain
-#: deepens by about one level per rung (the capex total adds each rung's price to the last), and its digest is recursive: /v1/screen, /study
-#: and /compare raised RecursionError (a 500) at about 1,000 rungs, so the cap must stay well under the interpreter's recursion limit
-#: (tests/test_ladder_convergence.py pins both). 600 answers halls up to roughly 450 MW of firm supply plus behind-the-meter capacity in the
-#: widest scenario; a hall that needs more is refused by name (LadderDidNotConverge, 422) and must be split into one request per hall.
-LADDER_STEP_CAP = 600
-#: Rungs per MW of hall size actually needed, measured worst case (see above): the supported scale the refusal states.
-LADDER_STEPS_PER_MW_MEASURED = 1.3
+#: A request runs up to three liquid ladders. The provenance chain deepens by about one level per rung (the capex total adds each rung's price
+#: to the last), and its digest is recursive: /v1/screen, /study and /compare raised RecursionError (a 500) at about 1,000 rungs, so the cap
+#: must stay well under the interpreter's recursion limit: tests/test_ladder_convergence.py pins it at no more than two thirds of it (666).
+#: 660 is the largest round figure under that pin. It was 600 under a rule in which a rung bought two UPS modules in EVERY block; a rung now
+#: buys two modules in ONE block (so how a plant is listed cannot change its price), which takes about 1.7 rungs per MW instead of 1.3, and 600
+#: would have refused halls of 400 MW that were answered before. 660 answers halls up to about 370 MW of firm supply plus behind-the-meter
+#: capacity in the widest scenario (660 / 1.75); a hall that needs more is refused by name (LadderDidNotConverge, a 422 that says how many rungs
+#: it took, the limit and about how many it needs) and must be split into one request per hall. Raising it further needs the digest not to
+#: recurse once per rung (the capex total built in one step), which is outside the solver.
+LADDER_STEP_CAP = 660
+#: Rungs per MW of hall size actually needed, measured worst case: the supported scale the refusal states. MEASURED, not chosen: the seeded
+#: corpus of tests/test_ladder_rungs_per_mw.py (every shipped hall's own equipment under a supply of 400 MW, the plant small beside the supply so
+#: that the ladder must buy almost everything, hybrid / full DLC / full DLC with behind-the-meter supply) needs at most 1.70 rungs per MW of
+#: ``ladder_size_MW`` (1.19 at 100 MW, 1.57 at 200, 1.68 at 300, 1.70 at 400 and beyond, where it stops growing); this is that figure rounded
+#: up by 0.05. The test fails if a rung rule changes the measurement past it, and if the measurement falls so far below it that the supported
+#: scale in the refusal would understate what the engine now does. Re-measure with ``python tests/test_ladder_rungs_per_mw.py``.
+LADDER_STEPS_PER_MW_MEASURED = 1.75
 
 #: The intake fields that set how many rungs a hall needs, named in the refusal so the caller knows what to split or re-check.
 _SIZE_FIELDS = "hall.positions_available, grid.firm_capacity_MVA, grid.contracted_MW and btm_options.capacity_MW"
@@ -268,20 +297,52 @@ def _finite_positive(x: float) -> float:
     return x if isinstance(x, (int, float)) and math.isfinite(x) and x > 0 else 0.0
 
 
-def ladder_step_budget(ctx: EnvelopeContext) -> int:
-    """How many rungs the ladder may take for this hall: LADDER_STEP_FLOOR plus LADDER_STEPS_PER_MW for every MW of the hall's size,
-    never more than LADDER_STEP_CAP.
-
-    Every relief adds a fixed increment (two busway runs, one further CDU unit, two UPS modules: each in total, not per bank or block, so how a plant is listed does not change the number of rungs), so the rungs needed grow with how
-    much capacity there is to unlock. That is the smaller of what the supply could carry (the lesser of the firm connection and the
-    contract, plus every behind-the-meter option) and what the free positions could hold at the platform's rack power. A fixed 200
-    rungs refused ordinary halls above roughly 150 MVA. Non-finite or non-positive figures count as zero (they cannot enlarge the budget)."""
+def ladder_size_MW(ctx: EnvelopeContext) -> float:
+    """The size of the hall as far as the number of rungs goes, in MW: the smaller of what the supply could carry (the lesser of the firm connection
+    and the contract, plus every behind-the-meter option) and what the free positions could hold at the platform's rack power. Non-finite or
+    non-positive figures count as zero (they cannot enlarge it). The one figure the budget, the supported scale and the measurement of rungs per MW
+    (tests/test_ladder_rungs_per_mw.py) all read."""
     g = ctx.power.grid
     supply_MW = min(_finite_positive(g.firm_capacity_MVA.value * g.power_factor.value), _finite_positive(g.contracted_MW.value))
     btm_MW = sum(_finite_positive(o.capacity_MW.value) for o in ctx.power.options)
     hall_MW = _finite_positive(float(ctx.hall.positions_available) * ctx.cluster.platform.rack_kW.value / 1000.0)
-    size_MW = min(supply_MW + btm_MW, hall_MW)
-    return int(min(LADDER_STEP_CAP, LADDER_STEP_FLOOR + math.ceil(LADDER_STEPS_PER_MW * size_MW)))
+    return min(supply_MW + btm_MW, hall_MW)
+
+
+def supported_scale_MW() -> int:
+    """The size, in MW of firm supply plus behind-the-meter capacity, up to which the cap answers a hall in the widest scenario: the cap over the measured
+    rungs per MW, rounded down to ten (370 MW at 660 rungs and 1.75 per MW). The figure the refusal and the README state."""
+    return int(LADDER_STEP_CAP / LADDER_STEPS_PER_MW_MEASURED // 10 * 10)
+
+
+def ladder_step_budget(ctx: EnvelopeContext) -> int:
+    """How many rungs the ladder may take for this hall: LADDER_STEP_FLOOR plus LADDER_STEPS_PER_MW for every MW of the hall's size
+    (``ladder_size_MW``), never more than LADDER_STEP_CAP.
+
+    Every relief adds a fixed increment (two busway runs, one further CDU unit, two UPS modules: each in total, not per bank or block, so how a plant is listed does not change the number of rungs), so the rungs needed grow with how
+    much capacity there is to unlock. A fixed 200 rungs refused ordinary halls above roughly 150 MVA."""
+    return int(min(LADDER_STEP_CAP, LADDER_STEP_FLOOR + math.ceil(LADDER_STEPS_PER_MW * ladder_size_MW(ctx))))
+
+
+def _rungs_needed_estimate(res: "EnvelopeResult", taken: int) -> tuple[int | None, int | None]:
+    """(estimate of the rungs the hall needs in all, racks its supply and free positions could carry), or (None, None) when it cannot be made.
+
+    An ESTIMATE, labelled so wherever it is shown: the ladder was cut off, so the real figure is not known. It scales the rungs taken by the share of
+    the ceiling still to unlock, the ceiling being the lesser of the free rack positions (no relief adds one) and the supply's own headroom in racks
+    (``grid_firm_capacity.margin_racks``, which counts the behind-the-meter options already taken: another one raises it, so the estimate is a lower
+    bound where options remain)."""
+    ceilings = []
+    for c in res.constraints:
+        if c.id == "floor_space" and math.isfinite(c.racks):
+            ceilings.append(c.racks)
+        if c.id == "grid_firm_capacity" and c.margin_racks is not None and math.isfinite(c.margin_racks):
+            ceilings.append(max(c.margin_racks, 0.0))
+    if len(ceilings) < 2 or res.max_racks <= 0:
+        return None, None
+    ceiling = int(min(ceilings))
+    if ceiling <= res.max_racks:
+        return None, ceiling or None
+    return int(math.ceil(taken * ceiling / res.max_racks)), ceiling
 
 
 def _step(i: int, binding, res: "EnvelopeResult", racks_after: int, evidence, *, taken: bool = True) -> LadderStep:
@@ -372,13 +433,26 @@ def ladder(ctx: EnvelopeContext, max_steps: int | None = None, *, allow_partial:
             break
         cur, res = nxt_ctx, nxt
     if not converged:
+        estimate, ceiling = _rungs_needed_estimate(res, max_steps)
+        needs = (f"This hall needs about {estimate:,} steps (an estimate: the {max_steps} taken reached {res.max_racks:,} of the {ceiling:,} racks its "
+                 f"supply and free positions could carry); "
+                 if estimate is not None else f"This hall needs more than {max_steps} steps; ")
+        if max_steps >= LADDER_STEP_CAP:
+            limit = f"one request may take at most {max_steps} (the most any request may take: LADDER_STEP_CAP)"
+        elif max_steps == ladder_step_budget(ctx):
+            limit = (f"the limit for a hall of this size is {max_steps} steps ({LADDER_STEP_FLOOR} plus {LADDER_STEPS_PER_MW:g} per MW of its size), "
+                     f"and no request may take more than {LADDER_STEP_CAP}")
+        else:
+            limit = f"this ladder was given a limit of {max_steps} steps, and no request may take more than {LADDER_STEP_CAP}"
         why = (f"the headroom ladder was still finding reliefs after {max_steps} steps, at {res.max_racks} rack(s) "
-               f"(from {out.initial.max_racks} as found), so the capacity reached is not the ceiling. The size of the hall sets the number of "
+               f"(from {out.initial.max_racks} as found), so the capacity reached is not the ceiling. {needs}{limit}. The size of the hall sets the number of "
                f"steps: check {_SIZE_FIELDS}, or split the site into one request per hall. "
                f"Supported scale: a hall that needs at most {LADDER_STEP_CAP} steps, which is about "
-               f"{int(LADDER_STEP_CAP / LADDER_STEPS_PER_MW_MEASURED // 10 * 10)} MW of firm supply plus behind-the-meter capacity")
+               f"{supported_scale_MW()} MW of firm supply plus behind-the-meter capacity "
+               f"(measured: up to {LADDER_STEPS_PER_MW_MEASURED:g} steps per MW)")
         if not allow_partial:
-            raise LadderDidNotConverge(why)
+            raise LadderDidNotConverge(why, rungs_taken=max_steps, step_limit=max_steps, step_cap=LADDER_STEP_CAP, rungs_needed_estimate=estimate,
+                                       racks_reached=res.max_racks, racks_ceiling=ceiling, supported_MW=supported_scale_MW())
         out.converged = False
         out.non_convergence_reason = why
     # A relief that earns no deployable capacity, and is not followed by one that does, is spending with no

@@ -61,9 +61,11 @@ The rate limiter counts a caller by the socket address unless the operator says 
 any other proxy set the hop count, or every caller shares the proxy's allowance. `GRIDFORGE_RATE_LIMIT` covers every route except
 `/health`, `/v1/version` and `/v1/tools`, which have a separate, generous bound. An IPv6 caller is counted on its /64 and on its enclosing /48 (`GRIDFORGE_RATE_LIMIT_IPV6_48_MULTIPLE` times the /64 limit, default 32; a /48 may hold unrelated users), so a prefix holder cannot mint a fresh allowance per /64. Solves in flight are bounded in all (`GRIDFORGE_MAX_CONCURRENT_SOLVES`, default 16), per keyless caller identity (`GRIDFORGE_MAX_CONCURRENT_SOLVES_PER_CALLER`, default 2; keyed callers are not capped per identity) and for keyless callers (half the total, at least one, so keyed callers have headroom): a request over a bound is answered 503 with `Retry-After` and a JSON body, never queued or charged. 0 turns a bound off, a bad or negative value is the default. Nothing bounds how long one solve takes. All defaults are placeholders, not measurements. `GRIDFORGE_ADMIN_KEY` and `GRIDFORGE_KEY_SECRET` should
 be at least 24 characters: `serve` logs a warning with the variable and its length, and refuses to start only when
-`GRIDFORGE_ENFORCE_SECRET_STRENGTH=1`. The headroom ladder is bounded at 600 steps per scenario (`LADDER_STEP_CAP`); a hall that needs more
-(roughly above 450 MW of supply plus behind-the-meter capacity) is refused by name with a 422. The details are in the docstring of
-`gridforge/api/server.py`.
+`GRIDFORGE_ENFORCE_SECRET_STRENGTH=1`. The headroom ladder is bounded at 660 steps per scenario (`LADDER_STEP_CAP`); a hall that needs more
+(roughly above 370 MW of supply plus behind-the-meter capacity, at the measured worst case of 1.75 steps per MW) is refused by name with a 422
+that says how many steps it took, the limit and about how many it needs (`rungs_taken`, `step_limit`, `step_cap`, `rungs_needed_estimate`,
+`supported_MW`). The measurement behind the figures is `tests/test_ladder_rungs_per_mw.py`; the details are in the docstring of
+`gridforge/envelope/solver.py`.
 
 ## Adding a constraint
 

@@ -114,6 +114,7 @@ from ..reporting.deck import build as build_deck_report
 from ..reporting.deck import to_html as deck_to_html
 from ..reporting.proposal import build as build_proposal_report
 from ..reporting.screen import build as build_screen_report
+from ..envelope.solver import LadderDidNotConverge
 from ..envelope.time_to_power import date_record as _date_record
 from ..reporting.study import build as build_study_report, watermark_for
 from ..reporting.study import collect_claims
@@ -1819,7 +1820,19 @@ def _invoke(endpoint: str, handler, body, tier):
     """Run `handler` for `endpoint` inside the engine-wide concurrency cap (SOLVE_GATE) when the endpoint solves; see `_invoke_inner`.
 
     The ONE place a solve starts, for REST and MCP alike. When every slot is taken this raises ApiError 503 (with retry_after_seconds in its
-    detail) at once: it never waits for a slot, so a flood is shed, not queued."""
+    detail) at once: it never waits for a slot, so a flood is shed, not queued.
+
+    A hall too large for the ladder to finish inside the work one request may ask for (``LadderDidNotConverge``) is a NAMED 422 on both
+    transports, refunded as any 422 is: the message says how many rungs were taken, the limit, the hard cap and about how many the hall needs, and
+    the figures ride as keys (``rungs_taken``, ``step_limit``, ``step_cap``, ``rungs_needed_estimate``, ``supported_MW``). It used to fall into the
+    generic ValueError branch: 'the request could not be processed as given', and over MCP a message cut at 160 characters."""
+    try:
+        return _invoke_gated(endpoint, handler, body, tier)
+    except LadderDidNotConverge as exc:
+        raise ApiError(422, str(exc), **exc.detail()) from None
+
+
+def _invoke_gated(endpoint: str, handler, body, tier):
     if endpoint not in SOLVING_ROUTES:
         return _invoke_inner(endpoint, handler, body, tier)
     caller, public = getattr(_CTX, "caller", ""), tier is Tier.PUBLIC
