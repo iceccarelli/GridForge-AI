@@ -17,7 +17,9 @@ import {
   GATE_COUNT_WORD,
   LEDGER_GATES,
   LEDGER_LIMITS,
+  PUBLICATION_CONDITIONS,
   PUBLISHED_VARIABLES,
+  RECORD_SHAPE,
   RESIDUAL_CELL_FIELDS,
   RESIDUAL_REQUIREMENTS,
   RESIDUAL_TOP_FIELDS,
@@ -114,7 +116,7 @@ describe("the gate list in code is the final view's, not a copy that can drift",
   it("every condition's SQL fragment appears in the migration that holds the FINAL view, and that migration is the last one that defines it", () => {
     const { file } = finalViewWhereTerms();
     // A later migration that redefines the view is a new decision: it must update this list (and the Python test), not slip by.
-    expect(file.slice(0, 4)).toBe("0052");
+    expect(file.slice(0, 4)).toBe("0056");
     const sql = flat(readFileSync(path.join(MIGRATIONS_DIR, file), "utf8"));
     for (const c of VIEW_CONDITIONS) expect(sql, c.label).toContain(c.sql.toLowerCase());
   });
@@ -138,8 +140,17 @@ describe("the gate list in code is the final view's, not a copy that can drift",
     expect(LEDGER_GATES.map((g) => g.id)).toEqual(["independent_review", "frozen_forecast", "production_origin", "owner_permission", "file_decision", "never_test_site"]);
     for (const g of LEDGER_GATES) expect(conditionsOf(g.id).length, g.id).toBeGreaterThan(0);
     expect(conditionsOf("record_shape").length).toBe(4);
-    const grouped = LEDGER_GATES.reduce((n, g) => n + conditionsOf(g.id).length, 0) + conditionsOf("record_shape").length;
+    // 0056's three conditions are filed apart from the six gates: they are the organisation's and the project's decisions, but the administrator's
+    // checklist does not read them, so they must not be counted as gates (and a gate must not quietly absorb one).
+    expect(conditionsOf("publication").map((c) => c.label)).toEqual([
+      "the organisation's LATEST consent is a grant",
+      "the project attested its completion milestone and no supplier record shows delivery in flight",
+      "the observation was not withdrawn (no tombstone)",
+    ]);
+    const grouped =
+      LEDGER_GATES.reduce((n, g) => n + conditionsOf(g.id).length, 0) + conditionsOf("record_shape").length + conditionsOf("publication").length;
     expect(grouped).toBe(VIEW_CONDITION_COUNT);
+    expect(VIEW_CONDITION_COUNT).toBe(21);
   });
 
   it("the six gates carry the conditions the task names, in the view's own terms", () => {
@@ -198,6 +209,17 @@ describe("the public panel renders the typed list", () => {
     for (const l of LEDGER_LIMITS) expect(t).toContain(text(l));
     expect(t).toContain(`applies ${GATE_COUNT_WORD} gates`);
     expect(t).toContain(`${VIEW_CONDITION_COUNT} conditions`);
+  });
+
+  it("states 0056's three conditions as conditional on that migration, not as gates, and says the administrator's checklist does not read them", () => {
+    expect(t).toContain(text(PUBLICATION_CONDITIONS.title));
+    expect(t).toContain(text(PUBLICATION_CONDITIONS.rule));
+    expect(t).toContain(text(PUBLICATION_CONDITIONS.limit));
+    expect(PUBLICATION_CONDITIONS.rule).toMatch(/^Once migration 0056 is applied/);
+    expect(t).toMatch(/not on that screen yet/);
+    // the block comes after the six gates and the record's shape, and is not one of the numbered gates
+    expect(t.indexOf(text(PUBLICATION_CONDITIONS.title))).toBeGreaterThan(t.indexOf(text(RECORD_SHAPE.title)));
+    expect(html.match(/<li class="rounded border/g)?.length).toBe(GATE_COUNT);
   });
 
   it("states the limits the owner asked to be plain", () => {

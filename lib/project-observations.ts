@@ -13,6 +13,7 @@
 
 import { createHash } from "node:crypto";
 import { deploymentCaseRevision, latestDeploymentCase } from "@/lib/power-deploy";
+import { logPublicationRefusal, publicationRefusal } from "@/lib/calibration-gate-errors";
 import { siteRefFromEnv } from "@/lib/site-ref";
 import { GATE_BY_ID, LEDGER_GATES, RECORD_SHAPE, type ConditionGroup, type GateResult } from "@/lib/calibration-gates";
 import {
@@ -275,6 +276,13 @@ export async function submitObservation(
     p_event: ev("observation_submitted", submitted_by, {}),
   });
   if (!added.ok || !added.data) {
+    // 0056's gates (GF015 consent, GF016 completion milestone, GF017 withdrawn): said in words that name what is missing and who supplies it, never
+    // the database's own text; the cause goes to the log.
+    const gate = added.ok === false ? publicationRefusal(added.code) : null;
+    if (gate) {
+      logPublicationRefusal(gate, "observation", project.id);
+      return { ok: false, status: gate.status, error: gate.error };
+    }
     if (added.ok === false && added.code === "23505") {
       return { ok: false, status: 409, error: "An observation of this prediction for that date is already recorded." };
     }
@@ -455,6 +463,11 @@ export function ledgerEligible(
 // a recorded file decision (project_evidence_reviews) and the project's site history (hall_project_attachments joined to sites). An
 // administrator can, with the service role. `ledgerGateChecklist` is `ledgerBlockers` plus those two, plus a read of the stored forecast,
 // reported gate by gate as met / not met / cannot be read. A record that could not be read is never "met".
+//
+// Neither reads the three PUBLICATION conditions migration 0056 adds to the view (the organisation's standing consent, the project's attested
+// completion milestone, no withdrawal; lib/calibration-gates.ts PUBLICATION_CONDITIONS). The database refuses to RECORD a production observation
+// without the first two, so a row that exists had them when it was stored; a later withdrawal takes it out of the view while the checks here still
+// pass, which is why the panel says only that the export view makes the final decision. Reading them here is open work (docs/CALIBRATION_GATES_RUNBOOK.md).
 
 /** What project_evidence_reviews holds for the observation's evidence file. */
 export type FileDecisionRead = "unreadable" | "none" | { decision: "verified" | "rejected"; sha256_confirmed: string | null };
@@ -582,17 +595,52 @@ export interface CalibrationExportRow {
   reviewed_at: string;
 }
 
+const HEX64 = /^[0-9a-f]{64}$/;
+const TOMBSTONE_PAGE = 1000;
+const TOMBSTONE_PAGES_MAX = 100;
+
+/**
+ * Every observation withdrawn with its organisation's consent (migration 0056 `calibration_tombstones`), as the sha256 of its id and NOTHING else: no
+ * organisation, no time, no content. The export carries them so that `gridforge calibrate import` can refuse an export file saved before a withdrawal
+ * and imported after it, and drops from the private ledger what was imported before it (gridforge/calibration/tombstones.py, ledger.py import_export).
+ *
+ * Read in full or not at all: a list cut short would let a withdrawn observation come back, so a page that fills the limit is followed by the next, more
+ * than TOMBSTONE_PAGES_MAX pages is refused, and any other failure is a failure of the export. The one answer taken as "none": the table is not there
+ * (404, undefined relation: migration 0056 has not been applied, so no withdrawal can have been recorded).
+ */
+async function readTombstones(): Promise<{ ok: true; hashes: string[] } | { ok: false }> {
+  const hashes: string[] = [];
+  for (let page = 0; page < TOMBSTONE_PAGES_MAX; page++) {
+    const r = await rest<{ observation_hash?: unknown }[]>(
+      "GET",
+      `calibration_tombstones?select=observation_hash&order=observation_hash.asc&limit=${TOMBSTONE_PAGE}&offset=${page * TOMBSTONE_PAGE}`
+    );
+    if (!r.ok) return page === 0 && r.status === 404 && (r.code === "42P01" || r.code === "PGRST205") ? { ok: true, hashes: [] } : { ok: false };
+    const rows = r.data ?? [];
+    for (const x of rows) {
+      if (typeof x.observation_hash !== "string" || !HEX64.test(x.observation_hash)) return { ok: false };
+      hashes.push(x.observation_hash);
+    }
+    if (rows.length < TOMBSTONE_PAGE) return { ok: true, hashes };
+  }
+  return { ok: false };
+}
+
 /**
  * The rows `gridforge calibrate import` may take, and only those. Read through a database view that encodes the gates
  * (see `ledgerEligible`); this adds a finiteness check and nothing else. With none verified the list is empty and the
  * ledger stays empty. Nothing here imports anything: a person runs the CLI on the saved file.
+ *
+ * `tombstones` (additive) lists the hash of every observation withdrawn with its organisation's consent, which the importer refuses and the ledger leaves out.
  */
 export async function calibrationExport(): Promise<
-  Result<{ schema: typeof EXPORT_SCHEMA; count: number; rows: CalibrationExportRow[]; reviewer_identity: string }>
+  Result<{ schema: typeof EXPORT_SCHEMA; count: number; rows: CalibrationExportRow[]; tombstones: string[]; reviewer_identity: string }>
 > {
   if (!creds()) return STORE_UNCONFIGURED;
   const r = await rest<Record<string, unknown>[]>("GET", "calibration_ledger_rows?select=*&order=reviewed_at.asc");
   if (!r.ok) return { ok: false, status: 502, error: "The calibration export could not be read. Nothing was exported." };
+  const withdrawn = await readTombstones();
+  if (!withdrawn.ok) return { ok: false, status: 502, error: "The list of withdrawn observations could not be read in full. Nothing was exported." };
   const rows: CalibrationExportRow[] = [];
   for (const x of r.data ?? []) {
     const observed = Number(x.observed_value);
@@ -613,6 +661,7 @@ export async function calibrationExport(): Promise<
     schema: EXPORT_SCHEMA,
     count: rows.length,
     rows,
+    tombstones: withdrawn.hashes,
     reviewer_identity: "self-asserted: one shared admin password exists; reviewed_by is the name the reviewer typed",
   };
 }

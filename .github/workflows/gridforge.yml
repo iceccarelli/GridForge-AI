@@ -771,6 +771,8 @@ jobs:
         run: python -m pytest tests/test_forecast_freeze_migration.py tests/test_calibration_consent_migration.py tests/test_evidence_verification_migration.py tests/test_calibration_truth_table.py tests/test_calibration_final_gate.py -q
       - name: Site-origin gate (0052) - a project in a test or synthetic site never reaches the ledger; detached, never attached and production sites are unchanged (fails, never skips)
         run: python -m pytest tests/test_site_origin_gate.py -q
+      - name: Calibration publication gates (0056) - completion milestone, organisation consent with scope and floors, withdrawal tombstones and the release-snapshot registry, each checked at insert and again at the ledger view, on real PostgreSQL (fails, never skips)
+        run: python -m pytest tests/test_calibration_publication_gates.py -q
       - name: Site and hall registry (0049-0051) - organisations, roles, declared origin, hall inputs and their sources, attach/detach, timeline - constraints, grants and the apply gates on real PostgreSQL (fails, never skips)
         run: python -m pytest tests/test_site_registry_migration.py tests/test_hall_inputs_migration.py tests/test_hall_timeline_migration.py tests/test_site_registry_apply.py -q
       - name: The whole chain (0001-0053) - closed function privileges, every event type, replaying 0049-0053 twice, and applying 0046-0053 over legacy rows without rewriting any (fails, never skips)

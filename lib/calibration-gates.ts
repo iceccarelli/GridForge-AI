@@ -1,8 +1,9 @@
 // What an observation must clear to reach the shared calibration ledger: ONE typed source for the public page (/evidence), the
 // pointer on /reference and the administrator's checklist (/admin/reviews).
 //
-// The authority is the FINAL definition of the database view `calibration_ledger_rows` (supabase/migrations/0052). It applies the
-// conditions listed in VIEW_CONDITIONS, one per line of the view, and each is filed under the gate it belongs to. That list is
+// The authority is the FINAL definition of the database view `calibration_ledger_rows` (supabase/migrations/0056, which holds 0052's definition
+// plus three publication conditions). It applies the conditions listed in VIEW_CONDITIONS, one per line of the view, and each is filed under the
+// gate it belongs to (or under the record's shape, or under the publication conditions 0056 adds). That list is
 // asserted against two things by tests/site/calibration-gates.test.ts, so it cannot drift quietly:
 //   * the keys of VIEW_GATES in tests/test_calibration_final_gate.py (the Python test that reads the view out of a database built by
 //     the whole migration chain), and
@@ -21,17 +22,25 @@ export type GateId =
 /** The fixed shape of the record itself: not a decision anyone takes, so not counted among the gates. */
 export type ConditionGroup = GateId | "record_shape";
 
+/**
+ * The three conditions migration 0056 adds to the view (the organisation's standing consent, the project's attested completion milestone, no
+ * withdrawal). They are decisions people take, and they are NOT among the six gates above: the administrator's checklist
+ * (lib/project-observations.ts ledgerGateChecklist) reads the six gates and the record's shape and does not read these three yet, so the view
+ * alone enforces them. Kept apart from `ConditionGroup` so that nothing that walks the six gates can mistake them for one.
+ */
+export type PublicationGroup = "publication";
+
 export interface ViewCondition {
   /** Exactly the key of VIEW_GATES in tests/test_calibration_final_gate.py. */
   label: string;
-  group: ConditionGroup;
+  group: ConditionGroup | PublicationGroup;
   /** A fragment (lower-case, whitespace collapsed) that appears in the migration holding the final view. */
   sql: string;
   /** How many top-level AND terms of the view's WHERE clause this condition covers (1 unless stated). */
   terms?: number;
 }
 
-/** Every condition the final view applies. 18 today. */
+/** Every condition the final view applies. 21 today: the 18 of 0052, then the three publication conditions 0056 adds after them. */
 export const VIEW_CONDITIONS: readonly ViewCondition[] = [
   { label: "observation verified by a review", group: "independent_review", sql: "r.decision = 'verified'" },
   { label: "reviewed as E5 only", group: "independent_review", sql: "r.evidence_class = 'E5'" },
@@ -83,6 +92,27 @@ export const VIEW_CONDITIONS: readonly ViewCondition[] = [
   { label: "the one reconcilable key in MW", group: "record_shape", sql: "o.calibration_key = 'btm.firm_mw' and o.unit = 'mw'", terms: 2 },
   { label: "a site reference", group: "record_shape", sql: "o.site_ref is not null" },
   { label: "the engine digest of the prediction", group: "record_shape", sql: "o.engine_provenance_digest is not null" },
+
+  // 0056. Each is one top-level term of the view, after 0052's last one. None can be met by an observation recorded before 0056 (it has no organisation).
+  {
+    label: "the organisation's LATEST consent is a grant",
+    group: "publication",
+    sql:
+      "and exists ( select 1 from public.calibration_consents cc where cc.organisation_id = o.organisation_id and cc.kind = 'granted' " +
+      "and cc.seq = (select max(c3.seq) from public.calibration_consents c3 where c3.organisation_id = o.organisation_id))",
+  },
+  {
+    label: "the project attested its completion milestone and no supplier record shows delivery in flight",
+    group: "publication",
+    sql:
+      "and exists ( select 1 from public.project_completion_milestones pm where pm.project_id = o.project_id and pm.milestone = 'energised' " +
+      "and pm.reached_on <= o.observed_on and not public.gf_project_delivery_in_flight(o.project_id, o.observed_on))",
+  },
+  {
+    label: "the observation was not withdrawn (no tombstone)",
+    group: "publication",
+    sql: "and not exists ( select 1 from public.calibration_tombstones tb where tb.observation_hash = public.gf_calibration_observation_hash(o.id))",
+  },
 ];
 
 export interface LedgerGate {
@@ -146,6 +176,18 @@ export const LEDGER_GATES: readonly LedgerGate[] = [
   },
 ];
 
+/**
+ * The three publication conditions of migration 0056, in the view's own terms, for the public page. Worded as conditional on the migration: this
+ * code cannot tell whether it has been applied to the database that serves the page, and it must not claim an enforcement that is not there.
+ */
+export const PUBLICATION_CONDITIONS = {
+  title: "Publication conditions (migration 0056)",
+  rule:
+    "Once migration 0056 is applied the view also requires three things: the organisation the observation was recorded under still has a standing consent (its newest consent record is a grant; a withdrawal is a new record); the project attested its completion milestone (energised) on a date no later than the observation's, and none of its own supplier records shows delivery still in flight at the observed date; and the observation was not withdrawn with its organisation's consent (a withdrawal leaves a permanent tombstone that a later grant does not lift).",
+  limit:
+    "The consent text and the signed document are digests the organisation's owner typed: nothing here opens either. The milestone date is the attester's declaration, backed by a file a reviewer verified. A withdrawal stops future aggregates; it cannot recall one that was already published. An observation recorded before the migration has no organisation and no consent, so it is not in the view, and it is not back-filled. The administrator's checklist does not read these three conditions yet: the view alone applies them.",
+} as const;
+
 export const RECORD_SHAPE = {
   title: "The record itself",
   rule:
@@ -167,7 +209,7 @@ export const GATE_COUNT_WORD: string = NUMBER_WORDS[GATE_COUNT] ?? String(GATE_C
 export const GATE_BY_ID: ReadonlyMap<GateId, LedgerGate> = new Map(LEDGER_GATES.map((g) => [g.id, g]));
 
 /** The conditions the final view applies for one group. */
-export const conditionsOf = (group: ConditionGroup): ViewCondition[] => VIEW_CONDITIONS.filter((c) => c.group === group);
+export const conditionsOf = (group: ConditionGroup | PublicationGroup): ViewCondition[] => VIEW_CONDITIONS.filter((c) => c.group === group);
 
 /** What holds whatever the gates say, stated once for every surface. */
 export const LEDGER_LIMITS: readonly string[] = [
