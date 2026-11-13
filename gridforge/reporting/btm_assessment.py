@@ -16,9 +16,11 @@ computes no new physics, exactly like `reporting/readiness.py` before it.
 """
 from __future__ import annotations
 
+import math
 from dataclasses import dataclass, field
 
 from ..common import ASSUMED, V
+from ..intake.loader import PLAUSIBLE_MAX
 from ..power.generation import GenerationUnit
 from ..power.load_profile import LoadProfile
 from ..power.readiness_gates import GateResult, GateStatus, evaluate_gates
@@ -294,15 +296,46 @@ class DeploymentRequestError(ValueError):
     pass
 
 
+#: Plausibility ceilings for the numbers a deployment request carries, taken from the intake loader's own (PLAUSIBLE_MAX) where it has one, so the two
+#: doors agree on what a hall can be: a figure above is a unit slip or an overflow. Without them `nan`, `inf` and 1e300 passed this parser, reached
+#: the solver as a quantity and left in the response as the literals NaN / Infinity, which are not JSON.
+_MAX_MW = PLAUSIBLE_MAX["grid.contracted_MW"]
+_MAX_MWH = PLAUSIBLE_MAX["btm_options.energy_MWh"]
+_MAX_WEEKS = PLAUSIBLE_MAX["btm_options.lead_time_weeks"]
+_MAX_HOURS = 8_784.0                    # a leap year
+_MAX_EUR = 1e12                         # in step with change._STATE_MAX_EUR
+
+
+def _number(raw, what: str, high: float, unit: str) -> float:
+    """A finite number from 0 to `high`, or a refusal that names the field. (`float()` alone accepts nan, inf and a numeric string, and says nothing
+    about a magnitude no site has.)"""
+    try:
+        v = float(raw)
+    except (TypeError, ValueError, OverflowError):
+        raise DeploymentRequestError(f"{what} is {str(raw)[:40]!r}, which is not a number") from None
+    if not math.isfinite(v):
+        raise DeploymentRequestError(f"{what} is {raw!r}; it must be a finite number of {unit}")
+    if v < 0 or v > high:
+        raise DeploymentRequestError(f"{what} is {v:g} {unit}; it must be from 0 to {high:g} {unit}, the most this tool will model for one site. "
+                                     f"Check the unit and for a stray digit.")
+    return v
+
+
+def _optional_number(d: dict, key: str, what: str, high: float, unit: str) -> float | None:
+    return None if d.get(key) is None else _number(d[key], what, high, unit)
+
+
 def _generation_from_request(d: dict) -> GenerationUnit:
     from ..power.generation import default_generation_unit
-    unit = default_generation_unit(str(d["id"]), str(d.get("kind", "gas_engine")),
-                                   float(d["nameplate_MW"]))
-    if d.get("capex_eur") is not None:
-        unit.capex_eur = V(float(d["capex_eur"]), "EUR", f"{unit.id} capex", ASSUMED, band=0.3)
-    if d.get("lead_time_weeks") is not None:
-        unit.lead_time_weeks = V(float(d["lead_time_weeks"]), "weeks",
-                                 f"{unit.id} lead time", ASSUMED, band=0.35)
+    ident = str(d["id"])
+    unit = default_generation_unit(ident, str(d.get("kind", "gas_engine")),
+                                   _number(d["nameplate_MW"], f"generation {ident} nameplate_MW", _MAX_MW, "MW"))
+    capex = _optional_number(d, "capex_eur", f"generation {ident} capex_eur", _MAX_EUR, "EUR")
+    if capex is not None:
+        unit.capex_eur = V(capex, "EUR", f"{unit.id} capex", ASSUMED, band=0.3)
+    lead = _optional_number(d, "lead_time_weeks", f"generation {ident} lead_time_weeks", _MAX_WEEKS, "weeks")
+    if lead is not None:
+        unit.lead_time_weeks = V(lead, "weeks", f"{unit.id} lead time", ASSUMED, band=0.35)
     if d.get("fuel_type"):
         unit.fuel_type = str(d["fuel_type"])
     if d.get("operating_mode") is not None:
@@ -323,26 +356,32 @@ def _generation_from_request(d: dict) -> GenerationUnit:
 
 def _bess_from_request(d: dict) -> BatteryEnergyStorageSystem:
     from ..power.storage import default_bess
-    unit = default_bess(str(d["id"]), power_MW=float(d["power_MW"]),
-                        energy_MWh=float(d["energy_MWh"]))
-    if d.get("capex_eur") is not None:
-        unit.capex_eur = V(float(d["capex_eur"]), "EUR", f"{unit.id} capex", ASSUMED, band=0.3)
-    if d.get("lead_time_weeks") is not None:
-        unit.lead_time_weeks = V(float(d["lead_time_weeks"]), "weeks",
-                                 f"{unit.id} lead time", ASSUMED, band=0.35)
+    ident = str(d["id"])
+    unit = default_bess(ident, power_MW=_number(d["power_MW"], f"bess {ident} power_MW", _MAX_MW, "MW"),
+                        energy_MWh=_number(d["energy_MWh"], f"bess {ident} energy_MWh", _MAX_MWH, "MWh"))
+    capex = _optional_number(d, "capex_eur", f"bess {ident} capex_eur", _MAX_EUR, "EUR")
+    if capex is not None:
+        unit.capex_eur = V(capex, "EUR", f"{unit.id} capex", ASSUMED, band=0.3)
+    lead = _optional_number(d, "lead_time_weeks", f"bess {ident} lead_time_weeks", _MAX_WEEKS, "weeks")
+    if lead is not None:
+        unit.lead_time_weeks = V(lead, "weeks", f"{unit.id} lead time", ASSUMED, band=0.35)
     if d.get("grid_forming") is not None:
         unit.grid_forming = bool(d["grid_forming"])
     return unit
 
 
 def _load_profile_from_request(d: dict) -> LoadProfile:
-    from ..power.load_profile import flat, from_csv
+    from ..power.load_profile import LOAD_PROFILE_MAX_HOURS, LOAD_PROFILE_MAX_kW, LoadProfileError, flat, from_csv
     if not isinstance(d, dict):
         raise DeploymentRequestError(f"load_profile must be an object with 'csv' or 'flat_kW', not {type(d).__name__}")
-    if d.get("csv"):
-        return from_csv(str(d["csv"]), source=str(d.get("source") or "uploaded CSV"))
-    if d.get("flat_kW") is not None:
-        return flat(float(d["flat_kW"]), hours=float(d.get("flat_hours", 24.0)))
+    try:
+        if d.get("csv"):
+            return from_csv(str(d["csv"]), source=str(d.get("source") or "uploaded CSV"))
+        if d.get("flat_kW") is not None:
+            return flat(_number(d["flat_kW"], "load_profile.flat_kW", LOAD_PROFILE_MAX_kW, "kW"),
+                        hours=_number(d.get("flat_hours", 24.0), "load_profile.flat_hours", LOAD_PROFILE_MAX_HOURS, "h"))
+    except LoadProfileError as exc:
+        raise DeploymentRequestError(f"load_profile: {exc}") from exc
     raise DeploymentRequestError(
         "load_profile must supply either 'csv' (timestamp,kW rows) or 'flat_kW' "
         "(a single-figure screening assumption)")
@@ -356,13 +395,13 @@ def deployment_request(doc: dict) -> dict:
     testing enforces on the commercial side of this repository."""
     try:
         load_profile = _load_profile_from_request(doc["load_profile"])
-        grid_firm_MW = V(float(doc["grid_firm_MW"]), "MW", "grid firm capacity", ASSUMED)
-        target_MW = V(float(doc["target_MW"]), "MW", "target firm power", ASSUMED)
+        grid_firm_MW = V(_number(doc["grid_firm_MW"], "grid_firm_MW", _MAX_MW, "MW"), "MW", "grid firm capacity", ASSUMED)
+        target_MW = V(_number(doc["target_MW"], "target_MW", _MAX_MW, "MW"), "MW", "target firm power", ASSUMED)
         generation = [_generation_from_request(g) for g in doc.get("generation", [])]
         bess = [_bess_from_request(b) for b in doc.get("bess", [])]
     except KeyError as exc:
         raise DeploymentRequestError(f"missing required field: {exc}") from exc
-    ride_through_hours = (V(float(doc["ride_through_hours"]), "h", "ride-through window", ASSUMED)
+    ride_through_hours = (V(_number(doc["ride_through_hours"], "ride_through_hours", _MAX_HOURS, "h"), "h", "ride-through window", ASSUMED)
                           if doc.get("ride_through_hours") is not None else None)
     redundancy = Redundancy(doc.get("redundancy", Redundancy.N.value))
     interconnection = doc.get("interconnection") if isinstance(doc.get("interconnection"), dict) else None

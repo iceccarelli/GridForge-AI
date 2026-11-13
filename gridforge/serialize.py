@@ -110,6 +110,9 @@ def scenario_dict(res: ScenarioResult, document: dict | None = None) -> dict:
                      "binding": res.envelope.binding.id,
                      "binding_name": res.envelope.binding.name,
                      "basis": res.envelope.binding.basis},
+        # The equipment banks the client did not declare ("transformers", "UPS"). An undeclared bank is treated as no limit, so the racks above are an
+        # UPPER BOUND and the capex / critical path below are LOWER BOUNDS; empty when both banks were declared.
+        "unassessed_banks": list(res.ladder.unassessed_banks),
         "after_ladder": {"racks": res.unlocked_racks,
                          "binding": res.ladder.final.binding.id if res.ladder.final else None,
                          "it_load_kW": _q(res.ladder.final.it_load_kW if res.ladder.final

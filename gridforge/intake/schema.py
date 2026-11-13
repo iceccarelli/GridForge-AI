@@ -122,6 +122,12 @@ INTAKE_FIELDS: tuple[FieldSpec, ...] = (
     FieldSpec("lv.voltage_V", "LV distribution voltage", "V", False,
               why_it_binds="Busway kW is voltage times ampacity; 400 V and 415 V differ by 4%.",
               how_to_get_it="Busway nameplate or the single-line diagram."),
+    FieldSpec("lv.phases", "LV distribution phases", "-", False,
+              counts_toward_completeness=False,
+              why_it_binds=("A single-phase feed carries 1/sqrt(3) of the power of a three-phase one at the same voltage and ampacity, and a rack draws "
+                            "sqrt(3) times the current from it: both the busway's capacity and the rack-feed (tap-off) limit follow the phase count. "
+                            "When absent the engine reads the hall as three-phase, which is the more favourable reading."),
+              how_to_get_it="Busway nameplate or the single-line diagram."),
     FieldSpec("lv.busway_runs", "Number of busway runs", "-", False,
               why_it_binds="Total feed capacity scales with the runs that actually reach the white space.",
               how_to_get_it="Electrical record drawings."),
@@ -148,9 +154,10 @@ INTAKE_FIELDS: tuple[FieldSpec, ...] = (
               why_it_binds="Delta-T across the plant sets the flow it must move.",
               how_to_get_it="Chiller schedule and BMS trend."),
     FieldSpec("thermal.cdus", "Installed CDU schedule", "-", False,
-              why_it_binds=("When absent, the hybrid and full-DLC scenarios ASSUME three 1,350 kW N+1 "
-                            "CDUs already installed at no cost, which supplies roughly 22 racks of liquid "
-                            "capacity that the hall may not have."),
+              why_it_binds=("When absent, the hybrid and full-DLC scenarios start from an ASSUMED kit of three 1,350 kW N+1 "
+                            "CDUs, which supplies roughly 22 racks of liquid capacity that the hall may not have. The engine "
+                            "prices that kit (a library placeholder, not a quotation) and dates the racks that depend on it, so the "
+                            "cost and the schedule include a purchase nobody declared. Declare the CDUs already installed to remove it."),
               how_to_get_it="CDU nameplates and the mechanical single-line diagram."),
     FieldSpec("compute.utilisation", "Annual average rack utilisation", "-", False,
               supplied_evidence=EvidenceClass.E3_ENGINEERING_ESTIMATE,
@@ -227,6 +234,20 @@ class IntakeReport:
         total = len(counted)
         missing = len({g.path for g in self.gaps if g.path in counted})
         return (total - missing) / total if total else 1.0
+
+    @property
+    def item_gaps_note(self) -> str:
+        """A sentence for the line that states the completeness percentage, or "" when it needs none.
+
+        The percentage counts the single-value inputs only (per-item gaps are deliberately outside INTAKE_FIELDS: see `completeness`). A bank whose unit
+        count or redundancy nobody declared is therefore a REQUIRED gap that leaves the percentage where it was, and "Intake completeness is 100%"
+        printed above a table of open required rows reads as a contradiction. Said only when such a required per-item gap exists."""
+        open_items = [g for g in self.gaps if g.required and "[" in g.path]
+        if not open_items:
+            return ""
+        n = len(open_items)
+        return (f" That percentage counts the single-value inputs only; {n} required input{'s' if n != 1 else ''} on individual "
+                f"equipment items (listed below) {'are' if n != 1 else 'is'} not in it.")
 
     @property
     def can_issue(self) -> bool:

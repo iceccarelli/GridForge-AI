@@ -40,6 +40,17 @@ def racks_q(value: float, label: str, result: ScenarioResult) -> Quantity:
     return V(float(value), "racks", label, rack_class(result))
 
 
+def rack_bound_note(ladder: HeadroomLadder) -> str:
+    """The caption a rack headline carries when a transformer or UPS bank was not declared, else "".
+
+    An undeclared bank evaluates as "not limiting" (the most favourable reading), so the rack figure can only be too high, and the capex and the
+    critical path beside it, which say LOWER BOUND for the same reason, are too low. The headline said neither."""
+    banks = ladder.unassessed_banks
+    if not banks:
+        return ""
+    return f" · UPPER BOUND: not declared: {', '.join(banks)} (treated as no limit, so the hall may carry fewer racks than this)"
+
+
 def lead_class(ladder: HeadroomLadder) -> EvidenceClass:
     classes = [s.lead_time_weeks.evidence for s in ladder.taken_steps if s.lead_time_weeks is not None]
     return min(classes) if classes else EvidenceClass.E0_ASSUMPTION

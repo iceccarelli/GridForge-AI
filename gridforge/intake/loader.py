@@ -27,6 +27,8 @@ from ..thermal.schema import Architecture, CDUSpec, PlantSpec, RDHxSpec, Thermal
 from ..validation import EvidenceClass, Quantity, Source
 from .schema import FIELD_BY_PATH, INTAKE_FIELDS, DataGap, IntakeReport, SuppliedSource
 
+#: The keys of the annotated form of a figure ({"value": 7.4, "note": ..., "source": ..., "evidence": "E3", "unit": "MW"}). `unit` is checked, not read.
+_ANNOTATION_KEYS = frozenset({"value", "note", "source", "evidence", "unit"})
 _EVIDENCE_BY_NAME = {e.short: e for e in EvidenceClass}
 #: The canonical enum names (E0_ASSUMPTION ... E7_DEPLOYED), read from the enum: our own model pack and reference files carry them, so a client who
 #: re-submits a value from them must be understood.
@@ -95,7 +97,7 @@ PLAUSIBLE_MAX: dict[str, float] = {
     "hall.design_density_kW_per_rack": 300, "hall.rack_positions": 50_000, "hall.positions_available": 50_000, "hall.occupied_positions": 50_000,
     "site.design_drybulb_C": 60, "site.design_wetbulb_C": 45,
     "grid.firm_capacity_MVA": 5_000, "grid.contracted_MW": 5_000, "grid.current_site_peak_MW": 5_000, "grid.current_it_load_MW": 5_000,
-    "lv.voltage_V": 36_000, "lv.busway_ampacity_A": 10_000, "lv.busway_runs": 1_000, "lv.tapoff_max_A": 5_000,
+    "lv.voltage_V": 1_000, "lv.busway_ampacity_A": 10_000, "lv.busway_runs": 1_000, "lv.tapoff_max_A": 5_000,
     "lv.existing_busway_load_kW": 5_000_000,
     "thermal.plant.chilled_water_capacity_kW": 2_000_000, "thermal.plant.pump_flow_capacity_l_per_min": 5_000_000,
     "thermal.plant.existing_flow_l_per_min": 5_000_000, "thermal.plant.existing_non_it_heat_kW": 2_000_000,
@@ -111,13 +113,22 @@ PLAUSIBLE_MAX: dict[str, float] = {
 }
 
 
+#: Why a ceiling is where it is, when the number is a definition and not just a sanity bound. Appended to the refusal.
+_CEILING_HINT: dict[str, str] = {
+    "lv.voltage_V": "That is the IEC low-voltage limit (1000 V a.c.): this is the LOW-voltage busway voltage the racks are fed from. A medium-voltage "
+                    "figure (3.3, 6.6, 11, 20 kV) belongs to the transformer's primary, which this intake does not take; "
+                    "11000 V read as a busway voltage would multiply the busway's capacity by 27.",
+}
+
+
 def _ceil(num: float, key: str, what: str, unit: str = "") -> float:
     """Refuse a value above its plausibility ceiling, by name. Returns the value unchanged otherwise."""
     high = PLAUSIBLE_MAX.get(key)
     if high is not None and num > high:
+        hint = _CEILING_HINT.get(key)
         raise IntakeError(
-            f"{what} is {num:g}{(' ' + unit) if unit else ''}, above {high:g}{(' ' + unit) if unit else ''}, "
-            "the most this tool will model for one hall. Check the unit and for a stray digit.")
+            f"{what} is {num:g}{(' ' + unit) if unit else ''}, above {high:g}{(' ' + unit) if unit else ''}"
+            + (f". {hint}" if hint else ", the most this tool will model for one hall. Check the unit and for a stray digit."))
     return num
 
 
@@ -340,6 +351,56 @@ def _occupied_positions_disclosure(ctx, report: "IntakeReport", rack_total_suppl
             f"occupied as declared (reserved, out of service or not yet fitted out). They are not counted as free or as drawing load.")
 
 
+def _redundancy_leaves_nothing(ctx, report: "IntakeReport") -> None:
+    """A declared redundancy that leaves no usable capacity is said at load, by item, instead of surfacing only as a rack count of zero.
+
+    One transformer under N+1, one UPS module under N+1, three modules under 2N: each declaration is legal, and each makes the bank carry less than
+    it is rated for (nothing at all for the first two). The constraint then reports a negative headroom ("-8,000 kW usable") and 0 racks with no
+    word on why. Two findings, both warnings (the declaration is the client's to correct, and a bank that really is short of the existing load is
+    a fact about the hall, not a malformed document): a bank (or CDU bank) whose units under its scheme leave NO usable unit; and a set of banks
+    whose usable capacity is below the load they already carry."""
+    from ..power.redundancy import usable_units
+    power = ctx.power
+    pf = power.grid.power_factor.value
+
+    def none_usable(section: str, n: int, ident: str, units: int, scheme: str, thing: str) -> bool:
+        if usable_units(units, scheme) > 0:
+            return False
+        report.warnings.append(
+            f"{section}[{n}] ({ident}): {units} {thing} under {scheme} leave no usable unit, so this bank carries no load and counts for nothing "
+            f"toward the racks. Check the unit count and the scheme: a single unit cannot be N+1, and two cannot be N+2.")
+        return True
+
+    tx_usable_kW, any_tx_usable = 0.0, False
+    for n, t in enumerate(power.transformers):
+        u = usable_units(t.units, t.redundancy)
+        any_tx_usable |= u > 0
+        none_usable("transformers", n, t.id, t.units, t.redundancy, "unit(s)")
+        tx_usable_kW += t.unit_rating_MVA.value * pf * t.derating_factor.value * u * 1000.0
+    peak_kW = power.grid.current_site_peak_MW.value * 1000.0
+    if power.transformers and any_tx_usable and tx_usable_kW < peak_kW:
+        report.warnings.append(
+            f"transformers: the usable capacity as declared is {tx_usable_kW:,.0f} kW (rating x power factor x derating x the units left after the "
+            f"redundancy reserve), below the {peak_kW:,.0f} kW current site peak (grid.current_site_peak_MW). The transformers cannot carry the "
+            f"existing load as declared, so they allow no racks; check the unit counts, the ratings and the schemes.")
+
+    ups_usable_kW, any_ups_usable = 0.0, False
+    for n, u_ in enumerate(power.ups):
+        u = usable_units(u_.units, u_.redundancy)
+        any_ups_usable |= u > 0
+        none_usable("ups", n, u_.id, u_.units, u_.redundancy, "module(s)")
+        ups_usable_kW += u_.unit_rating_kW.value * u
+    it_kW = power.current_it_load_MW.value * 1000.0
+    if power.ups and any_ups_usable and ups_usable_kW < it_kW:
+        report.warnings.append(
+            f"ups: the usable capacity as declared is {ups_usable_kW:,.0f} kW (module rating x the modules left after the redundancy reserve), below "
+            f"the {it_kW:,.0f} kW existing protected IT load (grid.current_it_load_MW). The UPS cannot carry the existing load as declared, so it "
+            f"allows no racks; check the module counts, the ratings and the schemes.")
+
+    for n, c in enumerate(ctx.thermal.cdus):
+        none_usable("thermal.cdus", n, c.id, c.units, c.redundancy, "CDU(s)")
+
+
 def _existing_busway_vs_installed(path: str, existing, power, report: "IntakeReport") -> None:
     """The load already on the busway cannot exceed what the installed busway can carry. The comparison is against the NAMEPLATE total
     (voltage x ampacity x power factor x runs, no continuous-load derating): a figure above that is not a hall with a full busway, it is a
@@ -378,9 +439,87 @@ _INSTALLED_MEANING = {
 }
 
 
+#: The keys each equipment list reads, and no others. Built from the loader itself (every key it reads for the section), from the keys every shipped
+#: example and every test fixture carries, and from what the website's forms send (lib/engagement-intake.ts, lib/ttp-compare.ts,
+#: lib/site-registry-engine.ts). A key outside the set used to be dropped without a word and the engine ran on a default in its place: a typo for
+#: `units` was two units (racks 28 -> 0); `in_service: false`, `status: "failed"` and `modules_out: 2` were ignored and the failed plant still
+#: counted as capacity; a UPS `derating_factor` was ignored. tests/test_intake_integrity.py pins each set.
+EQUIPMENT_KEYS: dict[str, frozenset[str]] = {
+    "transformers": frozenset({"id", "unit_rating_MVA", "units", "redundancy", "derating_factor", "replacement_lead_time_weeks"}),
+    "ups": frozenset({"id", "unit_rating_kW", "units", "redundancy", "step_load_capability"}),
+    "thermal.cdus": frozenset({"id", "rated_capacity_kW", "rated_approach_K", "rated_flow_l_per_min", "units", "redundancy"}),
+    "btm_options": frozenset({"id", "kind", "capacity_MW", "capex_eur_per_kW", "lead_time_weeks", "firm", "firm_capacity_factor", "opex_eur_per_MWh",
+                              "permitting_note", "energy_MWh", "annual_run_hours", "fuel_price_eur_per_MWh", "electrical_efficiency",
+                              "variable_om_eur_per_MWh", "fixed_om_eur_per_kW_year", "units", "redundancy", "ride_through_hours"}),
+}
+
+#: The keys each object block of the intake reads. `project` is free text and the top level also carries request options (format, objective, ...) when a
+#: request body IS the intake, so neither is listed. Every INTAKE_FIELDS path is inside these sets (tests/test_intake_integrity.py).
+BLOCK_KEYS: dict[str, frozenset[str]] = {
+    "site": frozenset({"id", "name", "country", "metro", "design_drybulb_C", "design_wetbulb_C"}),
+    "hall": frozenset({"id", "build_year", "floor_type", "net_white_space_m2", "floor_loading_kPa", "clear_height_m", "aisle_pitch_m", "rack_positions",
+                       "positions_available", "design_density_kW_per_rack", "containment", "occupied_positions"}),
+    "grid": frozenset({"dso", "firm_capacity_MVA", "power_factor", "contracted_MW", "current_site_peak_MW", "queue_note", "current_it_load_MW"}),
+    "lv": frozenset({"voltage_V", "phases", "busway_ampacity_A", "busway_runs", "busway_utilisation_limit", "tapoff_max_A", "rack_feed_topology",
+                     "existing_busway_load_kW"}),
+    "thermal": frozenset({"plant", "tcs_target_supply_C", "cdu_approach_K", "residual_air_capacity_kW_per_rack", "rdhx", "cdus"}),
+    "thermal.plant": frozenset({"id", "chilled_water_capacity_kW", "design_supply_C", "design_return_C", "pump_flow_capacity_l_per_min",
+                                "available_head_kPa", "free_cooling_hours_per_year", "existing_flow_l_per_min", "existing_non_it_heat_kW"}),
+    "thermal.rdhx": frozenset({"capacity_kW_per_rack"}),
+    "compute": frozenset({"platform", "utilisation", "default_architecture"}),
+    "economics": frozenset({"electricity_eur_per_MWh", "horizon_years", "discount_rate"}),
+}
+
+
+def _one_edit_apart(a: str, b: str) -> bool:
+    """True when `a` and `b` are equal or differ by one inserted, deleted or substituted letter."""
+    if abs(len(a) - len(b)) > 1:
+        return False
+    if len(a) == len(b):
+        return sum(x != y for x, y in zip(a, b)) <= 1
+    short, long_ = (a, b) if len(a) < len(b) else (b, a)
+    i = 0
+    while i < len(short) and short[i] == long_[i]:
+        i += 1
+    return short[i:] == long_[i + 1:]
+
+
+def _did_you_mean(key: str, allowed) -> str:
+    """" Did you mean `x`?" when the unknown key is a near miss (a case slip or one letter off) of an allowed one, else ""."""
+    low = key.lower()
+    close = sorted(a for a in allowed if _one_edit_apart(low, a.lower()))
+    return f" Did you mean `{close[0]}`?" if close else ""
+
+
+def _unknown_keys_message(where: str, unknown: list[str], allowed, what: str, effect: str) -> str:
+    first = unknown[0]
+    more = f" Also unknown here: {', '.join(repr(k[:40]) for k in unknown[1:6])}." if len(unknown) > 1 else ""
+    return (f"{where}.{first[:60]} is not an input the engine reads (allowed on {what}: {', '.join(sorted(allowed))}).{_did_you_mean(first, allowed)}{more} "
+            f"{effect}, so it is refused rather than ignored")
+
+
+def _refuse_unknown_block_keys(doc: dict) -> None:
+    """An unrecognised key in an intake object block is refused by path, never ignored: `compute.rack_kW: 40` was dropped and the platform's 135 kW
+    used, `lv.busway_amps` was dropped and the library's 400 A used. A nested block that must be an object is refused when it is not."""
+    for block, allowed in BLOCK_KEYS.items():
+        cur: Any = doc
+        for part in block.split("."):
+            cur = cur.get(part) if isinstance(cur, dict) else None
+        if cur is None:
+            continue
+        if not isinstance(cur, dict):
+            raise IntakeError(f"{block} must be an object of fields, not {type(cur).__name__}; omit it to use the library defaults, "
+                              f"which are then listed as assumptions")
+        unknown = [k for k in cur if k not in allowed]
+        if unknown:
+            raise IntakeError(_unknown_keys_message(
+                block, unknown, allowed, block,
+                "A key the engine does not read changes nothing, and the study runs on the library default in its place"))
+
+
 def _equipment_list(items, section: str, report: "IntakeReport | None" = None) -> list:
-    """The equipment list as a list of objects, or a refusal that names the section: not a list, an element that is not an object, or more
-    items than a request may ask the engine to solve."""
+    """The equipment list as a list of objects, or a refusal that names the section: not a list, an element that is not an object, an item with a
+    key the engine does not read, or more items than a request may ask the engine to solve."""
     if items is None:
         return []
     if not isinstance(items, list):
@@ -388,12 +527,19 @@ def _equipment_list(items, section: str, report: "IntakeReport | None" = None) -
     if len(items) > MAX_EQUIPMENT_ITEMS:
         raise IntakeError(f"{section} lists {len(items)} items, more than the {MAX_EQUIPMENT_ITEMS} one request may carry. Identical units "
                           "are one item with `units`; split a campus into one request per hall")
+    allowed = EQUIPMENT_KEYS[section]
     for n, item in enumerate(items):
         if not isinstance(item, dict):
             raise IntakeError(f"{section}[{n}] must be an object, not {type(item).__name__}")
         if "installed" in item:
             raise IntakeError(f"{section}[{n}].installed is not an input: {_INSTALLED_MEANING[section]}. It changes what the study counts as already "
                               f"there, so it is refused rather than ignored")
+        unknown = [k for k in item if k not in allowed]
+        if unknown:
+            raise IntakeError(_unknown_keys_message(
+                f"{section}[{n}]", unknown, allowed, section,
+                "A key the engine does not read changes nothing (a failed or out-of-service unit would still be counted as capacity, a misspelt count "
+                "would be read as the default)"))
     _refuse_repeated_ids(items, section)
     if report is not None:
         _warn_content_duplicates(items, section, report)
@@ -429,6 +575,71 @@ def _refuse_repeated_ids(items, section: str) -> None:
                           "Give each item its own id, or raise `units` for identical units")
 
 
+#: What the loader reads a transformer bank or UPS block as when the client did not declare it. The engine still computes with these (a number is
+#: better than a refusal for a first screen) but each use is a NAMED gap beside the figure (`transformers[TX-1].units`), units and redundancy as
+#: REQUIRED ones: omitted, a 2N bank was read as N+1 and gave 29 racks where 4 were declared, and the intake still counted as 100% complete.
+DEFAULT_BANK_UNITS = 2
+DEFAULT_BANK_REDUNDANCY = "N+1"
+DEFAULT_TRANSFORMER_DERATING = 0.9
+DEFAULT_UPS_STEP_LOAD = 0.5
+
+#: The data-request "Assumed" cell of a transformer or UPS schedule that was not declared at all. The bank is then not evaluated: its constraint is
+#: "no limit", the MOST favourable reading, so the rack count is an upper bound (the capex and the critical path are lower bounds: see
+#: HeadroomLadder.unassessed_banks). It used to print the Python literal `[]`.
+UNASSESSED_BANK_TEXT = "not evaluated: treated as no limit, so the rack count is an upper bound (E0)"
+#: The kind of a behind-the-meter option that did not say what it is. Not a key of DEFAULT_FIRM_FACTOR, so the option is credited no firm capacity.
+UNDECLARED_KIND = "undeclared"
+#: The same cell for the CDU schedule: the engine does not leave cooling unassessed, it assumes a kit, prices it and dates it.
+ASSUMED_CDU_KIT_TEXT = ("three 1,350 kW N+1 CDUs (2,700 kW usable) assumed as the starting point of the hybrid and full-DLC scenarios (E0); the kit is "
+                        "priced as a purchase and the racks that depend on it are dated")
+
+
+def _item_ref(item: dict, n: int) -> str:
+    """How a gap names one item of an equipment list: the id the client gave it, else its position (two items without an id are two items)."""
+    return str(item["id"]) if item.get("id") is not None else str(n)
+
+
+def _bank_gaps(section: str, n: int, item: dict) -> list[DataGap]:
+    """Named gaps for what the author of a transformer bank or UPS block left out: `units` and `redundancy` are REQUIRED (they set the usable capacity
+    outright), the transformer's `derating_factor` and the UPS's `step_load_capability` are optional (a labelled library default, E0). A key present
+    with a bad value is refused by the number parser, not listed here: this is only about what was not said."""
+    ups = section == "ups"
+    noun = "UPS block" if ups else "Transformer bank"
+    parts = "modules" if ups else "units"
+    ref = _item_ref(item, n)
+    who = ref if item.get("id") is not None else f"{section}[{n}]"
+    out: list[DataGap] = []
+    if "units" not in item:
+        out.append(DataGap(
+            path=f"{section}[{ref}].units", label=f"{noun} {who}: number of {parts}", unit="units", required=True,
+            fallback_description=(f"nobody declared it: {DEFAULT_BANK_UNITS} {parts} are assumed (E0), the engine's default, not a count from your drawings"),
+            why_it_binds=(f"usable capacity is the {parts} left after the redundancy reserve times the {'module' if ups else 'unit'} rating: the same rating is a "
+                          f"different {'block' if ups else 'bank'} at 2 {parts} and at 6, and so permits a different number of racks"),
+            how_to_get_it=("The UPS schedule or single-line diagram: how many identical modules make up the block" if ups else
+                           "The single-line diagram or the transformer nameplates: how many identical units make up the bank")))
+    if "redundancy" not in item:
+        out.append(DataGap(
+            path=f"{section}[{ref}].redundancy", label=f"{noun} {who}: redundancy scheme", unit="-", required=True,
+            fallback_description=(f"nobody declared it: {DEFAULT_BANK_REDUNDANCY} is assumed (E0), one {'module' if ups else 'unit'} held in reserve"),
+            why_it_binds=(f"N+1 holds one {'module' if ups else 'unit'} back, 2N holds half and N holds none: the same four {parts} are 3, 2 or 4 usable. "
+                          f"An omitted scheme was read as N+1, which overstates a 2N {'block' if ups else 'bank'} (and understates an N one)"),
+            how_to_get_it="The resilience design or the single-line diagram: N, N+1, N+2 or 2N"))
+    if ups and "step_load_capability" not in item:
+        out.append(DataGap(
+            path=f"{section}[{ref}].step_load_capability", label=f"{noun} {who}: accepted step load", unit="-", required=False,
+            fallback_description=(f"nobody declared it: {DEFAULT_UPS_STEP_LOAD:g} is assumed (E0), band 0.3-0.7, as the share of the block's rating accepted "
+                                  f"as an instantaneous step"),
+            why_it_binds="GPU racks present step loads; the share of its rating a UPS accepts at once decides whether it rides one through",
+            how_to_get_it="The UPS datasheet: the instantaneous step-load acceptance, as a fraction of rating"))
+    if not ups and "derating_factor" not in item:
+        out.append(DataGap(
+            path=f"{section}[{ref}].derating_factor", label=f"{noun} {who}: derating factor", unit="-", required=False,
+            fallback_description=(f"nobody declared it: {DEFAULT_TRANSFORMER_DERATING:g} is assumed (E0), band 0.85-0.95, as the share of nameplate usable"),
+            why_it_binds="The share of nameplate the bank can carry continuously at site temperature and loading scales its whole capacity",
+            how_to_get_it="The transformer datasheet or the manufacturer's loading guide at the site's ambient and cooling class"))
+    return out
+
+
 @dataclass
 class _Reader:
     doc: dict
@@ -445,7 +656,7 @@ class _Reader:
             return default
         note, src, ev = None, None, evidence
         if isinstance(raw, dict):
-            raw, note, src, declared = self._annotation(path, label, raw)
+            raw, note, src, declared = self._annotation(path, label, raw, unit)
             if declared is not None:
                 ev = declared
         if ev is None:
@@ -464,11 +675,13 @@ class _Reader:
                  assumptions=[note] if note else (),
                  sources=[Source(src)] if src else ())
 
-    def _annotation(self, path: str, label: str, raw: dict):
+    def _annotation(self, path: str, label: str, raw: dict, unit: str | None = None):
         """Read `{value, note, source, evidence}`: the value, the note, the source and the declared evidence class (None when not declared).
 
         One reading for every field that accepts the object form, so a figure's source cannot be honoured on one field and silently dropped on
-        another."""
+        another. A key outside {value, note, source, evidence, unit} is refused by name, and a `unit` is accepted only when it is the field's own
+        (`unit` here is the loader's unit for it): {"value": 30, "unit": "kVA"} on a field in MVA used to be read as 30 MVA, a factor of 1,000 out.
+        It is never converted: the figure is refused and the unit the field takes is named."""
         note = raw.get("note")
         src = raw.get("source")
         # Both are carried through the whole run as text. Anything else (a list, an object, a number) is not a note or a source, and a
@@ -489,7 +702,27 @@ class _Reader:
         if "value" not in raw:
             raise IntakeError(f"{label} ({path}) is an object without a \"value\"; give a number, or an object with a value "
                               f"(and optionally note, source, evidence)")
+        extra = [k for k in raw if k not in _ANNOTATION_KEYS]
+        if extra:
+            raise IntakeError(f"{path}.{extra[0][:60]} is not part of the annotated form (allowed: {', '.join(sorted(_ANNOTATION_KEYS))}); a key the "
+                              f"engine does not read changes nothing, so it is refused rather than ignored")
+        if raw.get("unit") is not None:
+            self._check_unit(path, raw["unit"], unit)
         return raw["value"], note, src, declared
+
+    @staticmethod
+    def _check_unit(path: str, declared: Any, unit: str | None) -> None:
+        spec = FIELD_BY_PATH.get(path)
+        mine = {u for u in (unit, spec.unit if spec else None) if u}
+        if mine & {"1", "-"}:
+            mine |= {"1", "-"}                 # a dimensionless figure is "1" in the loader and "-" in the data request
+        if not isinstance(declared, str) or declared.strip() not in mine:
+            shown = repr(declared)[:40]
+            if mine:
+                raise IntakeError(f"{path} declares unit {shown}, but this field is in {' or '.join(sorted(mine))}. The value is not converted: give "
+                                  f"the figure in {sorted(mine)[0]}, or leave the unit out")
+            raise IntakeError(f"{path} declares unit {shown}, but this field has no unit to compare it with. The value is not converted: leave the "
+                              f"unit out")
 
     def _record_source(self, path: str, inner, note, src, declared) -> None:
         """Show a number's source and note beside it in the report, as for every other annotated figure."""
@@ -500,18 +733,19 @@ class _Reader:
             ev = declared if declared is not None else (spec.supplied_evidence if spec else CUSTOMER)
             self.report.sourced.append(SuppliedSource(path, spec.label if spec else path, spec.unit if spec else "", float(inner), src, note, ev.short))
 
-    def raw(self, path: str, default=None):
+    def raw(self, path: str, default=None, gap_text: str | None = None):
+        """The value at `path`, or `default` (recorded as a gap, shown as `gap_text` when given, else as the default itself)."""
         v = _dig(self.doc, path)
         if isinstance(v, list) and not v:
             v = None          # an empty schedule is a missing schedule, not a supplied one
         if v is None:
             spec = FIELD_BY_PATH.get(path)
             if spec:
-                self._gap(path, spec, None, str(default))
+                self._gap(path, spec, None, gap_text if gap_text is not None else str(default))
             return default
         spec = FIELD_BY_PATH.get(path)
         if isinstance(v, dict) and "value" in v:
-            inner, note, src, declared = self._annotation(path, spec.label if spec else path, v)
+            inner, note, src, declared = self._annotation(path, spec.label if spec else path, v, spec.unit if spec else None)
             # The object form promises that a source and a note are recorded. The integer-typed fields read through here used to accept it and
             # drop both (and any declared evidence) without a word; now a number's provenance is shown beside it like every other figure's.
             self._record_source(path, inner, note, src, declared)
@@ -789,6 +1023,7 @@ def load_document(doc: dict) -> Intake:
         raise IntakeError("an intake must be a JSON object")
     _refuse_non_object_blocks(doc)
     _refuse_control_characters(doc)
+    _refuse_unknown_block_keys(doc)
     try:
         return _load_document(doc)
     except IntakeError:
@@ -929,20 +1164,22 @@ def _load_document(doc: dict) -> Intake:
     )
 
     transformers = []
-    tx_items = _equipment_list(r.raw("transformers", []) or [], "transformers", r.report)
-    for t in tx_items:
+    equipment_gaps: list[DataGap] = []          # per-item gaps for what an equipment list left out; appended after the long-standing rows (below)
+    tx_items = _equipment_list(r.raw("transformers", [], gap_text=UNASSESSED_BANK_TEXT) or [], "transformers", r.report)
+    for n, t in enumerate(tx_items):
+        equipment_gaps.extend(_bank_gaps("transformers", n, t))
         transformers.append(TransformerBank(
             id=str(t.get("id", "TX")),
             unit_rating_MVA=V(_pos_max(t["unit_rating_MVA"], "transformers.unit_rating_MVA", "unit_rating_MVA", "MVA"), "MVA", f"{t.get('id','TX')} unit rating",
                               CUSTOMER),
-            units=_int_max(t.get("units", 2), "transformers.units", "transformer units"),
-            redundancy=_redundancy(t.get("redundancy", "N+1"), "transformer"),
+            units=_int_max(t.get("units", DEFAULT_BANK_UNITS), "transformers.units", "transformer units"),
+            redundancy=_redundancy(t.get("redundancy", DEFAULT_BANK_REDUNDANCY), "transformer"),
             # a supplied derating is the client's engineering figure (E3, as before); an absent one is a library
             # default and is an assumption (E0)
-            derating_factor=V(_frac(t.get("derating_factor", 0.9), "transformer derating_factor"), "1",
+            derating_factor=V(_frac(t.get("derating_factor", DEFAULT_TRANSFORMER_DERATING), "transformer derating_factor"), "1",
                               f"{t.get('id','TX')} derating",
                               ESTIMATED if t.get("derating_factor") is not None else ASSUMED,
-                              band=_band_containing(t.get("derating_factor", 0.9), (0.85, 0.95), 0.05)),
+                              band=_band_containing(t.get("derating_factor", DEFAULT_TRANSFORMER_DERATING), (0.85, 0.95), 0.05)),
             replacement_lead_time_weeks=V(_pos_max(_supplied_lead_time(t.get("replacement_lead_time_weeks", 160), "transformers.replacement_lead_time_weeks"), "transformers.replacement_lead_time_weeks",
                                                    "power transformer lead time", "weeks"),
                                           "weeks", "power transformer lead time", ASSUMED,
@@ -958,17 +1195,18 @@ def _load_document(doc: dict) -> Intake:
     else:
         report.supplied.append(lead_path)
     ups = []
-    ups_items = _equipment_list(r.raw("ups", []) or [], "ups", r.report)
-    for u in ups_items:
+    ups_items = _equipment_list(r.raw("ups", [], gap_text=UNASSESSED_BANK_TEXT) or [], "ups", r.report)
+    for n, u in enumerate(ups_items):
+        equipment_gaps.extend(_bank_gaps("ups", n, u))
         ups.append(UPSBlock(
             id=str(u.get("id", "UPS")),
             unit_rating_kW=V(_pos_max(u["unit_rating_kW"], "ups.unit_rating_kW", "unit_rating_kW", "kW"), "kW", f"{u.get('id','UPS')} module rating",
                              CUSTOMER),
-            units=_int_max(u.get("units", 2), "ups.units", "UPS units"),
-            redundancy=_redundancy(u.get("redundancy", "N+1"), "UPS"),
-            step_load_capability=V(_frac(u.get("step_load_capability", 0.5), "UPS step_load_capability"), "1",
+            units=_int_max(u.get("units", DEFAULT_BANK_UNITS), "ups.units", "UPS units"),
+            redundancy=_redundancy(u.get("redundancy", DEFAULT_BANK_REDUNDANCY), "UPS"),
+            step_load_capability=V(_frac(u.get("step_load_capability", DEFAULT_UPS_STEP_LOAD), "UPS step_load_capability"), "1",
                                    "accepted instantaneous step load", ASSUMED,
-                                   band=_band_containing(u.get("step_load_capability", 0.5), (0.3, 0.7), 0.1)),
+                                   band=_band_containing(u.get("step_load_capability", DEFAULT_UPS_STEP_LOAD), (0.3, 0.7), 0.1)),
         ))
 
     options = []
@@ -976,7 +1214,7 @@ def _load_document(doc: dict) -> Intake:
     for o in btm_items:
         opt = GenerationOption(
             id=str(o.get("id", o.get("kind", "BTM"))),
-            kind=" ".join(str(o.get("kind", "bess")).replace("-", " ").split()).replace(" ", "_").lower(),
+            kind=(" ".join(str(o["kind"]).replace("-", " ").split()).replace(" ", "_").lower() if o.get("kind") is not None else UNDECLARED_KIND),
             capacity_MW=V(_pos_max(o["capacity_MW"], "btm_options.capacity_MW", "capacity_MW", "MW"), "MW", f"{o.get('id','BTM')} capacity", ASSUMED),
             # Absent means absent: no invented 900 EUR/kW and no invented 36 weeks. The option is then unpriced /
             # undated (a visible gap below), never ranked as complete and never the source of a date.
@@ -1018,7 +1256,23 @@ def _load_document(doc: dict) -> Intake:
                 f"together (fuel cost per MWh generated = price / efficiency).")
         _generator_structure(opt, o, r.report)
         from ..power.btm import DEFAULT_FIRM_FACTOR, INTERMITTENT_KINDS
-        if opt.kind not in DEFAULT_FIRM_FACTOR:
+        if opt.capex_eur_per_kW is not None and opt.capex_eur_per_kW.value == 0:
+            # A declared zero is a price, not a missing one: the relief is then costed at nothing and the capex total drops by the option's whole cost.
+            r.report.warnings.append(
+                f"BTM option {opt.id}: capex_eur_per_kW is 0, so the option is priced as free and the capex total excludes its cost. Leave the field "
+                f"out if the price is not known (the option is then listed as unpriced and the total as a lower bound), or give the quoted EUR/kW.")
+        if opt.kind == UNDECLARED_KIND:
+            # An option without a kind is not a battery (it used to be read as one) and not any other technology: no firm credit, said by name.
+            r.report.warnings.append(
+                f"BTM option {opt.id}: kind was not declared, so the engine cannot say what technology it is and credits it 0 MW as firm capacity "
+                f"(it is not read as a battery). Declare kind as one of {', '.join(sorted(DEFAULT_FIRM_FACTOR))}.")
+            r.report.gaps.append(DataGap(
+                path=f"btm_options[{opt.id}].kind", label=f"{opt.id} technology (kind)", unit="-", required=False,
+                fallback_description="none: credited 0 MW as firm capacity; not read as a battery or as any other technology",
+                why_it_binds=("the firm capacity an option adds depends on what it is: a generator, a battery and a solar array are credited very "
+                              "differently, and with no kind the option adds nothing to the envelope"),
+                how_to_get_it="the supplier's proposal or the generation schedule: the technology of the option"))
+        elif opt.kind not in DEFAULT_FIRM_FACTOR:
             # Not refused: a real generator (a diesel set, a gas turbine) is a legitimate thing to declare, and rejecting the whole intake for it
             # would cost the customer the rest of the analysis. It is simply not credited: with no library basis for its firm capacity and no way to
             # check the customer's factor, the option contributes 0 MW as firm, and the warning says how to get it counted.
@@ -1085,7 +1339,7 @@ def _load_document(doc: dict) -> Intake:
         lv=LVDistribution(
             voltage_V=r.q("lv.voltage_V", "V", "LV distribution voltage",
                           V(400, "V", "assumed LV distribution voltage", ASSUMED)),
-            phases=_phases(r.raw("lv.phases", 3)),
+            phases=_phases(r.raw("lv.phases", 3, gap_text="three-phase distribution assumed (E0)")),
             busway_ampacity_A=r.q("lv.busway_ampacity_A", "A", "installed busway ampacity",
                                   V(400, "A", "assumed legacy busway ampacity", ASSUMED,
                                     band=(250, 630))),
@@ -1102,7 +1356,7 @@ def _load_document(doc: dict) -> Intake:
     )
 
     cdus = []
-    for c in _equipment_list(r.raw("thermal.cdus", []) or [], "thermal.cdus"):
+    for c in _equipment_list(r.raw("thermal.cdus", [], gap_text=ASSUMED_CDU_KIT_TEXT) or [], "thermal.cdus"):
         cdus.append(CDUSpec(
             id=str(c.get("id", "CDU")),
             rated_capacity_kW=V(_pos_max(c["rated_capacity_kW"], "thermal.cdus.rated_capacity_kW", "rated_capacity_kW", "kW"), "kW",
@@ -1225,7 +1479,7 @@ def _load_document(doc: dict) -> Intake:
         r._gap(tariff_path, FIELD_BY_PATH.get(tariff_path), None, "library placeholder of 140 EUR/MWh (E0)")
     horizon = _dig(doc, "economics.horizon_years")
     if isinstance(horizon, dict) and "value" in horizon:
-        horizon, h_note, h_src, h_declared = r._annotation("economics.horizon_years", "lifecycle horizon", horizon)
+        horizon, h_note, h_src, h_declared = r._annotation("economics.horizon_years", "lifecycle horizon", horizon, "years")
         r._record_source("economics.horizon_years", horizon, h_note, h_src, h_declared)
     if horizon is None:
         r._gap("economics.horizon_years", FIELD_BY_PATH.get("economics.horizon_years"), None,
@@ -1238,7 +1492,7 @@ def _load_document(doc: dict) -> Intake:
         econ.horizon_years = n
     rate = _dig(doc, "economics.discount_rate")
     if isinstance(rate, dict) and "value" in rate:
-        rate, r_note, r_src, r_declared = r._annotation("economics.discount_rate", "discount rate", rate)
+        rate, r_note, r_src, r_declared = r._annotation("economics.discount_rate", "discount rate", rate, "1")
         r._record_source("economics.discount_rate", rate, r_note, r_src, r_declared)
     if rate is None:
         r._gap("economics.discount_rate", FIELD_BY_PATH.get("economics.discount_rate"), None,
@@ -1284,9 +1538,13 @@ def _load_document(doc: dict) -> Intake:
         report.warnings.append("No behind-the-meter options declared: where the grid binds, the "
                                "study can only report that it binds.")
     _occupied_positions_disclosure(ctx, report, rack_total_supplied)          # after the long-standing warnings: none of them moves
+    _redundancy_leaves_nothing(ctx, report)
 
     # The optional busway-load row goes LAST in the ledger: the deck's "What nobody has measured yet" slide shows the first eight gaps, and a
     # newer optional input must not displace the long-standing ones from it (tests/test_existing_load_input.py pins the first eight).
+    # What each transformer bank and UPS block left out, named per item: after the long-standing rows (so every example's list keeps its order) and
+    # before the busway-load and occupied-positions rows that stay last.
+    r.report.gaps.extend(equipment_gaps)
     r.report.gaps.sort(key=lambda g: g.path == existing_busway_path)       # stable: only that row moves, and only to the end
     if hall.occupied_positions is None:
         # Named as an OPTIONAL gap (never required, outside the completeness ratio) and LAST, after the busway-load row, for the same reason.

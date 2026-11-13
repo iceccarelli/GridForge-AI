@@ -54,12 +54,17 @@ def _declared_assumed_inputs(intake: Intake, paths: list[str]) -> list[dict]:
 
 
 def qualify_payload(intake: Intake, results: list[ScenarioResult],
-                    objective: Objective = Objective.MAX_COMPUTE, *, declared_assumed: list[str] | None = None) -> dict:
+                    objective: Objective = Objective.MAX_COMPUTE, *, declared_assumed: list[str] | None = None,
+                    derived_assumed: list[str] | None = None) -> dict:
     """The website qualifier. Real engineering, no priced content.
 
     `declared_assumed` names (by the loader's intake path) the qualify fields the caller declared assumed (class E0). When it is empty the response is exactly what it was
     before the parameter existed; when it is not, `inputs_declared_assumed` is added, listing each such figure with the class the engine
-    recorded for it, and the figures are classed E0 throughout the result's own basis and evidence."""
+    recorded for it, and the figures are classed E0 throughout the result's own basis and evidence.
+
+    `derived_assumed` names the figures the QUALIFIER derived because the caller did not give them (the firm connection capacity, from the contract).
+    They are a different list on purpose: `inputs_declared_assumed` is exactly what the caller declared, and the website reads it as such
+    (lib/qualify-assumed.ts); a derived figure is added under `inputs_derived_assumed`, class E0, with the note saying how it was derived."""
     rec = _pick_recommended(results, objective)
     t = schedule(rec.ladder)
     plat = intake.context.cluster.platform
@@ -105,6 +110,8 @@ def qualify_payload(intake: Intake, results: list[ScenarioResult],
         out["intake"]["assumed_count"] = len(rows)
         out["intake"]["assumed_count_note"] = ("completeness and required_inputs_missing count figures declared assumed as supplied; "
                                                "assumed_count of them are assumptions (class E0), not customer data")
+    if derived_assumed:
+        out["inputs_derived_assumed"] = _declared_assumed_inputs(intake, derived_assumed)
     return out
 
 

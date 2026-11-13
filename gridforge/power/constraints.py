@@ -14,6 +14,7 @@ from ..constraints import (ConstraintResult, EnvelopeContext, ReliefOption, cons
                            gate_racks)
 from ..validation import Provenance, Quantity
 from .btm import installed_firm_kW, next_option, option_capex
+from .redundancy import usable_units
 
 SQRT3 = math.sqrt(3.0)
 
@@ -21,17 +22,10 @@ SQRT3 = math.sqrt(3.0)
 TRANSFORMER_UPRATE = 1.6
 
 
-def _effective_units(units: int, redundancy: str) -> int:
-    r = redundancy.upper().replace(" ", "")
-    if r in ("N", "N+0"):
-        return units
-    if r == "N+1":
-        return max(units - 1, 0)
-    if r in ("2N", "N+N"):
-        return units // 2
-    if r == "N+2":
-        return max(units - 2, 0)
-    raise ValueError(f"unknown redundancy {redundancy!r}; expected N, N+1, N+2 or 2N")
+#: The units of a bank that count as usable capacity under its redundancy scheme: one rule, `power.redundancy.usable_units`, which generation options and
+#: the loader's warnings use too. This module carried a second copy of the arithmetic; tests/test_intake_integrity.py pins them as the same function over
+#: a grid of units x schemes. (`thermal.constraints` keeps its own: thermal may not import power.)
+_effective_units = usable_units
 
 
 def _lesser_of(a: Quantity, b: Quantity, label: str) -> Quantity:

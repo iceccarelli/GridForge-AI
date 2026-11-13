@@ -28,7 +28,7 @@ from ..intake.loader import Intake
 from ..scenario.run import ScenarioResult
 from .study import Objective, _pick_recommended
 from ..validation import EvidenceClass
-from .labels import ASSUMED_DATE_LABEL, date_basis, full_capacity_q, is_zero_gain
+from .labels import ASSUMED_DATE_LABEL, date_basis, full_capacity_q, is_zero_gain, rack_bound_note
 
 MARK = "#1193A8"       # capacity — dimmed step of the brand's `power`
 MARK_ALT = "#BD8318"   # delay    — dimmed step of the brand's `queue`
@@ -200,8 +200,8 @@ def build(intake: Intake, results: list[ScenarioResult], *,
         title=rec.envelope.binding.name,
         lead=rec.envelope.binding.basis + ".",
         figures=[
-            ("Deployable today", str(rec.envelope.max_racks), "racks, as the hall stands"),
-            ("After the ladder", str(rec.unlocked_racks), f"racks · {rec.spec.name}"),
+            ("Deployable today", str(rec.envelope.max_racks), "racks, as the hall stands" + rack_bound_note(rec.ladder)),
+            ("After the ladder", str(rec.unlocked_racks), f"racks · {rec.spec.name}" + rack_bound_note(rec.ladder)),
             ("Time to full capacity",
              "—" if t.weeks_to_full is None else f"{t.weeks_to_full:.0f}",
              (f"weeks{_range} · set by {t.critical_item.lower()}" + (f" · {_db.caption}" if _db.assumed else "")
@@ -274,7 +274,7 @@ def build(intake: Intake, results: list[ScenarioResult], *,
     d.slides.append(Slide(
         kicker="Evidence",
         title=("What nobody has measured yet" if gaps else "What the inputs are, and are not"),
-        lead=(f"Intake is {intake.report.completeness:.0%} complete. Each of these moves the "
+        lead=(f"Intake is {intake.report.completeness:.0%} complete.{intake.report.item_gaps_note} Each of these moves the "
               "answer and is currently a library default."
               if gaps else "Every site input requested was supplied by the client as declared ratings and "
               "design values — not measured by us. Prices, lead times and the tariff are library "

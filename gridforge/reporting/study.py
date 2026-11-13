@@ -23,7 +23,7 @@ from .model import Bullets, Callout, Lit, Para, Report, Section, Statement, Tabl
 from .grid_queue_section import section as grid_queue_section
 from .retail_price_section import section as retail_price_section
 from .labels import (ASSUMED_DATE_LABEL, capex_per_rack_q, critical_path_q, date_basis, date_basis_text, date_title, dominant_sensitivity, elapsed_bands, full_capacity_q, is_zero_gain, rack_class,
-                     racks_q, relief_text, step_basis_text, economics_limitations, weeks_q)
+                     rack_bound_note, racks_q, relief_text, step_basis_text, economics_limitations, weeks_q)
 
 
 def collect_claims(results) -> dict[str, list]:
@@ -134,14 +134,14 @@ def build(ctx: EnvelopeContext, results: list[ScenarioResult],
     s.blocks.append(Statement(
         f"Deployable {plat.name} racks today, before any investment",
         racks_q(rec.envelope.max_racks, "deployable racks as found", rec),
-        rec.envelope.binding.basis))
+        rec.envelope.binding.basis + rack_bound_note(rec.ladder)))
     s.blocks.append(Para(
         f"The binding constraint as found is {rec.envelope.binding.name.lower()} "
         f"({rec.envelope.binding.domain}). {rec.envelope.binding.basis}."))
     s.blocks.append(Statement(
         "Deployable racks after the full headroom ladder",
         racks_q(rec.unlocked_racks, "deployable racks after relief measures", rec),
-        f"{rec.ladder.final.binding.name} becomes binding" if rec.ladder.final else ""))
+        (f"{rec.ladder.final.binding.name} becomes binding" if rec.ladder.final else "") + rack_bound_note(rec.ladder)))
     s.blocks.append(Statement(
         "IT load unlocked",
         rec.ladder.final.it_load_kW if rec.ladder.final else rec.envelope.it_load_kW,
