@@ -1,0 +1,10 @@
+# SYNTHETIC: invented figures for tests (semicolon delimiter, kVA ratings, a status column, an unmapped column; not a real schedule)
+# A second comment line, to show that every comment line is skipped and listed.
+Tag;Unit rating (kVA);Qty;Configuration;Status;Notes;Derating
+SYN-TX-1;2500;2;N+1;In-Service;"synthetic note; with a semicolon";0.92
+SYN-TX-2;1600;3;n + 1;Installed;;
+SYN-TX-3;4000;2;N+1;Planned;uprate proposal;
+SYN-TX-4;1250;2;2N;Decommissioned;removed;
+
+SYN-TX-5;1111.5;4;N+2;live;"two
+lines";0.95

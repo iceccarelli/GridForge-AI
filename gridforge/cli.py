@@ -1215,6 +1215,21 @@ def cmd_portfolio(args) -> int:
     return 0
 
 
+def cmd_import_schedule(args) -> int:
+    """A transformer or UPS schedule (CSV) -> the intake's `transformers` / `ups` list, plus a provenance ledger. Exit 0 = written; 2 = refused,
+    nothing written. The logic and its contract live in intake/schedule_import.py; this only reads the flags and prints."""
+    from .intake.schedule_import import ScheduleImportError, format_report, import_schedule, write_outputs
+    try:
+        result = import_schedule(args.file, args.kind, rows_are_installed=args.rows_are_installed, source_label=args.source_label,
+                                 into=args.into, replace=args.replace)
+        write_outputs(result, args.out, args.ledger, source=args.file, into=args.into)
+    except ScheduleImportError as exc:
+        print(f"import-schedule refused, nothing written: {exc}", file=sys.stderr)
+        return 2
+    print(format_report(result, args.out, args.ledger))
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
     p = argparse.ArgumentParser("gridforge", description=__doc__.split("\n")[0])
     sub = p.add_subparsers(dest="cmd", required=True)
@@ -1226,6 +1241,25 @@ def main(argv: list[str] | None = None) -> int:
     s = sub.add_parser("gaps", help="print the data request for an intake")
     s.add_argument("intake")
     s.set_defaults(func=cmd_gaps)
+
+    s = sub.add_parser("import-schedule",
+                       help="turn a customer's transformer or UPS schedule (CSV) into the intake's transformers / ups list, with a provenance "
+                            "ledger; reads only what the file says and refuses the rest")
+    s.add_argument("file", help="the schedule export, UTF-8 CSV (comma, semicolon or tab), at most 200 data rows and 256 KiB")
+    s.add_argument("--kind", required=True, choices=["transformers", "ups"], help="which intake section the file is")
+    s.add_argument("--into", metavar="INTAKE", help="merge into this intake document's section and write the merged intake; without it -o holds "
+                                                    "just the one section")
+    s.add_argument("-o", "--out", required=True, metavar="OUT.json", help="where the section (or the merged intake) is written")
+    s.add_argument("--ledger", required=True, metavar="OUT.import.json",
+                   help="where the provenance ledger is written: source file and sha256, row, column, raw cell and conversion for every figure, "
+                        "the unmapped headers and the excluded rows. Not an intake key.")
+    s.add_argument("--rows-are-installed", action="store_true",
+                   help="REQUIRED when the file has no status column: every row is declared installed (a schedule often lists planned equipment, "
+                        "and the engine counts everything it is given as installed)")
+    s.add_argument("--source-label", default=None, help='free text recorded in the ledger, e.g. "E-101 rev C"')
+    s.add_argument("--replace", action="store_true",
+                   help="replace a section that already holds items (without it a non-empty section is refused, with a diff of what would change)")
+    s.set_defaults(func=cmd_import_schedule)
 
     for name, fn, helptext in (("screen", cmd_screen, "produce a Density Screen"),
                                ("study", cmd_study, "produce a Capacity & Density Envelope Study")):

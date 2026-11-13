@@ -1,0 +1,4 @@
+# SYNTHETIC: invented figures for tests (UPS modules rated in kVA, with a power-factor column; not a real asset)
+Equipment ID,Rating (kVA),PF,Units,Redundancy
+SYN-UPS-1,1111,0.9,4,N+1
+SYN-UPS-2,500,0.8,6,2N

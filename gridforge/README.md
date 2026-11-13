@@ -40,6 +40,8 @@ lad = ladder(intake.context)  # -> Headroom Ladder: relieve the binding constrai
 `tests/test_architecture.py` enforces the dependency rule, including the rule that
 no domain module may import `gridforge.integrations`.
 
+**Schedule import (`intake/schedule_import.py`).** `python3 -m gridforge import-schedule schedule.csv --kind transformers|ups [--rows-are-installed] [--into intake.json [--replace]] -o out.json --ledger out.import.json` reads a customer's transformer or UPS schedule export (CSV, at most 200 rows) into the intake's `transformers` / `ups` list. It reads only plain decimals under exact headers that carry their unit, refuses the whole file (naming row and column) on anything else, never defaults an empty cell (the loader then names it as a gap), assigns no evidence class, and writes a provenance ledger (source sha256, row, column, raw cell, conversion; every figure `verified: false`). Exit 0 = written, 2 = refused with nothing written. REST/MCP exposure, XLSX and DCIM/BMS exports are not implemented.
+
 ## The two rules that matter
 
 1. **Every number carries its provenance.** `Quantity` propagates an evidence class
