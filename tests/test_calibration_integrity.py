@@ -340,8 +340,12 @@ def test_import_appends_only_verified_rows_hash_chained_with_source_refs(tmp_pat
     assert out["imported"] == 3
     got, _ = read_chain(p)
     assert [o.source for o in got] == ["import"] * 3 and all(o.published for o in got)
-    assert got[0].source_ref == f"{row(1)['id']}:{SHA}" and got[0].model_digest == DIGEST
-    assert got[0].reviewed_by == "A. Reviewer" and got[0].evidence is EvidenceClass.E5_CUSTOMER_DATA
+    # A published row carries no database id and no person (audit D6: both were copied verbatim). The reference is a hash of the id, still
+    # the same for the same observation, so a second import is refused; the reviewer is a role. The old expectations pinned the verbatim copy.
+    from gridforge.calibration.ledger import published_source_ref
+    assert got[0].source_ref == published_source_ref(row(1)["id"], SHA) and row(1)["id"] not in got[0].source_ref
+    assert got[0].source_ref.endswith(f":{SHA}") and got[0].model_digest == DIGEST
+    assert got[0].reviewed_by == "calibration reviewer" and got[0].evidence is EvidenceClass.E5_CUSTOMER_DATA
     c = calibration_for("btm.firm_MW", got)
     assert c.n == 3 and c.sites == 3 and c.state is CalibrationState.INDICATIVE
 
