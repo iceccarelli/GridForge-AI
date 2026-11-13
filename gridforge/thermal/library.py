@@ -44,6 +44,52 @@ def implied_delta_T_K(heat_kW: float, flow_l_per_min: float) -> float:
     return heat_kW * 60.0 / (flow_l_per_min * WATER_DENSITY_KG_PER_L * WATER_CP_KJ_PER_KG_K)
 
 
+#: The smallest CDU approach (K) the loader accepts, for the TCS-side figure and for a CDU's rating. A liquid-to-liquid heat exchanger moves
+#: heat only across a finite temperature difference; vendor ratings are 4-5 K (docs/02 §4) and none is published near zero. An input
+#: sanity bound in the manner of RDHX_MAX_CREDIBLE_kW, not a product claim: it catches a zero, a unit slip or a missing digit.
+MIN_APPROACH_K = 1.0
+
+
+def heat_carried_kW(flow_l_per_min: float, delta_T_K: float) -> float:
+    """The heat water carries at ``flow_l_per_min`` over ``delta_T_K`` (P = Q x rho x cp x dT / 60); the inverse of ``implied_delta_T_K``."""
+    return flow_l_per_min * WATER_DENSITY_KG_PER_L * WATER_CP_KJ_PER_KG_K * delta_T_K / 60.0
+
+
+#: Thermal intake figures that are accepted and parsed but that NO constraint limit reads, with what each is used for instead. The loader
+#: warns, per field, when the client declares one (an input that changes no answer must not look as if it did). The list is derived from
+#: what the constraints actually read (grep of ``ctx.thermal`` / ``ctx.site`` in thermal/, site/ and power/ constraints, 2026-11) and is
+#: held to it by tests/test_thermal_integrity.py, which perturbs each field across every shipped intake and architecture and checks that no
+#: constraint moves, and that every OTHER thermal figure does move something.
+UNREAD_THERMAL_INPUTS: dict[str, str] = {
+    "thermal.plant.available_head_kPa": (
+        "pump head and pressure drop are not modelled; the figure is printed in the procurement specification as the duty point the "
+        "supplier must confirm"),
+    "thermal.plant.free_cooling_hours_per_year": (
+        "free-cooling hours are not modelled (PUE is a fixed library figure per architecture); the figure appears in the procurement "
+        "specification only"),
+    "thermal.plant.design_return_C": (
+        "the return temperature is read only to state the plant delta-T beside the hydraulic_flow basis and to check that it is above "
+        "supply; flows are not converted by delta-T"),
+    "site.design_wetbulb_C": (
+        "the wet-bulb temperature is not modelled (dry coolers are taken to dry bulb); the figure appears in the procurement "
+        "specification's site conditions only"),
+}
+
+#: Every key the loader reads under the thermal sections. Anything else declared there is not an input of this engine and is said to be
+#: ignored (a pump-redundancy key, a hot-day derate, a water-availability flag ...). A test holds this to the loader's own reads.
+KNOWN_THERMAL_KEYS: dict[str, frozenset[str]] = {
+    "thermal": frozenset({"plant", "tcs_target_supply_C", "cdu_approach_K", "residual_air_capacity_kW_per_rack", "cdus", "rdhx"}),
+    "thermal.plant": frozenset({"id", "chilled_water_capacity_kW", "design_supply_C", "design_return_C", "pump_flow_capacity_l_per_min",
+                                "available_head_kPa", "free_cooling_hours_per_year", "existing_flow_l_per_min",
+                                "existing_non_it_heat_kW", "dry_cooler_capacity_kW"}),
+    "thermal.cdus": frozenset({"id", "rated_capacity_kW", "rated_approach_K", "rated_flow_l_per_min", "units", "redundancy"}),
+    "thermal.rdhx": frozenset({"capacity_kW_per_rack"}),
+}
+
+#: Words that mark a site or hall key as a cooling / water input (a flag the engine does not read), so a declared one is said to be ignored
+#: without warning about every unrelated key a form may send.
+COOLING_KEY_WORDS = ("water", "wue", "cool", "chill", "pump", "thermal", "humid", "redundan")
+
 RESIDUAL_AIR_CAPACITY_LEGACY_kW = V(8.0, "kW", "legacy hall air removal capacity per rack position",
                                     ASSUMED, band=(6, 12),
                                     assumptions=["European colo built 2010-2020 designed 8-20 kW/rack; "

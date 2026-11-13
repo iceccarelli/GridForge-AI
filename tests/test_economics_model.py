@@ -128,6 +128,10 @@ def test_a_firm_quote_replaces_the_placeholder_and_raises_the_evidence_of_the_to
 
 # === 2. capacity-scaled relief prices ===============================================================================
 
+#: Full DLC's dedicated heat-rejection loop: named UNPRICED on every deployable full-DLC capex (no library line exists), so a full-DLC total is a lower bound.
+LOOP = "loop.ht_heat_rejection"
+
+
 def _ctx(d, arch=Architecture.FULL_DLC) -> EnvelopeContext:
     ctx = load_document(copy.deepcopy(d)).context
     ctx.architecture = arch
@@ -264,7 +268,7 @@ def test_a_cdu_quote_that_includes_commissioning_stops_it_being_reported_unprice
     private_library([quote("cdu.addition", "EUR", 1_440_000.0, quoted_quantity=8.0, quoted_quantity_unit="unit",
                            includes_keys=["cdu.commissioning"])])
     _, r = scenario(doc("dublin_hall"), "full_dlc_btm")
-    assert {g["key"] for g in r.economics.unpriced_summary()} == {"cdu.integration"}
+    assert {g["key"] for g in r.economics.unpriced_summary()} == {"cdu.integration", LOOP}       # + the dedicated loop, never priced
 
 
 def test_a_lump_with_no_quantity_prices_a_cdu_per_step_and_says_so(private_library):
@@ -371,7 +375,7 @@ def test_without_installation_and_commissioning_prices_the_total_says_it_is_a_lo
     e = r.economics
     assert not e.capex_complete and not e.decision_grade
     keys = {g["key"] for g in e.unpriced_summary()}
-    assert keys == {"cdu.integration", "cdu.commissioning"}
+    assert keys == {"cdu.integration", "cdu.commissioning", LOOP}          # full DLC also names its dedicated heat-rejection loop
     assert any("LOWER BOUND" in x and "CDU commissioning" in x for x in e.limitations)
     assert all(s.unpriced for s in r.ladder.taken_steps if s.binding_id == "cdu_capacity")
 
@@ -383,7 +387,8 @@ def test_pricing_the_components_completes_the_capex_exactly_and_counts_nothing_t
                      quote("cdu.commissioning", "EUR/unit", 8_000.0, basis="budgetary_quote")])
     _, full = scenario(doc("dublin_hall"), "full_dlc")
     e = full.economics
-    assert e.unpriced == [] and e.capex_complete
+    # every CDU component is priced now; the only thing left unpriced is full DLC's dedicated loop, so the total is still a lower bound
+    assert [u["key"] for u in e.unpriced] == [LOOP] and not e.capex_complete
     assert e.capex_total_eur.value == pytest.approx(bare.economics.capex_total_eur.value + units * 28_000)
     assert all(not s.unpriced for s in full.ladder.taken_steps)
 
@@ -391,7 +396,7 @@ def test_pricing_the_components_completes_the_capex_exactly_and_counts_nothing_t
 def test_a_lump_quote_for_cdu_installation_is_used_as_the_price_of_the_job(private_library):
     private_library([quote("cdu.integration", "EUR", 50_000.0), quote("cdu.commissioning", "EUR", 30_000.0)])
     _, r = scenario(doc("dublin_hall"), "full_dlc")
-    assert r.economics.capex_complete
+    assert [u["key"] for u in r.economics.unpriced] == [LOOP]          # the CDU job is priced; only the dedicated loop is not
     cdu_steps = [s for s in r.ladder.taken_steps if s.binding_id == "cdu_capacity"]
     assert cdu_steps and all(s.capex_eur.value == pytest.approx(180_000 * 1 + 80_000) for s in cdu_steps)
 
@@ -650,12 +655,19 @@ def test_a_fully_priced_estimate_is_not_called_a_lower_bound(private_library, tm
     private_library([quote("cdu.integration", "EUR/unit", 20_000.0), quote("cdu.commissioning", "EUR/unit", 8_000.0)])
     intake = load_document(doc("dublin_hall"))
     results = run_all(intake.context, intake.scenarios)
-    rec = {r.spec.id: r for r in results}["full_dlc"]
+    by_id = {r.spec.id: r for r in results}
+    full = by_id["full_dlc"]
+    # full DLC is still a lower bound, for exactly one reason: its dedicated heat-rejection loop has no price
+    assert [u["key"] for u in full.economics.unpriced] == [LOOP] and not full.economics.capex_complete
+    rec = by_id["hybrid_dlc"]            # no architecture-level unpriced component: with the CDU components priced it IS fully priced
     assert rec.economics.capex_complete and not any("LOWER BOUND" in x for x in rec.economics.limitations)
     from gridforge.reporting import to_markdown
     from gridforge.reporting.study import build
     md = to_markdown(build(intake.context, results, client="t"))
-    assert "NOT PRICED" not in md.split("## 10.")[0].split("## 9.")[1]
+    section = md.split("## 10.")[0].split("## 9.")[1]
+    # no CDU component is NOT PRICED any more; the only NOT PRICED row left is full DLC's dedicated heat-rejection loop (the recommended scenario)
+    assert "NOT PRICED — CDU" not in section
+    assert all("dedicated heat-rejection loop" in line for line in section.splitlines() if "NOT PRICED" in line)
 
 
 def test_the_api_screen_payload_carries_the_same_economics(monkeypatch):
@@ -742,7 +754,8 @@ def test_a_partial_ladder_is_not_a_complete_capex_even_when_every_line_is_priced
     from gridforge.economics.model import evaluate
     from gridforge.envelope.solver import ladder
     private_library([quote("cdu.integration", "EUR/unit", 20_000.0), quote("cdu.commissioning", "EUR/unit", 8_000.0)])
-    intake, full = scenario(doc("dublin_hall"), "full_dlc")
+    # hybrid DLC: full DLC's dedicated loop is unpriced on every full-DLC total, which would make the converged ladder incomplete too
+    intake, full = scenario(doc("nordic_hall"), "hybrid_dlc")
     assert full.economics.capex_complete and full.ladder.converged
     ctx = full.ladder.initial_context
     lad = ladder(ctx, max_steps=3, allow_partial=True)

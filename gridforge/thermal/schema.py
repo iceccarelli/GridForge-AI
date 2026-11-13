@@ -22,6 +22,9 @@ class PlantSpec:
     pump_flow_capacity_l_per_min: Quantity
     available_head_kPa: Quantity
     free_cooling_hours_per_year: Quantity
+    #: Heat the dry coolers on the DEDICATED high-temperature loop can reject (kW), as the client declared it (nameplate: the conditions it
+    #: is rated at are not known). None = not declared: full DLC then has no heat-rejection limit and the loop is an unpriced component.
+    #: Read only under full DLC, and only when above zero (zero means none installed: the loop is what the scenario buys).
     dry_cooler_capacity_kW: Quantity | None = None
     dry_cooler_approach_K: Quantity | None = None
     #: Flow the existing hall already draws on this plant (l/min). None = not supplied: the pump flow is then read as flow available
@@ -43,6 +46,10 @@ class CDUSpec:
     #: False for a CDU the engine ASSUMES so that a liquid scenario can be solved when the client supplied no CDU
     #: schedule. It is not in the hall; it has to be bought, and the economics must say so.
     installed: bool = True
+    #: True only when the client DECLARED ``rated_flow_l_per_min`` for this CDU. Then the bank's flow is a limit (usable units x rated flow
+    #: over the platform's flow per rack, ``cdu_capacity``); otherwise ``rated_flow_l_per_min`` is a library placeholder that no constraint
+    #: reads, so an undeclared flow can never refuse a rack.
+    rated_flow_declared: bool = False
 
 
 @dataclass

@@ -182,6 +182,57 @@ INTAKE_FIELDS: tuple[FieldSpec, ...] = (
     FieldSpec("compute.platform", "Target platform", "-", True,
               why_it_binds="Defines rack power, heat split, flow and mass.",
               how_to_get_it="The tenant's actual order, not a press release."),
+    # Optional thermal and hall inputs the library used to fill WITHOUT a word (the report then printed the library figure as if it were
+    # known). None is required and none is counted in `completeness`: each is asked for in the data request and named when absent.
+    FieldSpec("thermal.cdus.rated_approach_K", "CDU rated approach temperature", "K", False,
+              counts_toward_completeness=False,
+              why_it_binds=("A CDU rating is stated AT an approach temperature and is derated linearly to the approach the site can offer, so the "
+                            "rated approach sets how many racks a CDU carries at warm facility water. When a CDU in the schedule omits it the "
+                            "library 5 K is used, an assumption (E0)."),
+              how_to_get_it="The CDU datasheet's rating conditions (kW at which approach and flow)."),
+    FieldSpec("thermal.cdus.rated_flow_l_per_min", "CDU rated flow", "l/min", False,
+              counts_toward_completeness=False,
+              why_it_binds=("A CDU that cannot move the flow its racks need cannot serve them however much heat it can transfer. When EVERY CDU in "
+                            "the schedule declares its rated flow, the bank's flow (usable units x rated flow) is a limit beside its heat "
+                            "capacity; when any omits it no flow limit is applied and the CDU capacity rests on heat alone."),
+              how_to_get_it="The CDU datasheet: rated secondary (technology-loop) flow at the rated duty."),
+    FieldSpec("thermal.plant.available_head_kPa", "Available pump head", "kPa", False,
+              counts_toward_completeness=False,
+              why_it_binds=("A flow figure without a head figure is not a duty point. No constraint compares head today; the figure is printed in "
+                            "the procurement specification as the duty the supplier must confirm. When absent the library 250 kPa is printed, "
+                            "an assumption (E0)."),
+              how_to_get_it="Pump curves at the operating point, or commissioning pressure readings across the hall's loops."),
+    FieldSpec("thermal.plant.free_cooling_hours_per_year", "Free-cooling hours per year", "h", False,
+              counts_toward_completeness=False,
+              why_it_binds=("What the existing plant achieves in free cooling sets how much a higher loop temperature is worth. No constraint reads "
+                            "it and PUE is a fixed library figure; it is printed in the procurement specification. When absent the library "
+                            "2,500 h is printed, an assumption (E0)."),
+              how_to_get_it="BMS economiser run-hours over 12 months, or the plant's TMY-based energy model."),
+    FieldSpec("thermal.plant.dry_cooler_capacity_kW", "Dry-cooler heat rejection on the dedicated loop", "kW", False,
+              supplied_evidence=EvidenceClass.E3_ENGINEERING_ESTIMATE,
+              counts_toward_completeness=False,
+              why_it_binds=("Under full direct-to-chip cooling the liquid load goes to a dedicated high-temperature loop whose dry coolers must "
+                            "reject it. When given, the dry-cooler capacity over the liquid load per rack is a limit on full DLC; it is read as "
+                            "a nameplate with NO derating for the design dry bulb (the rating conditions are not known), so confirm it at site "
+                            "conditions. When absent nothing limits the loop's heat rejection and the loop is an unpriced component of the capex."),
+              how_to_get_it="The dry-cooler schedule: kW at the rated water and ambient temperatures, and those temperatures."),
+    FieldSpec("hall.containment", "Aisle containment", "-", False,
+              counts_toward_completeness=False,
+              why_it_binds=("Containment quality decides how much heat an existing hall can remove per position. No constraint reads this field; the "
+                            "air removal per position is the separate figure above. When absent the report prints the library cold-aisle "
+                            "containment, an assumption (E0)."),
+              how_to_get_it="A site walk or the mechanical drawings: none, cold aisle, hot aisle or chimney."),
+    FieldSpec("hall.floor_type", "Floor type", "-", False,
+              counts_toward_completeness=False,
+              why_it_binds=("A raised floor adds a structural note to the floor-loading result (load-spreading plates, or removing the floor and "
+                            "deploying on slab); the load capacity itself is the separate figure above. When absent the report prints the "
+                            "library raised floor, an assumption (E0)."),
+              how_to_get_it="Structural record drawings or a site walk: raised_floor or slab."),
+    FieldSpec("hall.build_year", "Year the hall was built", "-", False,
+              counts_toward_completeness=False,
+              why_it_binds=("No constraint reads the build year; it dates the equipment the report describes. When absent the report prints the "
+                            "library 2015, an assumption (E0)."),
+              how_to_get_it="The building record or the lease."),
 )
 
 REQUIRED_PATHS = tuple(f.path for f in INTAKE_FIELDS if f.required)

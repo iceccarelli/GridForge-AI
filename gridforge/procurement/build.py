@@ -21,6 +21,7 @@ from ..common import ESTIMATED, V
 from ..constraints import EnvelopeContext
 from ..envelope.solver import LadderStep, rack_evidence
 from ..scenario.run import ScenarioResult
+from ..thermal.constraints import facility_water_supply
 from ..thermal.library import PUE_BY_ARCHITECTURE
 from ..thermal.schema import Architecture
 from ..validation import EvidenceClass, Provenance, Quantity
@@ -273,17 +274,23 @@ def _cdu(ctx: EnvelopeContext, racks: int, count_ev: EvidenceClass = SPEC_CEILIN
     # inlet: that is an equipment survival rating, not an operating point (docs/02 section 4). No floor is applied: a
     # facility water that is not colder than the target leaves no approach, and the specification says so.
     tcs = ctx.thermal.tcs_target_supply_C
-    approach = tcs - plant.design_supply_C
+    # The facility water is read from the SAME helper the engine's cdu_capacity and water-temperature gate read
+    # (thermal/constraints.py facility_water_supply), never from the legacy plant setpoint directly: under full DLC the water the
+    # dedicated loop receives is the dry coolers' (design dry bulb plus their approach), not the existing chiller's.
+    fws = facility_water_supply(ctx)
+    fws_t = fws.temperature
+    approach = tcs - fws_t
     if approach.value > 0:
         approach_note = (f"Available approach = TCS supply target {tcs.render()} less facility-water supply "
-                         f"{plant.design_supply_C.render()} = {approach.value:g} K. This is the figure the capacity model "
+                         f"{fws_t.render()} ({fws.mechanism}) = {approach.value:g} K. This is the figure the capacity model "
                          f"derates a CDU on: its rated duty is scaled linearly by the available approach over the approach "
                          f"it is rated at, capped at the rating. Approach at site conditions is what determines usable duty.")
     else:
-        approach_note = (f"TCS supply target {tcs.render()} less facility-water supply {plant.design_supply_C.render()} = "
+        approach_note = (f"TCS supply target {tcs.render()} less facility-water supply {fws_t.render()} ({fws.mechanism}) = "
                          f"{approach.value:g} K: the facility water is not colder than the technology-loop target, so the "
                          f"capacity model derates a CDU to no usable duty at this site. The supply temperature or the target "
                          f"must change before a CDU duty can be specified.")
+    water_return = (f", return {plant.design_return_C.render()}" if fws.source == "existing_plant" else "")
     return [
         Requirement(
             id="T-01", clause="Rated duty at site conditions",
@@ -293,7 +300,7 @@ def _cdu(ctx: EnvelopeContext, racks: int, count_ev: EvidenceClass = SPEC_CEILIN
             value=_q(duty.value, "kW", "required CDU duty at site conditions", "spec.cdu_duty", [duty]),
             unit="kW", derived_from="cdu_capacity",
             basis=(f"{racks} racks at {plat.liquid_kW().render()} liquid load per rack. Rated with facility water supplied "
-                   f"at {plant.design_supply_C.render()}; the design operating point of the technology loop is the TCS "
+                   f"at {fws_t.render()} ({fws.mechanism}); the design operating point of the technology loop is the TCS "
                    f"supply target {tcs.render()}. The platform accepts liquid inlet up to "
                    f"{plat.max_inlet_liquid_C.render()}, but that is the equipment's survival rating, not an operating "
                    f"point: the duty is not rated there."),
@@ -301,9 +308,8 @@ def _cdu(ctx: EnvelopeContext, racks: int, count_ev: EvidenceClass = SPEC_CEILIN
         Requirement(
             id="T-02", clause="Facility water conditions",
             statement=(f"Equipment shall achieve the rated duty with facility water supplied "
-                       f"at {plant.design_supply_C.render()}, return "
-                       f"{plant.design_return_C.render()}."),
-            value=plant.design_supply_C, unit="degC", derived_from="cdu_capacity",
+                       f"at {fws_t.render()}{water_return}."),
+            value=fws_t, unit="degC", derived_from="cdu_capacity",
             basis=("A CDU is rated at a stated approach (a 5 K approach is usual). Where the approach this site's facility "
                    "water leaves the technology loop (T-04) is NARROWER than the rated one, usable duty falls in proportion "
                    "(available approach over rated approach), so a rating quoted at the reference approach and installed "

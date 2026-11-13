@@ -313,18 +313,26 @@ def test_the_thermal_and_electrical_figures_carry_the_class_of_the_platform_data
     intake, results = worlds["reference_hall"]
     plat = intake.context.cluster.platform
     assert plat.rack_kW.evidence is EvidenceClass.E0_ASSUMPTION
+    from gridforge.thermal.constraints import facility_water_supply
+
     by = {}
+    t02 = []          # (class T-02 carries, class of the facility-water figure the engine reads for that same scenario)
     for res in results:
         for cid in sorted({s.binding_id for s in relief_steps(res)}):
             for r in build_spec(intake, res, constraint_id=cid).requirements:
                 if r.value is not None:
                     by.setdefault(r.id, set()).add(r.value.evidence)
+                    if r.id == "T-02":
+                        t02.append((r.value.evidence, facility_water_supply(scenario_context(intake, res)).temperature.evidence))
     for rid in ("T-01", "T-03", "T-04", "T-20", "E-10", "E-20", "E-30"):
         assert by.get(rid) == {EvidenceClass.E0_ASSUMPTION}, (rid, by.get(rid))
     for rid, classes in by.items():
         assert max(classes) <= EvidenceClass.E5_CUSTOMER_DATA, rid
-    # T-02 is the client's own facility-water figure passed through untouched: it keeps the class it was supplied at
-    assert by["T-02"] == {intake.context.thermal.plant.design_supply_C.evidence}
+    # T-02 is the facility-water figure the engine itself reads for that scenario, passed through untouched: the client's plant
+    # setpoint (kept at the class it was supplied at) where the water comes from the existing plant, and the derived dry-cooler
+    # figure (dry bulb plus the dry coolers' approach, an assumption) under full DLC. Never a class of its own.
+    assert t02 and all(spec_class == engine_class for spec_class, engine_class in t02)
+    assert {EvidenceClass.E5_CUSTOMER_DATA} <= {c for c, _ in t02}
 
 
 # --- T4: the approach the spec states is the one the engine derates on ----------------------------------------------
@@ -335,20 +343,40 @@ _ENGINE_APPROACH = re.compile(r"(-?[\d,]+(?:\.\d+)?)(?: \[[^\]]*\])? degC \(E\d\
 def test_t04_is_the_available_approach_the_engines_cdu_derate_prints(worlds):
     """The engine's derate uses the TCS operating target less the facility-water supply (24 K on the reference hall).
     T-04 printed 39 K: the platform's 45 degC survival rating less the supply, labelled as the site's approach."""
-    compared = 0
+    from gridforge.thermal.constraints import facility_water_supply
+
+    compared = deferred = 0
+    seen = []
     for example, intake, res, cid in _purchasable(worlds):
         if cid != "cdu_capacity":
             continue
+        seen.append((example, res.spec.id))
         pkg = build_spec(intake, res, constraint_id=cid)
         ctx = res.ladder.initial_context
-        printed = _ENGINE_APPROACH.search(cdu_capacity(ctx).basis)
-        assert printed, cdu_capacity(ctx).basis
-        t04 = next(r for r in pkg.requirements if r.id == "T-04").value
+        req = next(r for r in pkg.requirements if r.id == "T-04")
+        t04 = req.value
         assert t04.unit == "K"
-        assert t04.rounded() == pytest.approx(float(printed.group(1).replace(",", ""))), (example, res.spec.id)
-        assert t04.value == pytest.approx(ctx.thermal.tcs_target_supply_C.value - ctx.thermal.plant.design_supply_C.value)
-        compared += 1
-    assert compared >= 8
+        # The facility water is the one the engine's own constraints read (thermal/constraints.py facility_water_supply): the
+        # existing plant's setpoint for retained air / rear door / hybrid, the dry coolers' water for full DLC.
+        fws = facility_water_supply(ctx).temperature
+        assert t04.value == pytest.approx(ctx.thermal.tcs_target_supply_C.value - fws.value), (example, res.spec.id)
+        basis = cdu_capacity(ctx).basis
+        printed = _ENGINE_APPROACH.search(basis)
+        if printed:
+            assert t04.rounded() == pytest.approx(float(printed.group(1).replace(",", ""))), (example, res.spec.id)
+            compared += 1
+        else:
+            # The engine's CDU row says "not assessed here": the facility water is not colder than the TCS target, the water gate
+            # already holds the hall at zero, and there is no approach to print. The spec must then say the same thing, in words,
+            # rather than state an approach the engine itself says does not exist.
+            assert basis.startswith("not assessed here"), basis
+            assert t04.value <= 0, (example, res.spec.id, t04.value)
+            assert "not colder than the technology-loop target" in req.basis, (example, res.spec.id, req.basis)
+            deferred += 1
+    # Measured on the four shipped halls: 8 scenarios buy CDU relief; 2 are hybrid (the engine prints an approach) and 6 are full DLC,
+    # where the dry coolers' water is above the TCS target and the engine's CDU row is "not assessed". Before the facility-water helper
+    # all 8 printed the legacy plant's 24 K, which is exactly the figure the engine no longer stands behind for full DLC.
+    assert compared >= 2 and deferred >= 1 and compared + deferred >= 8, (compared, deferred, seen)
 
 
 def test_the_reference_hall_t04_is_24_k_not_the_survival_rating_less_the_supply(worlds):

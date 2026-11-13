@@ -149,7 +149,9 @@ def test_e1_a_two_n_bank_with_redundancy_left_out_is_never_reported_complete():
 def _full_dublin() -> dict:
     """Every optional field supplied (the audit's FULL document): the only document for which the screen may say the intake is complete."""
     d = copy.deepcopy(DUBLIN)
-    d["thermal"]["cdus"] = [dict(id="C", rated_capacity_kW=1350, units=3, redundancy="N+1")]
+    # rated_approach_K and rated_flow_l_per_min are optional CDU inputs the engine names as gaps when omitted (thermal track), so the one
+    # document that must carry NO gap declares them too.
+    d["thermal"]["cdus"] = [dict(id="C", rated_capacity_kW=1350, units=3, redundancy="N+1", rated_approach_K=5, rated_flow_l_per_min=2000)]
     d["thermal"]["plant"]["existing_flow_l_per_min"] = 3000
     d["thermal"]["plant"]["existing_non_it_heat_kW"] = 500
     d["thermal"]["rdhx"] = {"capacity_kW_per_rack": 60}
@@ -301,12 +303,17 @@ def test_e2_an_unknown_key_in_an_object_block_is_refused_by_path_not_ignored(blo
 
 
 def test_e2_every_field_of_the_data_request_and_the_blank_template_is_inside_the_block_allow_lists():
-    from gridforge.intake.loader import BLOCK_KEYS
+    from gridforge.intake.loader import BLOCK_KEYS, EQUIPMENT_KEYS
     for f in INTAKE_FIELDS:
         parts = f.path.split(".")
+        block = ".".join(parts[:-1])
+        if block in EQUIPMENT_KEYS:
+            # a per-item row of an equipment list (e.g. thermal.cdus.rated_approach_K): the key must be one that list accepts
+            assert parts[-1] in EQUIPMENT_KEYS[block], f.path
+            continue
         if len(parts) == 1 or parts[0] in ("transformers", "ups") or f.path == "thermal.cdus":
             continue                                         # the equipment lists have their own sets
-        assert ".".join(parts[:-1]) in BLOCK_KEYS and parts[-1] in BLOCK_KEYS[".".join(parts[:-1])], f.path
+        assert block in BLOCK_KEYS and parts[-1] in BLOCK_KEYS[block], f.path
     assert load_document(blank_intake()).report.gaps
 
 

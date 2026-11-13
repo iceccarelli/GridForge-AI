@@ -26,6 +26,13 @@ from .labels import (ASSUMED_DATE_LABEL, capex_per_rack_q, critical_path_q, date
                      rack_bound_note, racks_q, relief_text, step_basis_text, economics_limitations, weeks_q)
 
 
+def _assumed_tag(hall, path: str) -> str:
+    """" (assumed, E0)" beside a hall figure the client did not supply and the library filled in (the loader records which, in
+    ``hall.assumed_fields``); empty for a supplied figure and for a context built by hand. A plain-text figure carries no evidence class of its
+    own, so an assumed one must say what it is."""
+    return " (assumed, E0)" if path in getattr(hall, "assumed_fields", ()) else ""
+
+
 def collect_claims(results) -> dict[str, list]:
     """Map report claim kinds to the quantities that carry them."""
     inf = float("inf")
@@ -121,7 +128,7 @@ def build(ctx: EnvelopeContext, results: list[ScenarioResult],
         status="Screening study",
         meta=[
             ("Site", ctx.site.name),
-            ("Hall", f"{hall.id} · built {hall.build_year}"),
+            ("Hall", f"{hall.id} · built {hall.build_year}{_assumed_tag(hall, 'hall.build_year')}"),
             ("Metro", f"{ctx.site.metro}, {ctx.site.country}"),
             ("Target platform", plat.name),
             ("Architectures compared", str(len(results))),
@@ -296,9 +303,9 @@ def build(ctx: EnvelopeContext, results: list[ScenarioResult],
     s.blocks.append(Table(
         ["Item", "Value"],
         [["Site", ctx.site.name], ["Metro", ctx.site.metro], ["Country", ctx.site.country],
-         ["Hall", hall.id], ["Built", Lit(str(hall.build_year))],
-         ["Floor", hall.floor_type.value.replace("_", " ")],
-         ["Containment", str(hall.containment).replace("_", " ")],
+         ["Hall", hall.id], ["Built", Lit(f"{hall.build_year}{_assumed_tag(hall, 'hall.build_year')}")],
+         ["Floor", hall.floor_type.value.replace("_", " ") + _assumed_tag(hall, "hall.floor_type")],
+         ["Containment", str(hall.containment).replace("_", " ") + _assumed_tag(hall, "hall.containment")],
          ["Rack positions", V(float(hall.rack_positions), "positions", "installed rack positions", ESTIMATED)],
          ["Positions available", V(float(hall.positions_available), "positions",
                                    "positions available for redeployment", ESTIMATED)],

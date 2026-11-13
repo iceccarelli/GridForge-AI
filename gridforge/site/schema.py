@@ -28,6 +28,9 @@ class HallSpec:
     #: Occupied rack positions as the CLIENT declared them (class E5 at most), or None when they did not: the engine then derives no
     #: occupied count as a fact. Optional and read only by the busway check against the load already in the hall; it moves no rack count.
     occupied_positions: Quantity | None = None
+    #: Intake paths of the hall figures (build year, floor type, containment) the client did NOT supply and the library filled in, so a report that
+    #: prints them can say they are assumed. Set by the intake loader; empty for a context built by hand.
+    assumed_fields: tuple[str, ...] = ()
 
     @property
     def deployable_positions(self) -> int:
