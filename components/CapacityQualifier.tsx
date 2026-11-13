@@ -50,7 +50,8 @@ import {
  * nothing of this is rendered and the form is exactly what it was.
  */
 
-interface FieldDef {
+/** Exported, with FIELDS and fieldProblem, so the suite (which has no DOM) can run the form's own rule on typed text. */
+export interface FieldDef {
   key: keyof typeof DEFAULTS;
   label: string;
   unit: string;
@@ -79,7 +80,7 @@ const DEFAULTS = {
   positionsAvailable: 180,
 };
 
-const FIELDS: FieldDef[] = [
+export const FIELDS: FieldDef[] = [
   { key: "contractedMW", label: "Contracted capacity", unit: "MW", step: "0.1", min: 0, max: 2000, positive: true,
     hint: "From the supply contract, not the connection nameplate." },
   { key: "currentPeakMW", label: "Current site peak", unit: "MW", step: "0.1", min: 0, max: 2000,
@@ -92,8 +93,9 @@ const FIELDS: FieldDef[] = [
     hint: "A rack that cannot be fed cannot be placed." },
   { key: "plantSupplyC", label: "Plant supply temperature", unit: "°C", step: "0.5", min: -5, max: 45,
     hint: "Chilled water flow setpoint. Legacy plant runs 6–7 °C." },
-  { key: "positionsAvailable", label: "Rack positions available", unit: "", min: 0, max: 20000, positive: true, integer: true,
-    hint: "Positions you could actually release from tenancy." },
+  // Zero is an answer: the engine accepts it and reports that rack positions are what stops the hall.
+  { key: "positionsAvailable", label: "Rack positions available", unit: "", min: 0, max: 20000, integer: true,
+    hint: "Positions you could actually release from tenancy. Enter 0 if none are free." },
 ];
 
 const PLATFORMS = [
@@ -108,7 +110,7 @@ const EMPTY_RAW = Object.fromEntries(Object.keys(DEFAULTS).map((k) => [k, ""])) 
 type FieldErrors = Partial<Record<keyof Values, string>>;
 
 /** The first problem with one field's text, or null. Mirrors the engine's bounds so the message sits beside the field. */
-function fieldProblem(f: FieldDef, raw: string): string | null {
+export function fieldProblem(f: FieldDef, raw: string): string | null {
   if (raw.trim() === "") return "Enter a value.";
   const n = Number(raw);
   if (!Number.isFinite(n)) return "Enter a number.";

@@ -25,7 +25,7 @@ export const qualifySchema = z.object({
   buswayAmpacityA: z.coerce.number().positive().max(6300),
   tapoffMaxA: z.coerce.number().positive().max(1600),
   plantSupplyC: z.coerce.number().min(-5).max(45),
-  positionsAvailable: z.coerce.number().int().positive().max(20000),
+  positionsAvailable: z.coerce.number().int().nonnegative().max(20000),
   // --- context --------------------------------------------------------------
   siteName: z.string().trim().max(120).optional(),
   hallId: z.string().trim().max(60).optional(),
