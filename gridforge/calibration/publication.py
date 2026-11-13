@@ -22,15 +22,20 @@ THE RULES (each is a constant below; each is tested at its boundary in tests/tes
   5. A figure that claims to describe the model is stated with an interval over sites where there are enough sites for one, and with
      none, and the reason, where there are not.
 
-HARD PRECONDITION FOR PUBLISHING ANY REAL OBSERVATION (review R4, not solved here)
+HARD PRECONDITION FOR PUBLISHING ANY REAL OBSERVATION (review R4: the policy is built, the serving path is NOT wired to it)
 
   The public report is unauthenticated and recomputed on every request. A reader who records it before and after one site is added
   computes N' x mean' - N x mean and gets that site's signed error (253 of 254 seeded trials had the right sign, median relative error 0.16%
-  even with three-figure rounding). Nothing in a pure function can stop that: it needs successive releases to be a policy decision, i.e.
-  the report served from a snapshot refreshed on a fixed cadence and only when at least ``PUBLIC_MIN_SITES`` new sites have joined since the
-  last one (so a release difference is an aggregate of five sites, never one), or no public statistic at all. The shipped ledger holds
-  0 observations, so nothing is exposed today; DO NOT put a real observation into the ledger or the record store, or serve the report
-  over one, before that exists. The report states this in ``requirements.release_precondition`` once it has any record.
+  even with three-figure rounding). Nothing in a pure function of the ledger can stop that: it needs successive releases to be a policy
+  decision, i.e. the report served from a snapshot, refreshed on a fixed cadence and only when the new release differs from EVERY earlier one by
+  a safe group (never by one site), or no public statistic at all.
+  BUILT: ``release.py`` is that policy (cell floors K and M in organisations, the step, the cadence, an exact proof that no combination of published sums
+  isolates a small group; ``propose_release`` returns what to serve and what to register), tested against an attacker built independently of it
+  (tests/test_release_differencing.py); supabase/migrations/0056 holds the registry of released snapshots and its database half.
+  NOT BUILT: anything that CALLS it. gridforge/api/server.py still recomputes ``public_report`` on every request, so the precondition stands: DO NOT put a
+  real observation into the ledger or the record store, or serve the report over one, until the route serves ``Proposal.served`` and registers
+  ``Proposal.snapshot``. The shipped ledger holds 0 observations, so nothing is exposed today. The report states this in
+  ``requirements.release_precondition`` once it has any record.
 
 WHAT ELSE THIS DOES NOT DEFEND AGAINST: a reader who already knows every other site's figures can solve for the last, and the rounding
 above only blunts a difference, it does not remove it.
@@ -57,8 +62,9 @@ INTERVAL_CONFIDENCE = 0.95
 INTERVAL_LABEL = "interval over sites, assumes sites are exchangeable; not a guarantee for any given hall"
 POOLED_UNRECORDED = "pooled across unrecorded model versions"
 RELEASE_PRECONDITION = ("Successive releases of this report differ by the sites added between them, and the difference of two releases is "
-                        "that site's contribution. Real observations are published only from a snapshot refreshed on a fixed cadence and "
-                        f"only after at least {PUBLIC_MIN_SITES} new sites have joined since the last release.")
+                        "that site's contribution. Real observations are published only from a snapshot (gridforge/calibration/release.py) "
+                        "released no more often than its cadence, and only when it differs from every earlier release by a group of observations "
+                        f"from several organisations that is itself safe to publish (never by fewer than {PUBLIC_MIN_SITES} sites).")
 
 #: Labels that name no build. A record carrying one is "unrecorded", never "the one build recorded".
 UNRECORDED_BUILD_LABELS = frozenset({"", "unknown", "unrecorded", "none", "null", "n/a", "na", "unspecified", "tbd", "?", "-", "unversioned"})

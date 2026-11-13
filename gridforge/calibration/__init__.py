@@ -20,9 +20,10 @@ from .disclosure import accuracy_block, for_constraint, may_claim_field_validate
 from .records import ObservationRecord, RecordError, BatchResult, load_batch
 from .residuals import residual, residual_report, pending_counts, public_report
 from . import store
+from . import release
 
 __all__ = ["ObservationRecord", "RecordError", "BatchResult", "load_batch",
-           "residual", "residual_report", "pending_counts", "public_report", "store",
+           "residual", "residual_report", "pending_counts", "public_report", "store", "release",
 "Observation", "ObservationError", "Calibration", "CalibrationState",
            "summarise", "calibration_for", "Ledger", "LedgerIntegrityError", "load_ledger",
            "append_observation", "import_export", "read_chain",

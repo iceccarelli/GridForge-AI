@@ -1,6 +1,6 @@
 """The FINAL calibration gate, read back from a database built by the whole migration chain.
 
-0046, 0047, 0048 and 0052 each replace calibration_ledger_rows, and 0038, 0047 and 0053 each define gf_submit_observation. The definition that governs is
+0046, 0047, 0048, 0052 and 0056 each replace calibration_ledger_rows, and 0038, 0047 and 0053 each define gf_submit_observation. The definition that governs is
 whichever ran last, so a reordered migration, a replay of an older one, or a later migration that redefines the view from an old copy would
 silently weaken the gate without any behavioural test noticing (those build fixtures that happen to satisfy the missing condition). This
 reads what the database ACTUALLY holds at the end of the chain (pg_get_viewdef, pg_get_functiondef, pg_proc, pg_trigger) and fails if any
@@ -41,6 +41,17 @@ VIEW_GATES = {
     "the project was never filed under a non-production site":
         r"NOT \(EXISTS \( SELECT 1 FROM hall_project_attachments hpa JOIN sites st ON st\.id = hpa\.site_id "
         r"WHERE hpa\.project_id = o\.project_id AND st\.data_origin <> 'production'::text\)\)",
+    # 0056 (D3): the consent of the organisation the row was recorded under still stands: ITS latest decision is a grant (not the project's, which is 0047's)
+    "the organisation's LATEST consent is a grant":
+        r"calibration_consents cc WHERE cc\.organisation_id = o\.organisation_id AND cc\.kind = 'granted'::text AND cc\.seq = .*max\(c3\.seq\).*"
+        r"calibration_consents c3 WHERE c3\.organisation_id = o\.organisation_id",
+    # 0056 (D1): the project attested its completion milestone, the observation is not older than it, and no supplier record shows delivery in flight
+    "the project attested its completion milestone and no supplier record shows delivery in flight":
+        r"project_completion_milestones pm WHERE pm\.project_id = o\.project_id AND pm\.milestone = 'energised'::text AND pm\.reached_on <= o\.observed_on "
+        r"AND NOT gf_project_delivery_in_flight\(o\.project_id, o\.observed_on\)",
+    # 0056 (D5): a withdrawn observation is never listed again, whatever consent is recorded later
+    "the observation was not withdrawn (no tombstone)":
+        r"NOT \(EXISTS \( SELECT 1 FROM calibration_tombstones tb WHERE tb\.observation_hash = gf_calibration_observation_hash\(o\.id\)\)\)",
 }
 # What 0053's gf_submit_observation must contain to handle site_ref (read back from pg_get_functiondef: a plpgsql body is stored as written, so these
 # are the source lines, whitespace-normalised below).
@@ -122,7 +133,11 @@ def final_gaps(name):
         gaps.append("gf_review_evidence: not SECURITY DEFINER with a pinned search_path")
     for table, trigger in (("project_observations", "project_observations_forecast_predates"), ("power_deployment_cases", "power_deployment_cases_guard"),
                            ("project_evidence", "project_evidence_guard"), ("project_evidence_reviews", "project_evidence_reviews_guard"),
-                           ("calibration_permissions", "calibration_permissions_guard")):
+                           ("calibration_permissions", "calibration_permissions_guard"),
+                           # 0056: the insert gates (D1, D3, D5), the consent guard and its withdrawal effects, the milestone guard, the snapshot registry's policy
+                           ("project_observations", "project_observations_publication_gates"), ("calibration_consents", "calibration_consents_guard"),
+                           ("calibration_consents", "calibration_consents_withdrawn"), ("project_completion_milestones", "project_completion_milestones_guard"),
+                           ("calibration_release_snapshots", "calibration_release_snapshots_guard")):
         on = scalar(name, f"select count(*) from pg_trigger where tgrelid = 'public.{table}'::regclass and tgname = '{trigger}' and tgenabled = 'O'")
         if on != "1":
             gaps.append(f"trigger {trigger} on {table} is missing or disabled")
@@ -130,6 +145,15 @@ def final_gaps(name):
     for needle in ("case_digest is null", "future", "gf_forecast_predicted_mw", "created_at >="):
         if needle not in trig:
             gaps.append(f"gf_observation_forecast_predates: lost '{needle}'")
+    # 0056: the body of the insert gate still holds every refusal it exists for (each errcode is one gate; the table names are what it reads)
+    gate = " ".join(scalar(name, "select pg_get_functiondef('public.gf_observation_publication_gates()'::regprocedure)").split())
+    for label, needle in {"the tombstone check (D5)": "GF017", "consent of the organisation (D3)": "GF015", "the completion milestone (D1)": "GF016",
+                          "the organisation is derived from the project's site": "select s.org_id into org from public.projects p join public.sites s on s.id = p.site_id",
+                          "only a production row is gated": "new.data_origin is distinct from 'production'", "the supplier records (D1)": "gf_project_delivery_in_flight",
+                          "reads the tombstones": "calibration_tombstones", "reads the milestones": "project_completion_milestones",
+                          "reads the consents": "calibration_consents"}.items():
+        if needle not in gate:
+            gaps.append(f"gf_observation_publication_gates: lost {label}")
     return gaps
 
 
@@ -154,12 +178,13 @@ def test_the_term_counter_bites():
 
 
 def test_the_migrations_that_define_the_view_run_in_the_order_the_header_notes_say():
-    """0046 < 0047 < 0048 < 0052 define the view; the governing one is the last, and it is 0052. A further definition in the family would be a
+    """0046 < 0047 < 0048 < 0052 < 0056 define the view; the governing one is the last, and it is 0056. A further definition in the family would be a
     new deliberate decision that must update this test, not an accident."""
     holders = [f.name[:4] for f in sorted(MIGRATIONS.glob("*.sql")) if "create or replace view public.calibration_ledger_rows" in f.read_text()]
-    assert holders == ["0038", "0046", "0047", "0048", "0052"], holders
-    for f in [*sorted(MIGRATIONS.glob("004[678]_*.sql")), *sorted(MIGRATIONS.glob("0052_*.sql"))]:
+    assert holders == ["0038", "0046", "0047", "0048", "0052", "0056"], holders
+    for f in [*sorted(MIGRATIONS.glob("004[678]_*.sql")), *sorted(MIGRATIONS.glob("0052_*.sql")), *sorted(MIGRATIONS.glob("0056_*.sql"))]:
         assert "REPLAY ORDER" in f.read_text(), f.name
+    assert "WRITTEN, NOT APPLIED" in next(MIGRATIONS.glob("0056_*.sql")).read_text()[:2500]
 
 
 def test_gf_submit_observation_is_defined_by_exactly_the_migrations_the_header_notes_and_0053_governs():
@@ -187,6 +212,7 @@ def test_replaying_0038_or_0047_after_0053_loses_the_site_ref_handling_and_is_re
         psql(name, file=next(MIGRATIONS.glob("0048_*.sql")))
         psql(name, file=next(MIGRATIONS.glob("0052_*.sql")))
         psql(name, file=next(MIGRATIONS.glob("0053_*.sql")))
+        psql(name, file=next(MIGRATIONS.glob("0056_*.sql")))
         assert final_gaps(name) == []
     finally:
         drop_database(name)
@@ -216,16 +242,34 @@ def test_replaying_0046_or_0047_last_is_reported_as_gaps(older):
         drop_database(name)
 
 
+NEW_IN_0056 = ["view: the organisation's LATEST consent is a grant",
+               "view: the project attested its completion milestone and no supplier record shows delivery in flight",
+               "view: the observation was not withdrawn (no tombstone)"]
+
+
 def test_replaying_0048_after_0052_drops_the_site_origin_gate_and_is_reported():
-    """0052 replaced 0048's view with 0048's text plus one condition. Replay order matters: 0048 run AFTER 0052 puts the older definition back, and the
-    reader must name exactly that gap (and no other), so the order cannot be broken without a test failing."""
+    """0052 replaced 0048's view with 0048's text plus one condition, and 0056 replaced 0052's with 0052's text plus three. Replay order matters: 0048 run
+    AFTER them puts the oldest definition back, and the reader must name exactly the gaps that opens (the four conditions, and no other), so the order cannot
+    be broken without a test failing; each later migration restores its own."""
     name = make_database()
     try:
         assert final_gaps(name) == []
         psql(name, file=next(MIGRATIONS.glob("0048_*.sql")))
-        assert final_gaps(name) == ["view: the project was never filed under a non-production site"]
-        psql(name, file=next(MIGRATIONS.glob("0052_*.sql")))          # and replaying 0052 afterwards restores it
+        assert final_gaps(name) == ["view: the project was never filed under a non-production site", *NEW_IN_0056]
+        psql(name, file=next(MIGRATIONS.glob("0052_*.sql")))          # replaying 0052 restores its condition and leaves 0056's three missing
+        assert final_gaps(name) == NEW_IN_0056
+        psql(name, file=next(MIGRATIONS.glob("0056_*.sql")))          # and 0056 restores the rest
         assert final_gaps(name) == []
+    finally:
+        drop_database(name)
+
+
+def test_replaying_0052_after_0056_drops_the_three_publication_conditions_and_is_reported():
+    """0052's text is the view without 0056's consent, milestone and tombstone conditions: run last it would let a withdrawn observation back in."""
+    name = make_database()
+    try:
+        psql(name, file=next(MIGRATIONS.glob("0052_*.sql")))
+        assert final_gaps(name) == NEW_IN_0056
     finally:
         drop_database(name)
 

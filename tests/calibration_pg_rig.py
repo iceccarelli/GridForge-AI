@@ -183,9 +183,61 @@ def obs_args(project, evidence_id, case_token, **over):
     return json.dumps({k: v for k, v in d.items() if v is not None})
 
 
-def submit(db, project=None, evidence_verified=True, site="Dublin DC1", on="2026-06-30", case_created_at="2026-03-02T09:00:00Z", **over):
-    """An observation through the real function, against a forecast made BEFORE the outcome unless told otherwise."""
+def _call_json(db, fn_call):
+    """`select <fn_call>` as the database owner (some of these databases are built without the service role's table grants, to test the privileges themselves, and
+    the registry functions run with the invoker's rights); the jsonb answer of a registry function (the last line of output)."""
+    return json.loads(psql(db, f"select {fn_call}").stdout.strip().splitlines()[-1])
+
+
+def satisfy_publication_gates(db, project, reached_on="2020-01-01"):
+    """What 0056 asks BEFORE a production observation of `project` is recorded, done the way an organisation would do it and idempotent: the project is in a
+    hall of an organisation (a new one, with a production site, unless the project is already attached to one), that organisation's standing consent is a
+    grant, and the project has attested a completion milestone backed by a verified file. A no-op on a database built before 0056, where nothing is asked.
+    Every observation this rig submits as production goes through here (submit(..., gates=False) skips it, which is how a test shows a gate refusing)."""
+    if scalar(db, "select to_regclass('public.calibration_consents') is null") == "t":
+        return
+    if scalar(db, f"select count(*) from projects where id = '{project}'") != "1":
+        return                                                  # a project that does not exist is the test's point, and the function's to refuse
+    q = lambda s: "'" + str(s).replace("'", "''") + "'"        # noqa: E731
+    org = scalar(db, f"select s.org_id from projects p join sites s on s.id = p.site_id where p.id = '{project}'")
+    if org:
+        owner = scalar(db, f"select email from organisation_members where org_id = '{org}' and role = 'owner' and removed_at is null order by added_at limit 1")
+    else:
+        owner = f"owner-{uuid.uuid4().hex[:10]}@rig.example"
+        org = _call_json(db, f"public.gf_create_org(p_actor => {q(owner)}, p_name => {q('Rig organisation ' + uuid.uuid4().hex[:8])})")["org_id"]
+        site = _call_json(db, f"public.gf_create_site(p_actor => {q(owner)}, p_org => '{org}', p_name => 'Rig site', p_country => 'DE', "
+                                    f"p_data_origin => 'production')")["site_id"]
+        hall = _call_json(db, f"public.gf_create_hall(p_actor => {q(owner)}, p_site => '{site}', p_label => 'Rig hall')")["hall_id"]
+        token = scalar(db, f"select project_token from projects where id = '{project}'")
+        out = _call_json(db, f"public.gf_attach_project_to_hall(p_actor => {q(owner)}, p_hall => '{hall}', p_project_token => {q(token)})")
+        assert out.get("ok"), out
+    if scalar(db, f"select coalesce((select kind from calibration_consents where organisation_id = '{org}' order by seq desc limit 1), 'none')") != "granted":
+        p = {"organisation_id": org, "publish_scope": "aggregate_residual_statistics", "min_aggregate_observations": 10, "min_aggregate_organisations": 3,
+             "consent_text_version": "rig-1", "consent_text_sha256": DOC("rig consent text"), "document_sha256": DOC("rig signed " + org), "recorded_by": owner}
+        psql(db, f"select public.gf_record_calibration_consent({q(json.dumps(p))}::jsonb)")
+    if scalar(db, f"select count(*) from project_completion_milestones where project_id = '{project}' and milestone = 'energised'") == "0":
+        proof = new_evidence(db, project, verified=True, sha="b")
+        p = {"project_id": project, "milestone": "energised", "reached_on": reached_on, "evidence_id": proof, "basis": "rig: energisation certificate",
+             "attested_by": owner}
+        psql(db, f"select public.gf_attest_completion_milestone({q(json.dumps(p))}::jsonb, '{GOOD % 'completion_milestone_attested'}'::jsonb)")
+
+
+def stamp_organisation(db, oid):
+    """For a row recorded with the insert gates OFF (bypassing_triggers), on purpose, to test the VIEW alone: set the organisation and the consent that the insert
+    trigger would have derived, so that the view's 0056 conditions are met and only the condition under test can keep the row out. A no-op before 0056."""
+    if scalar(db, "select to_regclass('public.calibration_consents') is null") == "t":
+        return
+    org = "(select s.org_id from projects p join sites s on s.id = p.site_id where p.id = project_id)"
+    bypassing_triggers(db, f"update project_observations set organisation_id = {org}, "
+                           f"consent_id = (select c.id from calibration_consents c where c.organisation_id = {org} order by c.seq desc limit 1) where id = '{oid}'")
+
+
+def submit(db, project=None, evidence_verified=True, site="Dublin DC1", on="2026-06-30", case_created_at="2026-03-02T09:00:00Z", gates=True, **over):
+    """An observation through the real function, against a forecast made BEFORE the outcome unless told otherwise. A production observation first gets what
+    0056 requires of one (`satisfy_publication_gates`) unless `gates=False`."""
     project = project or new_project(db, site)
+    if gates and over.get("data_origin", "production") == "production":
+        satisfy_publication_gates(db, project)
     case = over.pop("case_token", None) or new_case(db, created_at=case_created_at)
     ev = over.pop("evidence_id", None) or new_evidence(db, project, verified=evidence_verified)
     r = psql(db, f"select gf_submit_observation('{obs_args(project, ev, case, observed_on=on, **over)}'::jsonb,"

@@ -25,7 +25,7 @@ import pytest
 
 from calibration_pg_rig import (
     GOOD, bypassing_triggers, drop_database, export_rows, make_database, new_case, new_evidence, new_project, obs_args, psql, record_permission,
-    review, scalar, skip_without_db,
+    review, satisfy_publication_gates, scalar, skip_without_db, stamp_organisation,
 )
 
 pytestmark = skip_without_db
@@ -39,6 +39,8 @@ ID = lambda c: "".join("1" if x else "0" for x in c)  # noqa: E731
 def build(db, F, R, O, P, C, T, B, n):
     """One observation with exactly the given truth values; returns (observation id, project id)."""
     project = new_project(db, site=f"Site {n}")
+    if P:
+        satisfy_publication_gates(db, project)                          # 0056: an organisation's consent and an attested milestone (so only the factor under test can fail)
     case = new_case(db, created_at="2026-03-02T09:00:00Z" if T else "2026-07-07T09:00:00Z")
     ev = new_evidence(db, project, verified=True)                       # verified first: an observation can only be verified against a verified file
     args = obs_args(project, ev, case, data_origin="production" if P else "test", predicted_value=30 if B else 31)
@@ -47,6 +49,8 @@ def build(db, F, R, O, P, C, T, B, n):
     r = (psql if (T and B) else bypassing_triggers)(db, sql, check=False)
     assert r.returncode == 0, r.stderr
     oid = json.loads(r.stdout.strip().splitlines()[-1])["id"]
+    if P and not (T and B):
+        stamp_organisation(db, oid)                                     # built with the insert gates off: give it what they would have, so the VIEW's other conditions decide
     if O:
         assert review(db, oid).returncode == 0
     else:
@@ -107,6 +111,7 @@ def db():
 def exportable(db, **over):
     """A fully cleared, permitted, production observation; returns (id, case token)."""
     project = new_project(db, site=f"Extra {over.get('tag', '')}")
+    satisfy_publication_gates(db, project)
     case = new_case(db, created_at="2026-03-02T09:00:00Z")
     ev = new_evidence(db, project)
     r = psql(db, f"select gf_submit_observation('{obs_args(project, ev, case)}'::jsonb, '{GOOD % 'observation_submitted'}'::jsonb)")
@@ -143,6 +148,7 @@ def test_a_forecast_edited_to_change_its_prediction_is_not_exported_even_if_its_
 def test_a_file_marked_verified_before_the_review_path_existed_does_not_qualify(db):
     """A file verified by a raw update (the only way before 0048) has no decision row, so its observations are not exported."""
     project = new_project(db, site="Legacy file")
+    satisfy_publication_gates(db, project)
     case = new_case(db, created_at="2026-03-02T09:00:00Z")
     ev = new_evidence(db, project, verified=False)
     bypassing_triggers(db, f"update project_evidence set review_status = 'verified' where id = '{ev}'")
