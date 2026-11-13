@@ -6,6 +6,7 @@ with the question that would close it.
 """
 from __future__ import annotations
 
+import difflib
 import math
 from dataclasses import dataclass
 from pathlib import Path
@@ -667,21 +668,76 @@ REQUEST_OPTION_KEYS: frozenset[str] = frozenset({
 TOP_LEVEL_KEYS: frozenset[str] = frozenset(INTAKE_SECTIONS) | REQUEST_OPTION_KEYS
 
 
+#: The document's own envelope, not content. The API adds `schema_version` to every JSON object it sends, the blank template (`GET /v1/intake/template`)
+#: included, so a template saved from the API and filled in carries it; `$schema` is the usual pointer from a JSON-Schema-aware editor. Both are
+#: accepted and ignored without a word.
+ENVELOPE_KEYS: frozenset[str] = frozenset({"schema_version", "$schema"})
+#: Metadata that people and tools write beside the sections of a document (a note to the next reader, a title, a comment). The engine reads none of it,
+#: so it is ignored, and the warning says so by name: the caller can see it was not used. A key that starts with `_` or `$` is the same kind of thing
+#: (a convention for "not data").
+BENIGN_METADATA_KEYS: frozenset[str] = frozenset({"notes", "note", "comment", "comments", "metadata", "meta", "title", "description", "name"})
+#: How close (difflib ratio) an unknown top-level key must be to a section or request option to be read as a misspelling of it, beside the one-letter
+#: slip (`_one_edit_apart`: a letter inserted, dropped or changed, two adjacent letters swapped, or only the case). 0.8 reads `gird`, `Grid`, `halls` and
+#: `thermals` as the section they nearly are, and leaves `contracted_MW` and `site_name` (the qualifier's short form) alone.
+TOP_LEVEL_NEAR_MISS_RATIO = 0.8
+
+
+def _near_misses(key: str, allowed) -> list[str]:
+    """The allowed names `key` is a misspelling of: one letter off (`_one_edit_apart`, which includes a case slip and a swap of two adjacent letters)
+    or a close match by difflib. Sorted, so the answer never depends on set order."""
+    low = key.lower()
+    close = {a for a in allowed if _one_edit_apart(low, a.lower())}
+    close.update(a for a in allowed if difflib.SequenceMatcher(None, low, a.lower()).ratio() >= TOP_LEVEL_NEAR_MISS_RATIO)
+    return sorted(close)
+
+
+def _top_level_key_class(key) -> str:
+    """How the loader treats a top-level key: "section" (read), "envelope" (accepted, silently ignored), "metadata" (ignored, with a named warning),
+    "misspelt" (a near miss of a section or request option: REFUSED, with the did-you-mean) or "unread" (far from every section: ignored, with a named
+    warning).
+
+    The order matters. A misspelt section is the defect this guards (`"gird": {...}` was dropped without a word, a whole section of figures ignored
+    and the study run on library defaults). A refusal of every key that is not a section would refuse a document that was fine before (a template with
+    a title, a note, the id of the tool that wrote it), so only what is nearly a section is refused."""
+    if not isinstance(key, str) or key in TOP_LEVEL_KEYS:
+        return "section"
+    if key in ENVELOPE_KEYS:
+        return "envelope"
+    if key.startswith(("_", "$")) or key in BENIGN_METADATA_KEYS:
+        return "metadata"
+    return "misspelt" if _near_misses(key, TOP_LEVEL_KEYS) else "unread"
+
+
+def ignored_top_level_keys(doc: dict) -> list[str]:
+    """The top-level keys the engine does not read and says so for (metadata and unread keys; the silent envelope keys are not listed)."""
+    return [k for k in doc if _top_level_key_class(k) in ("metadata", "unread")]
+
+
+def _ignored_key_warnings(doc: dict) -> list[str]:
+    return [f"{k[:60]} is not read by the engine: it is not one of the intake's sections ({', '.join(INTAKE_SECTIONS)}) or request options, so it was "
+            f"ignored and changes no result. If it was meant as one of them, send it under that name." for k in ignored_top_level_keys(doc)]
+
+
 def _refuse_unknown_top_level_keys(doc: dict) -> None:
-    """A top-level key that is neither a section of the intake nor a request option is refused by name, with a did-you-mean when it is a near miss.
-    `"gird": {...}` was dropped without a word, so a whole section of figures was ignored and the study ran on library defaults, while the same typo
-    one level down (`grid.contracted_MWW`) was refused. The shipped examples and the web forms send only the sections above."""
-    unknown = [k for k in doc if isinstance(k, str) and k not in TOP_LEVEL_KEYS]
-    if unknown:
-        first = unknown[0]
-        more = f" Also unknown here: {', '.join(repr(k[:40]) for k in unknown[1:6])}." if len(unknown) > 1 else ""
+    """A top-level key that is nearly a section of the intake or a request option (a misspelling: `gird`, `Grid`, `halls`) is refused by name, with the
+    did-you-mean. `"gird": {...}` was dropped without a word, so a whole section of figures was ignored and the study ran on library defaults, while the
+    same typo one level down (`grid.contracted_MWW`) was refused. Every other key the engine does not read is IGNORED, with a named warning
+    (`_ignored_key_warnings`), or silently when it is the document's own envelope (`schema_version`, `$schema`): refusing those would refuse the very
+    template the engine sent, and a caller whose document was fine before."""
+    misspelt = [k for k in doc if _top_level_key_class(k) == "misspelt"]
+    if misspelt:
+        first = misspelt[0]
+        more = f" Also unknown here: {', '.join(repr(k[:40]) for k in misspelt[1:6])}." if len(misspelt) > 1 else ""
+        # The one-letter slip is the long-standing did-you-mean; a looser difflib match is named only when there is no such slip.
+        close = _near_misses(first, TOP_LEVEL_KEYS)
+        best = next((a for a in close if _one_edit_apart(first.lower(), a.lower())), close[0])
         # A body with no section of the intake at all is usually the free qualifier's short form (contracted_MW, site_name, ...) sent to a route that
         # takes an intake document: say that, in the words the API has always used for a request that gives none of the intake's fields.
         nothing = ", and the request contains none of the intake fields, so there is nothing to solve" if not any(k in INTAKE_SECTIONS for k in doc) else ""
         raise IntakeError(
             f"{first[:60]} is not a section of the intake{nothing} (the sections are: {', '.join(INTAKE_SECTIONS)}; request options: "
-            f"{', '.join(sorted(REQUEST_OPTION_KEYS - {'intake'}))}).{_did_you_mean(first, TOP_LEVEL_KEYS)}{more} A section the engine does not read "
-            f"changes nothing, and the study would run on the library defaults in its place, so it is refused rather than ignored"
+            f"{', '.join(sorted(REQUEST_OPTION_KEYS - {'intake'}))}). Did you mean `{best}`?{more} A section the engine does not read "
+            f"changes nothing, and the study would run on the library defaults in its place, so a misspelt one is refused rather than ignored"
             + (". The short form of figures is for POST /v1/qualify; the other routes take an intake document (GET /v1/tools gives its schema)"
                if nothing else ""))
 
@@ -1852,6 +1908,7 @@ def _load_document(doc: dict) -> Intake:
     _redundancy_leaves_nothing(ctx, report)
     # Thermal inputs nothing reads, keys that are not inputs at all, and a pump flow that cannot carry the existing hall (warnings only).
     report.warnings.extend(thermal_inputs.unread_input_warnings(doc))
+    report.warnings.extend(_ignored_key_warnings(doc))          # top-level keys the engine does not read, by name (envelope keys are silent)
     if {"thermal.plant.pump_flow_capacity_l_per_min", "thermal.plant.design_supply_C", "thermal.plant.design_return_C",
             "grid.current_it_load_MW"} <= set(report.supplied):
         balance = thermal_inputs.heat_balance_warning(

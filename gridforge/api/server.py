@@ -101,7 +101,7 @@ from ..calibration.ledger import LedgerIntegrityError
 from ..calibration.residuals import public_report as public_residual_report
 from ..calibration.store import approved_records as approved_observation_records
 from ..compute.library import PLATFORMS, UNPUBLISHED_PLATFORMS
-from ..intake.loader import PLAUSIBLE_MAX, IntakeError, blank_intake, load_document
+from ..intake.loader import PLAUSIBLE_MAX, IntakeError, blank_intake, ignored_top_level_keys, load_document
 from ..intake.schema import FIELD_BY_PATH as _INTAKE_FIELD_BY_PATH
 from ..reporting import to_html, to_markdown
 from ..reporting.gates import ReportMode, run_all_gates
@@ -669,10 +669,14 @@ def _run(doc: dict):
     intake = load_document(doc)
     if not intake.report.supplied:
         # Every number would be a library default: a study of a hall nobody described. The free
-        # /v1/qualify route is the place to start from a handful of figures.
+        # /v1/qualify route is the place to start from a handful of figures. The keys the engine did not read are named: they are what the caller sent.
+        unread = ignored_top_level_keys(doc)
+        named = (f" The key{'s' if len(unread) > 1 else ''} you sent ({', '.join(repr(k[:40]) for k in unread[:6])}) "
+                 f"{'are' if len(unread) > 1 else 'is'} not read by this route: figures like these go to POST /v1/qualify, and an intake document "
+                 f"carries them under its sections (grid, hall, ups, ...)." if unread else "")
         raise ApiError(422, "the request contains none of the intake fields, so there is nothing to "
                             "solve. Send an intake document (see GET /v1/tools for the schema) or use "
-                            "/v1/qualify.", missing_required=[g.path for g in intake.report.required_gaps])
+                            "/v1/qualify." + named, missing_required=[g.path for g in intake.report.required_gaps])
     return intake, run_all(intake.context, intake.scenarios)
 
 
