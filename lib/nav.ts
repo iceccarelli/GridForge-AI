@@ -140,6 +140,7 @@ export const FOOTER_GROUPS: FooterGroup[] = [
       { href: "/contact", label: "Contact" },
       { href: "/for", label: "Who it is for" },
       { href: "/guides/nameplate-vs-useful-compute", label: "Guide: nameplate vs useful compute" },
+      { href: "/guides/retrofit-order-of-limits", label: "Guide: the order of limits in a retrofit" },
       { href: "#faq", label: "FAQ", hash: true },
       { href: "/legal/security", label: "Security" },
     ],

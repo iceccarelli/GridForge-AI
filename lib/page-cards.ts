@@ -106,6 +106,12 @@ PAGE_CARDS["guide-nameplate"] = {
   subtitle: "The rack count of an existing hall is the smallest of a chain of limits. Method and a worked example from a synthetic hall.",
   facts: ["Synthetic worked example", "Evidence class on every figure"],
 };
+PAGE_CARDS["guide-retrofit-order"] = {
+  kicker: "Guide",
+  title: "The order of limits in a 100-150 kW retrofit",
+  subtitle: "Which limit binds first, which relief to start first, and why liquid cooling does not remove the air-side limit. Worked on a synthetic hall.",
+  facts: ["Synthetic worked example", "Evidence class on every figure"],
+};
 PAGE_CARDS.contact = {
   kicker: "Contact",
   title: "Talk to the engineer who will do the work",

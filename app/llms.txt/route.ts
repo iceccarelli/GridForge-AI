@@ -278,6 +278,7 @@ ${absent}
 - ${SITE}/platforms — the rack library (the engine's platform library), with a page per sourced, non-generic platform
 - ${SITE}/evidence — the evidence classes E0 to E7, the calibration status, and the register of market figures with how each was checked (#market-figures)
 - ${SITE}/guides/nameplate-vs-useful-compute — how the usable rack count of an existing hall is decided, with a worked example from the synthetic reference hall
+- ${SITE}/guides/retrofit-order-of-limits — the order in which limits bind when an existing hall takes 100-150 kW racks, and the order to relieve them in, worked on the synthetic reference hall; why liquid cooling does not remove the air-side limit
 - ${SITE}/contact — how to reach the founder and what to include
 - ${SITE}/for — seven buyers (owners, colocation and AI operators, developers, investors, engineers, advisors), each starting from its own decision
 - ${SITE}/lead-times — indicative relief lead-time ranges for the thirteen constraints
@@ -310,9 +311,11 @@ there is no separate machine price list.
 - After payment, by product: the Density Screen and the Procurement Specification
   open an intake at the checkout \`success_url\` (no separate login is required to
   submit the hall's numbers); an API plan or Hall Watch shows its private account
-  or watch link there; the Envelope Study and Portfolio Screen deposits are scoped
-  with the buyer by a person — there is no intake form and no response time is
-  promised. A private, emailed link is the durable reference where one exists, and
+  or watch link there; the Envelope Study and Portfolio Screen deposits open a
+  scoping conversation with a person first, so the intake does not open at checkout:
+  nothing is produced until the scope and fee are agreed, and no response time is
+  promised. Once they are agreed, the buyer's private intake link is emailed and the
+  hall's numbers are submitted there. A private, emailed link is the durable reference where one exists, and
   the private \`/dashboard\` page (signed in, not indexed) lists every engagement against the email a purchase was made
   with, behind a passwordless email sign-in.
 - Status and delivery of a document: \`awaiting_intake\` → \`generating\` → \`draft\`
