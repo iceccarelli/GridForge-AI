@@ -74,9 +74,19 @@
       "relief": "Adiabatic assist plus trim chiller on the high-temperature loop"
      }
     ],
+    "inputs_derived_assumed": [
+     {
+      "evidence": "E0",
+      "input": "Firm connection capacity",
+      "note": "Derived by the qualifier as contracted_MW / 0.97 because no firm_capacity_MVA was given: it assumes the connection is sized at its contract, which no connection agreement states. It is not this hall's figure.",
+      "path": "grid.firm_capacity_MVA",
+      "unit": "MVA",
+      "value": 12.371134020618557
+     }
+    ],
     "intake": {
      "can_issue_a_study": false,
-     "completeness": 0.29,
+     "completeness": 0.258,
      "gaps": [
       {
        "assumed": "2,000 [1,400\u20132,600] m2 (E0)",
@@ -115,7 +125,7 @@
        "why_it_binds": "Decides whether dry coolers alone can hold the loop."
       },
       {
-       "assumed": "[]",
+       "assumed": "not evaluated: treated as no limit, so the rack count is an upper bound (E0)",
        "how_to_get_it": "Single-line diagram and transformer nameplates.",
        "input": "Transformer schedule",
        "path": "transformers",
@@ -124,13 +134,22 @@
        "why_it_binds": "Often the schedule driver: transformer lead times are long and vary by type. Enter the quoted figure if you have one."
       },
       {
-       "assumed": "[]",
+       "assumed": "not evaluated: treated as no limit, so the rack count is an upper bound (E0)",
        "how_to_get_it": "UPS nameplate, topology and remaining design life.",
        "input": "UPS schedule",
        "path": "ups",
        "required": true,
        "unit": "-",
        "why_it_binds": "GPU racks present step loads, not just steady load."
+      },
+      {
+       "assumed": "12.37 MVA, derived as contracted_MW / 0.97 (E0): nobody gave the connection's firm capacity, and a connection is not necessarily sized at its contract",
+       "how_to_get_it": "Connection agreement with the DSO.",
+       "input": "Firm connection capacity",
+       "path": "grid.firm_capacity_MVA",
+       "required": true,
+       "unit": "MVA",
+       "why_it_binds": "Sets the absolute ceiling on everything downstream."
       },
       {
        "assumed": "0.97 [0.95\u20130.99] (E0)",
@@ -151,6 +170,15 @@
        "why_it_binds": "Busway kW is voltage times ampacity; 400 V and 415 V differ by 4%."
       },
       {
+       "assumed": "three-phase distribution assumed (E0)",
+       "how_to_get_it": "Busway nameplate or the single-line diagram.",
+       "input": "LV distribution phases",
+       "path": "lv.phases",
+       "required": false,
+       "unit": "-",
+       "why_it_binds": "A single-phase feed carries 1/sqrt(3) of the power of a three-phase one at the same voltage and ampacity, and a rack draws sqrt(3) times the current from it: both the busway's capacity and the rack-feed (tap-off) limit follow the phase count. When absent the engine reads the hall as three-phase, which is the more favourable reading."
+      },
+      {
        "assumed": "6",
        "how_to_get_it": "Electrical record drawings.",
        "input": "Number of busway runs",
@@ -169,13 +197,13 @@
        "why_it_binds": "The fraction of nameplate the operator will actually load."
       },
       {
-       "assumed": "[]",
+       "assumed": "three 1,350 kW N+1 CDUs (2,700 kW usable) assumed as the starting point of the hybrid and full-DLC scenarios (E0); the kit is priced as a purchase and the racks that depend on it are dated",
        "how_to_get_it": "CDU nameplates and the mechanical single-line diagram.",
        "input": "Installed CDU schedule",
        "path": "thermal.cdus",
        "required": false,
        "unit": "-",
-       "why_it_binds": "When absent, the hybrid and full-DLC scenarios ASSUME three 1,350 kW N+1 CDUs already installed at no cost, which supplies roughly 22 racks of liquid capacity that the hall may not have."
+       "why_it_binds": "When absent, the hybrid and full-DLC scenarios start from an ASSUMED kit of three 1,350 kW N+1 CDUs, which supplies roughly 22 racks of liquid capacity that the hall may not have. The engine prices that kit (a library placeholder, not a quotation) and dates the racks that depend on it, so the capex and the schedule include a purchase nobody declared. Declare the CDUs already installed to remove it."
       },
       {
        "assumed": "0 l/min, nothing subtracted (the pumped flow is read as flow available to the new load)",
@@ -278,7 +306,7 @@
       }
      ],
      "recommended_engagement": "Intake too thin for a full study. Sell the Density Screen instead: it produces the binding constraint and the data-request list, and its fee credits against the study when the data arrives.",
-     "required_inputs_missing": 4,
+     "required_inputs_missing": 5,
      "warnings": [
       "Busway: neither hall.occupied_positions nor hall.rack_positions was supplied, so the occupied positions are an assumption (E0) from the library default total of 400 positions, not a count of anything in your hall. Reading that total less your 180 free positions as occupied (220 positions), at their 8 kW design density, would draw 1,760 kW, more than the 1,290 kW the declared busway can carry. busway_ampacity_A is read as the installed total and existing load is not subtracted, so check whether the figure you gave is the whole hall's busway, and give hall.occupied_positions and hall.rack_positions (a full intake takes both) so this check runs on counts rather than an assumption.",
       "No transformer schedule supplied: transformer capacity is not evaluated and may be the true binding constraint.",
@@ -378,9 +406,19 @@
       "relief": "Adiabatic assist plus trim chiller on the high-temperature loop"
      }
     ],
+    "inputs_derived_assumed": [
+     {
+      "evidence": "E0",
+      "input": "Firm connection capacity",
+      "note": "Derived by the qualifier as contracted_MW / 0.97 because no firm_capacity_MVA was given: it assumes the connection is sized at its contract, which no connection agreement states. It is not this hall's figure.",
+      "path": "grid.firm_capacity_MVA",
+      "unit": "MVA",
+      "value": 12.371134020618557
+     }
+    ],
     "intake": {
      "can_issue_a_study": false,
-     "completeness": 0.29,
+     "completeness": 0.258,
      "gaps": [
       {
        "assumed": "2,000 [1,400\u20132,600] m2 (E0)",
@@ -419,7 +457,7 @@
        "why_it_binds": "Decides whether dry coolers alone can hold the loop."
       },
       {
-       "assumed": "[]",
+       "assumed": "not evaluated: treated as no limit, so the rack count is an upper bound (E0)",
        "how_to_get_it": "Single-line diagram and transformer nameplates.",
        "input": "Transformer schedule",
        "path": "transformers",
@@ -428,13 +466,22 @@
        "why_it_binds": "Often the schedule driver: transformer lead times are long and vary by type. Enter the quoted figure if you have one."
       },
       {
-       "assumed": "[]",
+       "assumed": "not evaluated: treated as no limit, so the rack count is an upper bound (E0)",
        "how_to_get_it": "UPS nameplate, topology and remaining design life.",
        "input": "UPS schedule",
        "path": "ups",
        "required": true,
        "unit": "-",
        "why_it_binds": "GPU racks present step loads, not just steady load."
+      },
+      {
+       "assumed": "12.37 MVA, derived as contracted_MW / 0.97 (E0): nobody gave the connection's firm capacity, and a connection is not necessarily sized at its contract",
+       "how_to_get_it": "Connection agreement with the DSO.",
+       "input": "Firm connection capacity",
+       "path": "grid.firm_capacity_MVA",
+       "required": true,
+       "unit": "MVA",
+       "why_it_binds": "Sets the absolute ceiling on everything downstream."
       },
       {
        "assumed": "0.97 [0.95\u20130.99] (E0)",
@@ -455,6 +502,15 @@
        "why_it_binds": "Busway kW is voltage times ampacity; 400 V and 415 V differ by 4%."
       },
       {
+       "assumed": "three-phase distribution assumed (E0)",
+       "how_to_get_it": "Busway nameplate or the single-line diagram.",
+       "input": "LV distribution phases",
+       "path": "lv.phases",
+       "required": false,
+       "unit": "-",
+       "why_it_binds": "A single-phase feed carries 1/sqrt(3) of the power of a three-phase one at the same voltage and ampacity, and a rack draws sqrt(3) times the current from it: both the busway's capacity and the rack-feed (tap-off) limit follow the phase count. When absent the engine reads the hall as three-phase, which is the more favourable reading."
+      },
+      {
        "assumed": "6",
        "how_to_get_it": "Electrical record drawings.",
        "input": "Number of busway runs",
@@ -473,13 +529,13 @@
        "why_it_binds": "The fraction of nameplate the operator will actually load."
       },
       {
-       "assumed": "[]",
+       "assumed": "three 1,350 kW N+1 CDUs (2,700 kW usable) assumed as the starting point of the hybrid and full-DLC scenarios (E0); the kit is priced as a purchase and the racks that depend on it are dated",
        "how_to_get_it": "CDU nameplates and the mechanical single-line diagram.",
        "input": "Installed CDU schedule",
        "path": "thermal.cdus",
        "required": false,
        "unit": "-",
-       "why_it_binds": "When absent, the hybrid and full-DLC scenarios ASSUME three 1,350 kW N+1 CDUs already installed at no cost, which supplies roughly 22 racks of liquid capacity that the hall may not have."
+       "why_it_binds": "When absent, the hybrid and full-DLC scenarios start from an ASSUMED kit of three 1,350 kW N+1 CDUs, which supplies roughly 22 racks of liquid capacity that the hall may not have. The engine prices that kit (a library placeholder, not a quotation) and dates the racks that depend on it, so the capex and the schedule include a purchase nobody declared. Declare the CDUs already installed to remove it."
       },
       {
        "assumed": "0 l/min, nothing subtracted (the pumped flow is read as flow available to the new load)",
@@ -582,7 +638,7 @@
       }
      ],
      "recommended_engagement": "Intake too thin for a full study. Sell the Density Screen instead: it produces the binding constraint and the data-request list, and its fee credits against the study when the data arrives.",
-     "required_inputs_missing": 4,
+     "required_inputs_missing": 5,
      "warnings": [
       "Busway: neither hall.occupied_positions nor hall.rack_positions was supplied, so the occupied positions are an assumption (E0) from the library default total of 400 positions, not a count of anything in your hall. Reading that total less your 180 free positions as occupied (220 positions), at their 8 kW design density, would draw 1,760 kW, more than the 1,290 kW the declared busway can carry. busway_ampacity_A is read as the installed total and existing load is not subtracted, so check whether the figure you gave is the whole hall's busway, and give hall.occupied_positions and hall.rack_positions (a full intake takes both) so this check runs on counts rather than an assumption.",
       "No transformer schedule supplied: transformer capacity is not evaluated and may be the true binding constraint.",
@@ -688,9 +744,19 @@
       "relief": "Grid reinforcement / new connection capacity from the DSO"
      }
     ],
+    "inputs_derived_assumed": [
+     {
+      "evidence": "E0",
+      "input": "Firm connection capacity",
+      "note": "Derived by the qualifier as contracted_MW / 0.97 because no firm_capacity_MVA was given: it assumes the connection is sized at its contract, which no connection agreement states. It is not this hall's figure.",
+      "path": "grid.firm_capacity_MVA",
+      "unit": "MVA",
+      "value": 8.247422680412372
+     }
+    ],
     "intake": {
      "can_issue_a_study": false,
-     "completeness": 0.29,
+     "completeness": 0.258,
      "gaps": [
       {
        "assumed": "2,000 [1,400\u20132,600] m2 (E0)",
@@ -729,7 +795,7 @@
        "why_it_binds": "Decides whether dry coolers alone can hold the loop."
       },
       {
-       "assumed": "[]",
+       "assumed": "not evaluated: treated as no limit, so the rack count is an upper bound (E0)",
        "how_to_get_it": "Single-line diagram and transformer nameplates.",
        "input": "Transformer schedule",
        "path": "transformers",
@@ -738,13 +804,22 @@
        "why_it_binds": "Often the schedule driver: transformer lead times are long and vary by type. Enter the quoted figure if you have one."
       },
       {
-       "assumed": "[]",
+       "assumed": "not evaluated: treated as no limit, so the rack count is an upper bound (E0)",
        "how_to_get_it": "UPS nameplate, topology and remaining design life.",
        "input": "UPS schedule",
        "path": "ups",
        "required": true,
        "unit": "-",
        "why_it_binds": "GPU racks present step loads, not just steady load."
+      },
+      {
+       "assumed": "8.25 MVA, derived as contracted_MW / 0.97 (E0): nobody gave the connection's firm capacity, and a connection is not necessarily sized at its contract",
+       "how_to_get_it": "Connection agreement with the DSO.",
+       "input": "Firm connection capacity",
+       "path": "grid.firm_capacity_MVA",
+       "required": true,
+       "unit": "MVA",
+       "why_it_binds": "Sets the absolute ceiling on everything downstream."
       },
       {
        "assumed": "0.97 [0.95\u20130.99] (E0)",
@@ -765,6 +840,15 @@
        "why_it_binds": "Busway kW is voltage times ampacity; 400 V and 415 V differ by 4%."
       },
       {
+       "assumed": "three-phase distribution assumed (E0)",
+       "how_to_get_it": "Busway nameplate or the single-line diagram.",
+       "input": "LV distribution phases",
+       "path": "lv.phases",
+       "required": false,
+       "unit": "-",
+       "why_it_binds": "A single-phase feed carries 1/sqrt(3) of the power of a three-phase one at the same voltage and ampacity, and a rack draws sqrt(3) times the current from it: both the busway's capacity and the rack-feed (tap-off) limit follow the phase count. When absent the engine reads the hall as three-phase, which is the more favourable reading."
+      },
+      {
        "assumed": "6",
        "how_to_get_it": "Electrical record drawings.",
        "input": "Number of busway runs",
@@ -783,13 +867,13 @@
        "why_it_binds": "The fraction of nameplate the operator will actually load."
       },
       {
-       "assumed": "[]",
+       "assumed": "three 1,350 kW N+1 CDUs (2,700 kW usable) assumed as the starting point of the hybrid and full-DLC scenarios (E0); the kit is priced as a purchase and the racks that depend on it are dated",
        "how_to_get_it": "CDU nameplates and the mechanical single-line diagram.",
        "input": "Installed CDU schedule",
        "path": "thermal.cdus",
        "required": false,
        "unit": "-",
-       "why_it_binds": "When absent, the hybrid and full-DLC scenarios ASSUME three 1,350 kW N+1 CDUs already installed at no cost, which supplies roughly 22 racks of liquid capacity that the hall may not have."
+       "why_it_binds": "When absent, the hybrid and full-DLC scenarios start from an ASSUMED kit of three 1,350 kW N+1 CDUs, which supplies roughly 22 racks of liquid capacity that the hall may not have. The engine prices that kit (a library placeholder, not a quotation) and dates the racks that depend on it, so the capex and the schedule include a purchase nobody declared. Declare the CDUs already installed to remove it."
       },
       {
        "assumed": "0 l/min, nothing subtracted (the pumped flow is read as flow available to the new load)",
@@ -892,7 +976,7 @@
       }
      ],
      "recommended_engagement": "Intake too thin for a full study. Sell the Density Screen instead: it produces the binding constraint and the data-request list, and its fee credits against the study when the data arrives.",
-     "required_inputs_missing": 4,
+     "required_inputs_missing": 5,
      "warnings": [
       "No transformer schedule supplied: transformer capacity is not evaluated and may be the true binding constraint.",
       "No UPS schedule supplied: the load is treated as unprotected.",
@@ -992,9 +1076,19 @@
       "relief": "Adiabatic assist plus trim chiller on the high-temperature loop"
      }
     ],
+    "inputs_derived_assumed": [
+     {
+      "evidence": "E0",
+      "input": "Firm connection capacity",
+      "note": "Derived by the qualifier as contracted_MW / 0.97 because no firm_capacity_MVA was given: it assumes the connection is sized at its contract, which no connection agreement states. It is not this hall's figure.",
+      "path": "grid.firm_capacity_MVA",
+      "unit": "MVA",
+      "value": 24.742268041237114
+     }
+    ],
     "intake": {
      "can_issue_a_study": false,
-     "completeness": 0.29,
+     "completeness": 0.258,
      "gaps": [
       {
        "assumed": "2,000 [1,400\u20132,600] m2 (E0)",
@@ -1033,7 +1127,7 @@
        "why_it_binds": "Decides whether dry coolers alone can hold the loop."
       },
       {
-       "assumed": "[]",
+       "assumed": "not evaluated: treated as no limit, so the rack count is an upper bound (E0)",
        "how_to_get_it": "Single-line diagram and transformer nameplates.",
        "input": "Transformer schedule",
        "path": "transformers",
@@ -1042,13 +1136,22 @@
        "why_it_binds": "Often the schedule driver: transformer lead times are long and vary by type. Enter the quoted figure if you have one."
       },
       {
-       "assumed": "[]",
+       "assumed": "not evaluated: treated as no limit, so the rack count is an upper bound (E0)",
        "how_to_get_it": "UPS nameplate, topology and remaining design life.",
        "input": "UPS schedule",
        "path": "ups",
        "required": true,
        "unit": "-",
        "why_it_binds": "GPU racks present step loads, not just steady load."
+      },
+      {
+       "assumed": "24.74 MVA, derived as contracted_MW / 0.97 (E0): nobody gave the connection's firm capacity, and a connection is not necessarily sized at its contract",
+       "how_to_get_it": "Connection agreement with the DSO.",
+       "input": "Firm connection capacity",
+       "path": "grid.firm_capacity_MVA",
+       "required": true,
+       "unit": "MVA",
+       "why_it_binds": "Sets the absolute ceiling on everything downstream."
       },
       {
        "assumed": "0.97 [0.95\u20130.99] (E0)",
@@ -1069,6 +1172,15 @@
        "why_it_binds": "Busway kW is voltage times ampacity; 400 V and 415 V differ by 4%."
       },
       {
+       "assumed": "three-phase distribution assumed (E0)",
+       "how_to_get_it": "Busway nameplate or the single-line diagram.",
+       "input": "LV distribution phases",
+       "path": "lv.phases",
+       "required": false,
+       "unit": "-",
+       "why_it_binds": "A single-phase feed carries 1/sqrt(3) of the power of a three-phase one at the same voltage and ampacity, and a rack draws sqrt(3) times the current from it: both the busway's capacity and the rack-feed (tap-off) limit follow the phase count. When absent the engine reads the hall as three-phase, which is the more favourable reading."
+      },
+      {
        "assumed": "6",
        "how_to_get_it": "Electrical record drawings.",
        "input": "Number of busway runs",
@@ -1087,13 +1199,13 @@
        "why_it_binds": "The fraction of nameplate the operator will actually load."
       },
       {
-       "assumed": "[]",
+       "assumed": "three 1,350 kW N+1 CDUs (2,700 kW usable) assumed as the starting point of the hybrid and full-DLC scenarios (E0); the kit is priced as a purchase and the racks that depend on it are dated",
        "how_to_get_it": "CDU nameplates and the mechanical single-line diagram.",
        "input": "Installed CDU schedule",
        "path": "thermal.cdus",
        "required": false,
        "unit": "-",
-       "why_it_binds": "When absent, the hybrid and full-DLC scenarios ASSUME three 1,350 kW N+1 CDUs already installed at no cost, which supplies roughly 22 racks of liquid capacity that the hall may not have."
+       "why_it_binds": "When absent, the hybrid and full-DLC scenarios start from an ASSUMED kit of three 1,350 kW N+1 CDUs, which supplies roughly 22 racks of liquid capacity that the hall may not have. The engine prices that kit (a library placeholder, not a quotation) and dates the racks that depend on it, so the capex and the schedule include a purchase nobody declared. Declare the CDUs already installed to remove it."
       },
       {
        "assumed": "0 l/min, nothing subtracted (the pumped flow is read as flow available to the new load)",
@@ -1196,7 +1308,7 @@
       }
      ],
      "recommended_engagement": "Intake too thin for a full study. Sell the Density Screen instead: it produces the binding constraint and the data-request list, and its fee credits against the study when the data arrives.",
-     "required_inputs_missing": 4,
+     "required_inputs_missing": 5,
      "warnings": [
       "No transformer schedule supplied: transformer capacity is not evaluated and may be the true binding constraint.",
       "No UPS schedule supplied: the load is treated as unprotected.",
@@ -1293,9 +1405,19 @@
       "relief": "Adiabatic assist plus trim chiller on the high-temperature loop"
      }
     ],
+    "inputs_derived_assumed": [
+     {
+      "evidence": "E0",
+      "input": "Firm connection capacity",
+      "note": "Derived by the qualifier as contracted_MW / 0.97 because no firm_capacity_MVA was given: it assumes the connection is sized at its contract, which no connection agreement states. It is not this hall's figure.",
+      "path": "grid.firm_capacity_MVA",
+      "unit": "MVA",
+      "value": 12.371134020618557
+     }
+    ],
     "intake": {
      "can_issue_a_study": false,
-     "completeness": 0.194,
+     "completeness": 0.161,
      "gaps": [
       {
        "assumed": "2,000 [1,400\u20132,600] m2 (E0)",
@@ -1343,7 +1465,7 @@
        "why_it_binds": "Decides whether dry coolers alone can hold the loop."
       },
       {
-       "assumed": "[]",
+       "assumed": "not evaluated: treated as no limit, so the rack count is an upper bound (E0)",
        "how_to_get_it": "Single-line diagram and transformer nameplates.",
        "input": "Transformer schedule",
        "path": "transformers",
@@ -1352,13 +1474,22 @@
        "why_it_binds": "Often the schedule driver: transformer lead times are long and vary by type. Enter the quoted figure if you have one."
       },
       {
-       "assumed": "[]",
+       "assumed": "not evaluated: treated as no limit, so the rack count is an upper bound (E0)",
        "how_to_get_it": "UPS nameplate, topology and remaining design life.",
        "input": "UPS schedule",
        "path": "ups",
        "required": true,
        "unit": "-",
        "why_it_binds": "GPU racks present step loads, not just steady load."
+      },
+      {
+       "assumed": "12.37 MVA, derived as contracted_MW / 0.97 (E0): nobody gave the connection's firm capacity, and a connection is not necessarily sized at its contract",
+       "how_to_get_it": "Connection agreement with the DSO.",
+       "input": "Firm connection capacity",
+       "path": "grid.firm_capacity_MVA",
+       "required": true,
+       "unit": "MVA",
+       "why_it_binds": "Sets the absolute ceiling on everything downstream."
       },
       {
        "assumed": "0.97 [0.95\u20130.99] (E0)",
@@ -1388,6 +1519,15 @@
        "why_it_binds": "Busway kW is voltage times ampacity; 400 V and 415 V differ by 4%."
       },
       {
+       "assumed": "three-phase distribution assumed (E0)",
+       "how_to_get_it": "Busway nameplate or the single-line diagram.",
+       "input": "LV distribution phases",
+       "path": "lv.phases",
+       "required": false,
+       "unit": "-",
+       "why_it_binds": "A single-phase feed carries 1/sqrt(3) of the power of a three-phase one at the same voltage and ampacity, and a rack draws sqrt(3) times the current from it: both the busway's capacity and the rack-feed (tap-off) limit follow the phase count. When absent the engine reads the hall as three-phase, which is the more favourable reading."
+      },
+      {
        "assumed": "6",
        "how_to_get_it": "Electrical record drawings.",
        "input": "Number of busway runs",
@@ -1406,13 +1546,13 @@
        "why_it_binds": "The fraction of nameplate the operator will actually load."
       },
       {
-       "assumed": "[]",
+       "assumed": "three 1,350 kW N+1 CDUs (2,700 kW usable) assumed as the starting point of the hybrid and full-DLC scenarios (E0); the kit is priced as a purchase and the racks that depend on it are dated",
        "how_to_get_it": "CDU nameplates and the mechanical single-line diagram.",
        "input": "Installed CDU schedule",
        "path": "thermal.cdus",
        "required": false,
        "unit": "-",
-       "why_it_binds": "When absent, the hybrid and full-DLC scenarios ASSUME three 1,350 kW N+1 CDUs already installed at no cost, which supplies roughly 22 racks of liquid capacity that the hall may not have."
+       "why_it_binds": "When absent, the hybrid and full-DLC scenarios start from an ASSUMED kit of three 1,350 kW N+1 CDUs, which supplies roughly 22 racks of liquid capacity that the hall may not have. The engine prices that kit (a library placeholder, not a quotation) and dates the racks that depend on it, so the capex and the schedule include a purchase nobody declared. Declare the CDUs already installed to remove it."
       },
       {
        "assumed": "0 l/min, nothing subtracted (the pumped flow is read as flow available to the new load)",
@@ -1524,7 +1664,7 @@
       }
      ],
      "recommended_engagement": "Intake too thin for a full study. Sell the Density Screen instead: it produces the binding constraint and the data-request list, and its fee credits against the study when the data arrives.",
-     "required_inputs_missing": 7,
+     "required_inputs_missing": 8,
      "warnings": [
       "Busway: neither hall.occupied_positions nor hall.rack_positions was supplied, so the occupied positions are an assumption (E0) from the library default total of 400 positions, not a count of anything in your hall. Reading that total less your 100 free positions as occupied (300 positions), at their 8 kW design density, would draw 2,400 kW, more than the 1,290 kW the declared busway can carry. busway_ampacity_A is read as the installed total and existing load is not subtracted, so check whether the figure you gave is the whole hall's busway, and give hall.occupied_positions and hall.rack_positions (a full intake takes both) so this check runs on counts rather than an assumption.",
       "No transformer schedule supplied: transformer capacity is not evaluated and may be the true binding constraint.",
@@ -1551,5 +1691,5 @@
    }
   }
  ],
- "note": "POST /v1/qualify answers for requests that carry no assumed_fields, produced by the engine at commit 002fa59 BEFORE assumed_fields existed (explicit_null_assumed: HEAD ignored the unknown key, so a null is the same request). tests/test_qualify_assumed.py requires today's engine to answer them identically: a plain request must not change. UPDATED at the commit that added the optional hall.occupied_positions. Exactly TWO places no longer prove byte-identity to 002fa59, and nothing else changed: (1) response.intake.gaps carries ONE appended optional entry, hall.occupied_positions (last); (2) response.intake.warnings: the text of the busway warning, where it fires, no longer states a derived occupied count as a fact. Every other byte is as the engine produced it at 002fa59."
+ "note": "POST /v1/qualify answers for requests that carry no assumed_fields, produced by the engine at commit 002fa59 BEFORE assumed_fields existed (explicit_null_assumed: HEAD ignored the unknown key, so a null is the same request). tests/test_qualify_assumed.py requires today's engine to answer them identically: a plain request must not change. UPDATED at the commit that added the optional hall.occupied_positions. Exactly TWO places no longer prove byte-identity to 002fa59, and nothing else changed: (1) response.intake.gaps carries ONE appended optional entry, hall.occupied_positions (last); (2) response.intake.warnings: the text of the busway warning, where it fires, no longer states a derived occupied count as a fact. Every other byte is as the engine produced it at 002fa59. UPDATED AGAIN at the commit that labels what the qualifier invents (2026-11-12, tests/test_intake_integrity.py). Every answer's numbers, binding constraints and basis text are byte-identical to before; what changed is the LABELLING of two figures the engine assumed without saying so: (3) response.intake.gaps carries two more rows, grid.firm_capacity_MVA (REQUIRED: the qualifier derives it as contracted_MW / 0.97, class E0, when the caller gives no firm_capacity_MVA) and lv.phases (optional: three-phase is assumed when it is not given); (4) so response.intake.completeness falls and response.intake.required_inputs_missing rises by one (the firm capacity was counted as supplied); (5) response.inputs_derived_assumed is added, listing the derived firm capacity with its class and note. response.inputs_declared_assumed stays absent: it lists exactly what the caller declared. (6) the data-request 'assumed' cell of transformers, ups and thermal.cdus no longer prints the literal [] (a bank that was not declared is 'not evaluated: treated as no limit, so the rack count is an upper bound'; for the CDUs it states the assumed kit that is priced and dated), and thermal.cdus' why_it_binds no longer says the kit is installed 'at no cost'."
 }

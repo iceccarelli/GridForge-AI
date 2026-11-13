@@ -19,7 +19,7 @@ from .study import Objective, _pick_recommended, collect_claims
 from .grid_queue_section import section as grid_queue_section
 from .retail_price_section import section as retail_price_section
 from .labels import (date_basis, date_basis_text, economics_limitations, full_capacity_q,
-                     racks_q, relief_text)
+                     rack_bound_note, racks_q, relief_text)
 
 WATERMARK = ("SCREENING OPINION — modelled from the inputs supplied. Not a design package, "
              "and not a measurement of this asset.")
@@ -55,11 +55,11 @@ def build(intake: Intake, results: list[ScenarioResult],
     s.blocks.append(Statement(
         f"Deployable {plat.name} racks as the hall stands",
         racks_q(rec.envelope.max_racks, "deployable racks as found", rec),
-        rec.envelope.binding.basis))
+        rec.envelope.binding.basis + rack_bound_note(rec.ladder)))
     s.blocks.append(Statement(
         "Deployable after the costed ladder",
         racks_q(rec.unlocked_racks, "deployable racks after relief", rec),
-        rec.spec.name))
+        rec.spec.name + rack_bound_note(rec.ladder)))
     full_q = full_capacity_q(rec.ladder, t, "elapsed weeks to full energisation")
     if full_q is not None:
         db = date_basis(rec.ladder, t)
@@ -106,7 +106,7 @@ def build(intake: Intake, results: list[ScenarioResult],
     s = Section("4. What we had to assume — and what it would take to stop assuming")
     if intake.report.gaps:
         s.blocks.append(Para(
-            f"Intake completeness is {intake.report.completeness:.0%}. Each row below is a number "
+            f"Intake completeness is {intake.report.completeness:.0%}.{intake.report.item_gaps_note} Each row below is a number "
             "that moves the answer and that nobody has measured. This list is the deliverable as "
             "much as the number above it."))
         rows = [[g.label, Lit("required" if g.required else "optional"),

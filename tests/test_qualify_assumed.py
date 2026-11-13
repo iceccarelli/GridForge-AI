@@ -128,7 +128,9 @@ def test_the_connection_capacity_derived_from_an_assumed_contract_is_assumed_too
     """With no firm_capacity_MVA given the qualifier derives one from the contracted figure. Derived from an assumed number it is an assumed
     number: arithmetic must not turn a template's value into customer data."""
     plain = load_document(qualify_to_intake(dict(HALL)))
-    assert plain.report.sourced == []                                   # nothing annotated: classed as supplied customer data
+    # The plain request's derived connection capacity was a plain number, "classed as supplied customer data" (this line asserted `sourced == []`): that
+    # was the defect (tests/test_intake_integrity.py E3). It is now annotated E0 too, with a note that says how it was derived, and it is the only figure.
+    assert [(s.path, s.evidence, s.note) for s in plain.report.sourced] == [("grid.firm_capacity_MVA", QUALIFY_ASSUMED_CLASS, S.QUALIFY_DERIVED_FIRM_NOTE)]
     marked = load_document(qualify_to_intake({**HALL, "assumed_fields": ["contracted_MW"]}))
     firm = [s for s in marked.report.sourced if s.path == "grid.firm_capacity_MVA"]
     assert [(s.evidence, s.note) for s in firm] == [(QUALIFY_ASSUMED_CLASS, S.QUALIFY_ASSUMED_NOTE)]
@@ -269,7 +271,7 @@ def test_the_class_is_proved_per_figure_not_by_the_headline_evidence(base):
     assert "inputs_declared_assumed" not in plain and len(declared["inputs_declared_assumed"]) == 7
     from gridforge.validation import EvidenceClass
     p, d = load_document(qualify_to_intake(dict(HALL))), load_document(qualify_to_intake({**HALL, "assumed_fields": list(QUALIFY_FIELDS)}))
-    assert [s.path for s in p.report.sourced] == []
+    assert [s.path for s in p.report.sourced] == ["grid.firm_capacity_MVA"]       # was []: the derived connection capacity is now labelled E0 (E3)
     assert sorted(s.path for s in d.report.sourced if s.evidence == "E0") == sorted([*QUALIFY_FIELDS.values(), "grid.firm_capacity_MVA"])
     for q in ("tapoff_max_A", "busway_ampacity_A"):
         assert getattr(p.context.power.lv, q).evidence is EvidenceClass.E5_CUSTOMER_DATA

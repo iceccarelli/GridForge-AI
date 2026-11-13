@@ -22,7 +22,7 @@ from ..intake.loader import Intake
 from ..power.plausibility import intake_warnings
 from ..scenario.run import ScenarioResult
 from .gates import DISCLOSURE_MARKER, claim_label, claims_below_floor
-from .labels import date_basis, date_basis_text, full_capacity_q, racks_q
+from .labels import date_basis, date_basis_text, full_capacity_q, rack_bound_note, racks_q
 from .model import Bullets, Callout, Lit, Para, Report, Section, Statement, Table
 from .study import Objective, _pick_recommended, collect_claims
 
@@ -61,11 +61,11 @@ def build(intake: Intake, results: list[ScenarioResult], eng: Engagement, *,
     s.blocks.append(Statement(
         f"Deployable {plat.name} racks as the hall stands",
         racks_q(rec.envelope.max_racks, "deployable racks as found", rec),
-        rec.envelope.binding.basis))
+        rec.envelope.binding.basis + rack_bound_note(rec.ladder)))
     s.blocks.append(Statement(
         "Deployable after the costed ladder",
         racks_q(rec.unlocked_racks, "deployable racks after relief", rec),
-        rec.spec.name))
+        rec.spec.name + rack_bound_note(rec.ladder)))
     # The figure is banded and classed by the lead times that set it (it used to be a flat E3 with an invented
     # x0.7 / x1.6 band, above the E0 of the assumed lead time behind it).
     full_q = full_capacity_q(rec.ladder, t, "elapsed weeks to full energisation")
@@ -95,7 +95,7 @@ def build(intake: Intake, results: list[ScenarioResult], eng: Engagement, *,
     s = Section("3. What we need from you")
     if intake.report.gaps:
         s.blocks.append(Para(
-            f"Intake is {intake.report.completeness:.0%} complete. Each row below is a number that "
+            f"Intake is {intake.report.completeness:.0%} complete.{intake.report.item_gaps_note} Each row below is a number that "
             "moves the answer and that nobody has measured. Anything you cannot supply is filled "
             "from a library default and named as an assumption in the deliverable — nothing is "
             "invented silently."))

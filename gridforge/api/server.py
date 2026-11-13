@@ -207,9 +207,21 @@ def qualify_assumed_fields(body: dict) -> list[str]:
     return [k for k in QUALIFY_FIELDS if k in seen]
 
 
-def _declared_assumed(value: float) -> dict:
+#: The note the engine records beside the connection capacity the qualifier derived itself (no `firm_capacity_MVA` was given).
+QUALIFY_DERIVED_FIRM_NOTE = ("Derived by the qualifier as contracted_MW / 0.97 because no firm_capacity_MVA was given: it assumes the connection is sized at "
+                             "its contract, which no connection agreement states. It is not this hall's figure.")
+#: The intake path of that figure, in the loader's spelling.
+QUALIFY_FIRM_PATH = "grid.firm_capacity_MVA"
+
+
+def _declared_assumed(value: float, note: str = QUALIFY_ASSUMED_NOTE) -> dict:
     """A figure in the intake loader's annotated form, declared E0. The loader reads class and note from here and nowhere else."""
-    return {"value": value, "evidence": QUALIFY_ASSUMED_CLASS, "note": QUALIFY_ASSUMED_NOTE}
+    return {"value": value, "evidence": QUALIFY_ASSUMED_CLASS, "note": note}
+
+
+def qualify_derives_firm(body: dict) -> bool:
+    """True when the qualifier will invent the firm connection capacity itself: a contract was given and the connection's own figure was not."""
+    return body.get("firm_capacity_MVA") is None and body.get("contracted_MW") is not None
 
 
 def qualify_to_intake(body: dict) -> dict:
@@ -250,7 +262,9 @@ def qualify_to_intake(body: dict) -> dict:
             # Derived from a figure the caller declared assumed, so it is assumed too: it must not become customer data by arithmetic.
             doc["grid"]["firm_capacity_MVA"] = _declared_assumed(float(contracted["value"]) / 0.97)
         else:
-            doc["grid"]["firm_capacity_MVA"] = float(contracted) / 0.97
+            # Derived from a figure the caller gave, but not a figure the caller gave: it is labelled an assumption (E0) like the branch above, and
+            # `handle_qualify` lists it as a required gap. It used to go in as a plain number, which the loader read as customer data (E5).
+            doc["grid"]["firm_capacity_MVA"] = _declared_assumed(float(contracted) / 0.97, QUALIFY_DERIVED_FIRM_NOTE)
     return doc
 
 
@@ -617,13 +631,39 @@ def _objective(body: dict) -> Objective:
 def handle_qualify(body: dict, tier: Tier) -> dict:
     """Free qualifier. Optional `assumed_fields` (a list of the seven QUALIFY_FIELDS names) declares figures ASSUMED: they are classed E0 in the
     result and listed in `inputs_declared_assumed`, `intake.assumed_count` says how many; completeness still counts them as supplied. A request
-    without it is answered exactly as before."""
+    without it is answered exactly as before.
+
+    The qualifier derives the firm connection capacity (contracted_MW / 0.97, class E0) when a contract is given and `firm_capacity_MVA` is not: that
+    figure is not the caller's, so it is a REQUIRED gap row (`grid.firm_capacity_MVA`; `required_inputs_missing` and `completeness` count it) and is
+    listed under `inputs_derived_assumed`, never under `inputs_declared_assumed`, which holds exactly what the caller declared. Free and keyless as ever."""
     missing = [k for k in QUALIFY_FIELDS if body.get(k) is None]
     if len(missing) > 4:
         raise ApiError(422, "too little to say anything useful",
                        required_at_least=list(QUALIFY_FIELDS)[:3], missing=missing)
     intake, results = _run(qualify_to_intake(body))
-    return qualify_payload(intake, results, _objective(body), declared_assumed=[QUALIFY_FIELDS[k] for k in qualify_assumed_fields(body)])
+    derived = qualify_derives_firm(body)
+    if derived:
+        _record_derived_firm(intake)
+    return qualify_payload(intake, results, _objective(body), declared_assumed=[QUALIFY_FIELDS[k] for k in qualify_assumed_fields(body)],
+                           derived_assumed=[QUALIFY_FIRM_PATH] if derived else None)
+
+
+def _record_derived_firm(intake) -> None:
+    """The firm connection capacity the qualifier derived from the contract is NOT a supplied figure: it moves from `supplied` to a required gap row,
+    so `required_inputs_missing`, `completeness` and the data request all count it, whether or not the caller declared the contract assumed. The number
+    the solver used is unchanged (this runs after the solve and touches the report only)."""
+    from ..intake.schema import FIELD_BY_PATH, DataGap
+    spec = FIELD_BY_PATH[QUALIFY_FIRM_PATH]
+    rep = intake.report
+    rep.supplied[:] = [p for p in rep.supplied if p != QUALIFY_FIRM_PATH]
+    used = intake.context.power.grid.firm_capacity_MVA.value
+    row = DataGap(path=QUALIFY_FIRM_PATH, label=spec.label, unit=spec.unit, required=spec.required,
+                  fallback_description=(f"{used:.2f} MVA, derived as contracted_MW / 0.97 (E0): nobody gave the connection's firm capacity, and a "
+                                        f"connection is not necessarily sized at its contract"),
+                  why_it_binds=spec.why_it_binds, how_to_get_it=spec.how_to_get_it)
+    after = {"grid.power_factor", "grid.contracted_MW", "grid.current_site_peak_MW", "grid.current_it_load_MW"}     # keep the loader's reading order
+    at = next((i for i, g in enumerate(rep.gaps) if g.path in after), len(rep.gaps))
+    rep.gaps.insert(at, row)
 
 
 def _rendered(report, results, fmt: str) -> dict:

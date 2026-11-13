@@ -19,6 +19,7 @@ from __future__ import annotations
 
 import csv
 import io
+import math
 from dataclasses import dataclass
 from datetime import datetime
 
@@ -28,6 +29,23 @@ from ..validation import EvidenceClass, Quantity
 
 class LoadProfileError(ValueError):
     pass
+
+
+#: Input sanity, in step with the intake loader's ceiling for a hall's load (PLAUSIBLE_MAX["lv.existing_busway_load_kW"], 5,000,000 kW) and
+#: change._STATE_MAX_KW: a load above it is a unit slip or an overflow, not a hall. `nan` and `inf` parse as floats and would reach the response as
+#: the literals NaN / Infinity, which are not JSON.
+LOAD_PROFILE_MAX_kW = 5_000_000.0
+#: The longest flat profile one request may ask for (a leap year of hours): `flat` builds one sample per interval, so an unbounded duration is an unbounded allocation.
+LOAD_PROFILE_MAX_HOURS = 8_784.0
+
+
+def _sane_kW(raw: float, what: str) -> float:
+    if not math.isfinite(raw):
+        raise LoadProfileError(f"{what} is {raw!r}; it must be a finite number of kW")
+    if abs(raw) > LOAD_PROFILE_MAX_kW:
+        raise LoadProfileError(f"{what} is {raw:g} kW, above {LOAD_PROFILE_MAX_kW:g} kW, the most this tool will model for one site. "
+                               f"Check the unit (W versus kW) and for a stray digit.")
+    return raw
 
 
 @dataclass(frozen=True)
@@ -235,12 +253,14 @@ def from_csv(text: str, *, source: str = "customer CSV",
             kW = float(row[1])
         except ValueError as exc:
             raise LoadProfileError(f"row {i}: unparseable kW {row[1]!r}") from exc
+        kW = _sane_kW(kW, f"row {i}: kW {row[1].strip()[:24]!r}")
         kVAR = None
         if has_kvar and len(row) > 2 and row[2].strip():
             try:
                 kVAR = float(row[2])
             except ValueError as exc:
                 raise LoadProfileError(f"row {i}: unparseable kVAR {row[2]!r}") from exc
+            kVAR = _sane_kW(kVAR, f"row {i}: kVAR {row[2].strip()[:24]!r}")
         samples.append(LoadSample(ts, kW, kVAR))
     samples.sort(key=lambda s: s.timestamp)
     interval = _infer_interval_minutes(samples)
@@ -266,6 +286,9 @@ def flat(kW: float, *, hours: float = 24.0, interval_minutes: float = 15.0,
     correctly read zero, which is itself the honest answer to "how much does a
     flat assumption tell you about transients."""
     from datetime import timedelta
+    kW = _sane_kW(float(kW), "flat kW")
+    if not math.isfinite(hours) or not 0 < hours <= LOAD_PROFILE_MAX_HOURS:
+        raise LoadProfileError(f"flat hours is {hours!r}; it must be a finite number above 0 and at most {LOAD_PROFILE_MAX_HOURS:g}")
     n = max(int(hours * 60 / interval_minutes), 1)
     start = datetime(2000, 1, 1)
     samples = [LoadSample(start + timedelta(minutes=interval_minutes * i), kW)

@@ -17,7 +17,7 @@ from ..scenario.run import ScenarioResult
 from .gates import DISCLOSURE_MARKER, claim_label, claims_below_floor
 from ..validation import EvidenceClass
 from .labels import (date_basis, date_basis_text, dominant_sensitivity, economics_limitations,
-                     full_capacity_q, is_zero_gain, racks_q)
+                     full_capacity_q, is_zero_gain, rack_bound_note, racks_q)
 from .model import Bullets, Callout, Lit, Para, Report, Section, Statement, Table
 from .study import DECISION_GATES, collect_claims, watermark_for
 
@@ -43,9 +43,9 @@ def build(intake: Intake, results: list[ScenarioResult],
 
     s = Section("The answer")
     s.blocks.append(Statement(f"Deployable {plat.name} racks today", racks_q(rec.envelope.max_racks,
-                              "deployable racks as found", rec), rec.envelope.binding.name.lower()))
+                              "deployable racks as found", rec), rec.envelope.binding.name.lower() + rack_bound_note(rec.ladder)))
     s.blocks.append(Statement(f"Deployable racks after the costed works", racks_q(rec.unlocked_racks,
-                              "deployable racks after relief", rec), rec.spec.name))
+                              "deployable racks after relief", rec), rec.spec.name + rack_bound_note(rec.ladder)))
     if final is not None:
         s.blocks.append(Statement("IT load at that point", final.it_load_kW, "at the recommended architecture"))
     fq = full_capacity_q(rec.ladder, ttp, "elapsed weeks to full capacity")
