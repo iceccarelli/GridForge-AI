@@ -26,6 +26,33 @@ from .labels import date_basis, date_basis_text, full_capacity_q, rack_bound_not
 from .model import Bullets, Callout, Lit, Para, Report, Section, Statement, Table
 from .study import Objective, _pick_recommended, collect_claims
 
+def _banded(eng: Engagement) -> bool:
+    """True when the engagement is quoted as a range (the fee is agreed in writing inside it), not as one fixed figure."""
+    return bool(eng.price_eur_max and eng.price_eur_max > eng.price_eur)
+
+
+def _fee_phrase(eng: Engagement) -> str:
+    """The fee as the catalogue states it: the whole quoted band, never its floor alone."""
+    if _banded(eng):
+        return f"EUR {eng.price_eur:,} to {eng.price_eur_max:,}"
+    return f"EUR {eng.price_eur:,}"
+
+
+def _fee_terms(eng: Engagement) -> str:
+    if _banded(eng):
+        return f"{_fee_phrase(eng)}, agreed in writing at scoping and before work starts"
+    return f"{_fee_phrase(eng)}, fixed"
+
+
+def _fee_caption(eng: Engagement) -> str:
+    if _banded(eng):
+        return ("The fee is agreed in writing, inside the quoted band, before work starts. "
+                "The figure above is the whole band, not a single price.")
+    return "Fixed fee. We do not bill hours, because you are buying an answer."
+
+
+def _fee_statement_label(eng: Engagement) -> str:
+    return (f"{eng.name} fee (quoted band, agreed in writing)" if _banded(eng) else f"{eng.name} fixed fee")
 
 def build(intake: Intake, results: list[ScenarioResult], eng: Engagement, *,
           objective: Objective = Objective.MAX_COMPUTE,
@@ -46,7 +73,7 @@ def build(intake: Intake, results: list[ScenarioResult], eng: Engagement, *,
         status="Proposal",
         required_sections=("Fee, timing and terms", "What is outside scope"),
         meta=[("Client", intake.client), ("Site", ctx.site.name), ("Hall", ctx.hall.id),
-              ("Engagement", eng.name), ("Fee", f"EUR {eng.price_eur:,}"),
+              ("Engagement", eng.name), ("Fee", _fee_phrase(eng)),
               ("Turnaround", f"{eng.turnaround_days} working days")],
         footer=("GridForge AI — independent power and thermal engineering. We quote no equipment "
                 "and take no margin on hardware."),
@@ -115,7 +142,7 @@ def build(intake: Intake, results: list[ScenarioResult], eng: Engagement, *,
     s = Section("4. Fee, timing and terms")
     s.blocks.append(Table(
         ["Item", "Terms"],
-        [["Fee", Lit(f"EUR {eng.price_eur:,}, fixed")],
+        [["Fee", Lit(_fee_terms(eng))],
          ["Turnaround", Lit(f"{eng.turnaround_days} working days from a complete intake")],
          ["Payment", Lit(eng.payment_terms)],
          ["Credit", Lit(
@@ -124,9 +151,10 @@ def build(intake: Intake, results: list[ScenarioResult], eng: Engagement, *,
          ["Validity", Lit(f"This proposal is valid to {valid_to.isoformat()}.")],
          ["Independence", Lit("We quote no equipment and take no margin on hardware. Nothing in "
                               "the deliverable routes you to a supplier we are paid by.")]],
-        caption="Fixed fee. We do not bill hours, because you are buying an answer."))
+        caption=_fee_caption(eng)))
     s.blocks.append(Statement(
-        "Fee", V(float(eng.price_eur), "EUR", f"{eng.name} fixed fee", ESTIMATED),
+        "Fee", V(float(eng.price_eur), "EUR", _fee_statement_label(eng), ESTIMATED,
+                 band=(float(eng.price_eur), float(eng.price_eur_max)) if _banded(eng) else None),
         f"{eng.turnaround_days} working days from a complete intake"))
     r.sections.append(s)
 
