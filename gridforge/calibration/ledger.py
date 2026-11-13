@@ -13,6 +13,7 @@ from pathlib import Path
 
 from .schema import Observation, ObservationError, SHA256_RE
 from .siteref import SiteRefError, alias_path, canonical, read_alias_file
+from .tombstones import heads as tombstone_heads, is_withdrawn, observation_hash as _tombstone_hash, read_tombstones, tombstone_path
 from ..validation.evidence import EvidenceClass
 
 try:                                  # POSIX. Elsewhere a lock-file fallback keeps two writers apart.
@@ -228,6 +229,11 @@ def load_ledger(published_only: bool = False, use_aliases: bool = True) -> Ledge
     private, phead = read_chain(p)
     # use_aliases=False exists for `calibrate where` alone, to report an unreadable alias file instead of stopping; every count of sites wants the aliases.
     private = _canonicalised(private, site_aliases(p) if use_aliases else {})
+    # D5: an observation whose organisation withdrew its consent is not counted, however long ago it was imported. The chained file is not edited; its tombstones
+    # are a side file (tombstones.py), and an unreadable one stops the read rather than count a withdrawn observation again.
+    dead = tombstone_heads(read_tombstones(tombstone_path(p)))
+    if dead:
+        private = [o for o in private if not is_withdrawn(o.source_ref, dead)]
     if private:
         sources.append(str(p))
         heads[str(p)] = phead
@@ -411,6 +417,19 @@ def import_export(doc, path: Path | None = None, *, accept_mixed_refs: bool = Fa
         raise ObservationError(f"not a calibration export: expected {{'schema': '{EXPORT_SCHEMA}', 'rows': [...]}}")
     rows = doc["rows"]
     new = [_row_to_observation(r, i + 1) for i, r in enumerate(rows)]
+    # D5: a withdrawn observation cannot come back by re-import. The tombstones are the side file's and the export's own (`tombstones`, a list of the 64-hex
+    # hashes the database holds); one withdrawn row refuses the whole export, like any other row that fails the policy, and nothing is written.
+    dead = read_tombstones(tombstone_path(target))
+    listed = doc.get("tombstones")
+    if listed is not None:
+        if not isinstance(listed, list) or not all(isinstance(h, str) and SHA256_RE.match(h) for h in listed):
+            raise ObservationError("the export's tombstones must be a list of 64-hex observation hashes")
+        dead = dead | frozenset(listed)
+    if dead:
+        withdrawn = [i + 1 for i, r in enumerate(rows) if _tombstone_hash(r.get("id")) in dead]
+        if withdrawn:
+            raise ObservationError(f"export row(s) {withdrawn} were withdrawn with their organisation's consent (a tombstone exists for them) and cannot be imported "
+                                   f"again. Nothing was imported.")
     # An export row carries a site_<12 hex> in EITHER of two forms: the unsalted hash (rows made before migration 0053 is applied) or the keyed HMAC
     # (after). Nothing in the row says which, and the ledger holds no label, so the two can be told to be one site only from what the operator declared
     # (`gridforge calibrate alias`). A declared legacy reference is stored as the keyed one, so the two are ONE site; any other is stored as exported.

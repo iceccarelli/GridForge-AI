@@ -20,7 +20,7 @@ from pathlib import Path
 
 import pytest
 
-from calibration_pg_rig import bypassing_triggers, record_permission, review_evidence
+from calibration_pg_rig import bypassing_triggers, record_permission, review_evidence, satisfy_publication_gates
 
 ROOT = Path(__file__).resolve().parent.parent
 MIGRATIONS = ROOT / "supabase" / "migrations"
@@ -125,6 +125,8 @@ def obs_args(project, evidence_id, case_token, **over):
 
 def submit(db, project=None, evidence_verified=True, provenance=True, site="Dublin DC1", on="2026-06-30", **over):
     project = project or new_project(db, site)
+    if over.get("data_origin", "production") == "production":
+        satisfy_publication_gates(db, project)          # 0056: a production observation needs an organisation's consent and an attested milestone (a no-op before it)
     case = over.pop("case_token", None) or new_case(db, provenance=provenance)
     ev = over.pop("evidence_id", None) or new_evidence(db, project, verified=evidence_verified)
     r = psql(db, f"select gf_submit_observation('{obs_args(project, ev, case, observed_on=on, **over)}'::jsonb,"
