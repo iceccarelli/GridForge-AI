@@ -18,6 +18,7 @@ Fixtures are the four SYNTHETIC example halls under examples/intake. Nothing her
 from __future__ import annotations
 
 import dataclasses
+import math
 import re
 from pathlib import Path
 
@@ -173,7 +174,10 @@ def test_t20_uses_the_engines_headroom_with_and_without_other_heat(worlds, other
         v = t20(GENERATORS["plant_capacity"](ctx, racks)).value
         need = engine_additional_kW(ctx, racks)
         assert v.value >= need - ABS_TOL_KW
-        assert v.value == pytest.approx(need, abs=1e-3)
+        # T-20 is a "not less than" duty: it is the engine's figure rounded UP to the precision it prints at (tests/test_intake_integrity_review.py R6),
+        # so it is the engine's need, or above it by less than one unit of that precision. It was asserted equal to the unrounded figure.
+        step = 10 ** (math.floor(math.log10(need)) - v.sigfigs() + 1) if need > 0 else 0.0
+        assert need - 1e-3 <= v.value <= need + step + 1e-3
 
 
 def test_the_spec_is_never_lower_than_the_engine_for_any_purchasable_plant_relief(worlds):
@@ -233,7 +237,8 @@ def test_a_non_default_scenario_is_specified_at_its_own_pue_and_plant_state(worl
     pkg = build_spec(intake, full, constraint_id="transformer_capacity")
     e20 = next(r for r in pkg.requirements if r.id == "E-20").value.value
     expected = 135.0 * pkg.sized_for_racks * PUE_BY_ARCHITECTURE[Architecture.FULL_DLC].value / 1000.0 / 0.95
-    assert e20 == pytest.approx(expected)
+    # E-20 is a "not less than" rating, stated rounded UP to its printed precision (R6): the engine's figure, or above it by less than one printed unit.
+    assert expected - 1e-9 <= e20 <= expected + 10 ** (math.floor(math.log10(expected)) - 3 + 1) + 1e-9
     assert e20 != pytest.approx(135.0 * pkg.sized_for_racks * PUE_BY_ARCHITECTURE[Architecture.HYBRID_DLC].value / 1000.0 / 0.95)
 
     hybrid = next(r for r in results if r.spec.id == "hybrid_dlc")
