@@ -134,9 +134,12 @@ def test_the_total_and_the_counts_of_halls_take_the_weakest_hall(halls):
         for c in r.constraints:
             if c.max_racks.value != math.inf:
                 c.max_racks = V(c.max_racks.value, "racks", c.id, E.E5_CUSTOMER_DATA)
-    report = build([strong, halls["london_hall"]])
+    # The reference hall, not London: London's UPS bank is undeclared, so it is not comparable and is (rightly) no longer added into the
+    # total at all (tests/test_portfolio_comparability.py). The property under test is unchanged -- a sum of counts takes the weakest
+    # class among the halls it adds -- and needs a second hall that IS added.
+    report = build([strong, halls["reference_hall"]])
     total = next(b.value for s in report.sections for b in s.blocks if getattr(b, "label", "").startswith("Total"))
-    assert total.evidence is E.E0_ASSUMPTION       # london is on defaults; the sum cannot be stronger
+    assert total.evidence is E.E0_ASSUMPTION       # the reference hall is on defaults; the sum cannot be stronger
 
 
 # --- B. uncertainty is derived, not multiplied -----------------------------------------------------------------

@@ -98,7 +98,7 @@ from ..compute.library import PLATFORMS, UNPUBLISHED_PLATFORMS
 from ..intake.loader import IntakeError, blank_intake, load_document
 from ..reporting import to_html, to_markdown
 from ..reporting.gates import ReportMode, run_all_gates
-from ..reporting.portfolio import SiteEntry, portfolio_rows
+from ..reporting.portfolio import SiteEntry, portfolio_rows, portfolio_summary, portfolio_warnings
 from ..reporting.portfolio import build as build_portfolio
 from ..commercial import ENGAGEMENTS, PAYG, engagement
 from ..change import EnvelopeState, StateError, diff as envelope_diff, diff_from_state
@@ -1311,7 +1311,7 @@ def handle_portfolio(body: dict, tier: Tier) -> dict:
     entries = []
     seen: dict[tuple[str, str], int] = {}
     prints: dict[str, int] = {}
-    portfolio_warnings: list[str] = []
+    portfolio_warnings_list: list[str] = []
     for i, d in enumerate(docs):
         intake, results = _run(d)
         # A hall is a physical thing: listing it twice cannot create capacity. Refuse a repeat by name rather than add it up silently. Two
@@ -1327,7 +1327,7 @@ def handle_portfolio(body: dict, tier: Tier) -> dict:
         fp = _fingerprint(d)
         if fp is not None:
             if fp in prints:
-                portfolio_warnings.append(_identical_warning(i, prints[fp]))
+                portfolio_warnings_list.append(_identical_warning(i, prints[fp]))
             else:
                 prints[fp] = i
         entries.append(SiteEntry(intake=intake, results=results, objective=objective))
@@ -1337,8 +1337,13 @@ def handle_portfolio(body: dict, tier: Tier) -> dict:
         "total_racks": sum(e.racks for e in entries),
         "total_racks_evidence": min(e.rack_class for e in entries).name,
     }
-    if portfolio_warnings:      # additive: present only when there is something to say, so a clean portfolio's shape is unchanged
-        out["warnings"] = portfolio_warnings
+    # Beside the sum of the rows: what it can and cannot be read as. total_racks stays the sum of every hall's own figure (an upper bound
+    # while a connection is shared or a hall was not evaluated against every constraint); the comparable total adds only halls that are
+    # rankable. All read from the per-hall results above -- nothing is solved again.
+    out.update(portfolio_summary(entries, objective))
+    portfolio_warnings_all = portfolio_warnings_list + portfolio_warnings(entries, objective)
+    if portfolio_warnings_all:      # additive: present only when there is something to say, so a clean portfolio's shape is unchanged
+        out["warnings"] = portfolio_warnings_all
     if fmt != "json":
         # The Portfolio Screen as it is delivered: the ranking document, rendered and gated like every other document, and one model
         # pack per hall, all from the SAME solve as the ranking above, so the document and the packs cannot disagree.
