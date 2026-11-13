@@ -62,7 +62,9 @@ def accuracy_block(keys: list[str] | None = None, ledger: Ledger | None = None,
         "keys_with_site_observations": cov["keys_with_site_observations"],
         "keys_calibrated": cov["keys_calibrated"],
         "coverage": cov["coverage"],
-        "keys": [dict(c.to_dict(), label=label(c.key)) for c in with_data],
+        # public_dict: below the published minimum of sites a key shows its counts and state but no ratio, range or date; above it, an
+        # interval over sites and the month. A deliverable prints what it carries, so it prints no single site's exact ratio and day.
+        "keys": [dict(c.public_dict(), label=label(c.key)) for c in with_data],
         "uncalibrated_keys": [c.key for c in cals if c.n == 0],
     }
     if summary is not None:

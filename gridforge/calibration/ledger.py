@@ -35,6 +35,45 @@ EXPORT_SCHEMA = "gridforge/calibration-export/1"
 MEASUREMENT_KINDS = ("metered", "bms_trend", "commissioning_record")
 _UUID_RE = re.compile(r"^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\Z")
 
+#: What a PUBLISHED row says in place of the free text a reviewer or an operator typed. A published row is the one kind that ends up in the
+#: bundled ledger, which ships with the engine in a public repository: so it carries a measurement kind from the closed list above, a role
+#: instead of a person, a hash instead of the database id, and months instead of days. Nothing a person wrote reaches it.
+PUBLISHED_REVIEWER_ROLE = "calibration reviewer"
+UNCLASSIFIED_METHOD = "unclassified measurement"
+_REPORT_DATE_NOTE = re.compile(r"^model report_date (\d{4}-\d{2})-\d{2}\Z")
+
+
+def _month_start(iso: str) -> str:
+    """The first day of the month of an ISO date or timestamp: the day a site was measured, or a reviewer signed, identifies the visit."""
+    try:
+        return date.fromisoformat(iso[:10]).replace(day=1).isoformat()
+    except ValueError:
+        return iso
+
+
+def published_source_ref(observation_id: str, evidence_sha256: str) -> str:
+    """"<hash of the observation id>:<evidence sha256>". The same observation always gets the same reference, so a second import of it is
+    still refused, but the database id itself is not in the row."""
+    digest = hashlib.sha256(f"gridforge.calibration.observation:{observation_id}".encode()).hexdigest()[:32]
+    return f"{digest}:{evidence_sha256}"
+
+
+def _published_ref(source_ref: str) -> str:
+    head, _, sha = source_ref.partition(":")
+    return published_source_ref(head, sha) if _UUID_RE.match(head) else source_ref
+
+
+def published_form(o: Observation) -> Observation:
+    """The row as it may be published: controlled vocabulary, hashes and months only. Idempotent. Rows imported before this existed carry
+    the raw text on disk (the file and its hash chain are not rewritten); this is how they are shown."""
+    kind = next((k for k in MEASUREMENT_KINDS if o.method == k or o.method.startswith(k + ":")), UNCLASSIFIED_METHOD)
+    month = _REPORT_DATE_NOTE.match(o.note or "")
+    return replace(
+        o, method=kind, platform="", note=f"model report month {month.group(1)}" if month else "",
+        source_ref=_published_ref(o.source_ref) if o.source_ref else "",
+        reviewed_by=PUBLISHED_REVIEWER_ROLE if o.reviewed_by else "",
+        reviewed_at=_month_start(o.reviewed_at) if o.reviewed_at else "", observed_on=_month_start(o.observed_on))
+
 
 class LedgerIntegrityError(ObservationError):
     """The ledger file does not match its own hash chain. Nothing is loaded and nothing is appended."""
@@ -178,7 +217,7 @@ def load_ledger(published_only: bool = False, use_aliases: bool = True) -> Ledge
     sources = [str(BUNDLED_PATH)] if BUNDLED_PATH.exists() else []
     heads: dict[str, str | None] = {str(BUNDLED_PATH): head} if BUNDLED_PATH.exists() else {}
     if published_only:
-        return Ledger(observations=[o for o in obs if o.published], sources=sources,
+        return Ledger(observations=[published_form(o) for o in obs if o.published], sources=sources,
                       private_loaded=False, heads=heads)
     p = private_path()
     private, phead = read_chain(p)
@@ -259,6 +298,7 @@ def _append_many(new: list[Observation], target: Path) -> Path:
         existing = [Observation.from_dict(d) for d in raw]
         aliases = site_aliases(target)
         refs = {o.source_ref for o in existing if o.source_ref}
+        refs |= {_published_ref(r) for r in refs}          # a row imported before references were hashed still blocks its own re-import
         # One site is one site whichever of its two references (unsalted before migration 0053, keyed after) a row carries, once the operator declared it.
         ident = {(o.key, canonical(o.site_ref, aliases), o.observed_on) for o in existing}
         batch_refs: set[str] = set()
@@ -339,7 +379,9 @@ def _row_to_observation(row, i: int) -> Observation:
         except ValueError:
             raise ObservationError(f"{tag}: report_date is not an ISO date")
     try:
-        return Observation(
+        # Validated as the export gave it (a method, a reviewer, a date must be there), then written in its published form: the free text a
+        # reviewer typed (a person, a site, a URL), the database id and the exact dates are not copied into a row that may be published.
+        return published_form(Observation(
             key=str(row.get("key") or ""), site_ref=str(row.get("site_ref") or ""),
             predicted=_num(row.get("predicted_value"), "predicted_value", i),
             observed=_num(row.get("observed_value"), "observed_value", i),
@@ -347,7 +389,7 @@ def _row_to_observation(row, i: int) -> Observation:
             evidence=EvidenceClass.E5_CUSTOMER_DATA, method=f"{row['measurement_kind']}: {method.strip()}",
             note=note, kind="measured", source_ref=f"{rid}:{sha}", model_digest=dig,
             reviewed_by=reviewer.strip(), reviewed_at=str(row.get("reviewed_at") or ""),
-            source="import", published=True)
+            source="import", published=True))
     except ObservationError as exc:
         raise ObservationError(f"{tag}: {exc}")
 

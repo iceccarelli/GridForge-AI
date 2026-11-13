@@ -42,7 +42,8 @@ def test_json_is_unchanged_and_carries_no_document(three):
     # additive comparability keys (tests/test_portfolio_comparability.py): what the total adds up and what it leaves out
     added = {"total_racks_upper_bound", "total_racks_by_site_max", "comparable_total_racks", "comparable_total_racks_by_site_max",
              "comparable_total_racks_evidence", "incomparable_halls", "constraint_rollup", "totals_note"}
-    assert set(out) == legacy | added
+    # + "calibration" (audit D8: every answer carries the accuracy record). The existing keys are unchanged.
+    assert set(out) == legacy | added | {"calibration"}
     assert "document" not in out and "model_packs" not in out
 
 

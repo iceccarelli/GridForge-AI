@@ -64,7 +64,7 @@ def bid(supplier, capex, lead, install=4, pkg=None, non_compliant=None):
         if non_compliant:
             compliance[non_compliant] = "N"
     return SupplierResponse.from_dict({
-        "supplier": supplier, "received_on": "2026-10-01", "valid_until": "2026-12-31",
+        "supplier": supplier, "received_on": "2026-10-01", "valid_until": "2026-12-31", "currency": "EUR",
         "values": {"capex_eur": capex, "lead_time_weeks": lead, "install_weeks": install},
         "compliance": compliance,
     })
@@ -392,7 +392,7 @@ def test_bids_reads_back_the_template_it_wrote(tmp_path):
     paths = []
     for name, capex, lead in [("Alpha", 480_000, 20), ("Beta", 392_000, 44)]:
         d = json.loads(json.dumps(template))
-        d.update(supplier=name, received_on="2026-10-01", valid_until="2026-12-31")
+        d.update(supplier=name, received_on="2026-10-01", valid_until="2026-12-31", currency="EUR")
         d["values"].update(capex_eur=capex, lead_time_weeks=lead, install_weeks=6)
         d["compliance"] = {k: "C" for k in d["compliance"]}
         p = out / f"{name}.json"

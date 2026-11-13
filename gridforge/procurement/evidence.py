@@ -23,7 +23,7 @@ from datetime import date
 
 from ..clock import report_date
 from ..costs import CAPACITY_SCALED_KEYS, COST_EVIDENCE, CostEntry, declared_unit
-from .evaluate import COMPLIES_WITH_DEVIATION, NON_COMPLIANT, _check_response
+from .evaluate import COMPLIES_WITH_DEVIATION, NON_COMPLIANT, _check_response, currency_problem
 from .ingest import _to_library_basis
 from .schema import ProcurementError, SpecPackage, SupplierResponse
 
@@ -107,10 +107,8 @@ def quote_lines(pkg: SpecPackage, responses: list[SupplierResponse], *, today: d
         if seen[r.supplier.strip().lower()] > 1:
             base_problems.append("another response from the same supplier is in this submission: supply one current "
                                  "response per supplier")
-        if r.currency != "EUR":
-            base_problems.append(
-                f"currency {r.currency or 'not stated'}: the specification requires EUR (C-01) and the engine holds no "
-                f"exchange rate, so the price cannot be compared")
+        if r.currency != "EUR" and currency_problem(r.currency) not in base_problems:     # the comparison check may have said so already
+            base_problems.append(currency_problem(r.currency))
         for rid in mandatory:
             code = r.compliance.get(rid, "")
             if not code:

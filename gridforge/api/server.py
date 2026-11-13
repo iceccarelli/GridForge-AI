@@ -118,7 +118,8 @@ from .keys import revocation_persistable, revoke, revoked_ids
 from ..provenance import provenance
 from .costs import BUCKET_BOUNDS_MS, timer
 from .metering import METER, UNIT_COST, key_plans, payg_public, plan_for, refusal, units_for
-from .payloads import grid_queue_context_for, qualify_payload, retail_price_context_for, screen_payload
+from .payloads import (btm_calibration_block, calibration_block, calibration_block_for_bindings, grid_queue_context_for, qualify_payload,
+                       retail_price_context_for, screen_payload)
 from .tiers import Tier, redact
 from .tools import PROTOCOL_VERSION, TOOLS_BY_NAME, catalogue, mcp_tools
 
@@ -779,6 +780,7 @@ def handle_compare(body: dict, tier: Tier) -> dict:
         raise ApiError(422, str(exc), **{k: v for k, v in exc.detail.items() if v is not None})
     out["project"] = intake.project
     out["intake_completeness"] = round(intake.report.completeness, 3)
+    out["calibration"] = calibration_block(chosen)       # how far this engine has been checked against real sites, including that it has not been
     # Grid reinforcement is deliberately not dated above. Set the MEASURED queue history beside that refusal: context only.
     if tier is not Tier.PUBLIC:
         from ..context import grid_queue
@@ -806,7 +808,7 @@ def handle_study(body: dict, tier: Tier) -> dict:
     if bundle and str(body.get("view") or "").lower() == "board":
         raise ApiError(422, "bundle=board and view=board cannot be combined")
     if fmt == "csv":
-        return {"format": "csv", "files": csv_bundle(intake, results)}
+        return {"format": "csv", "files": csv_bundle(intake, results), "calibration": calibration_block(results)}
     if fmt in ("html", "md"):
         objective = _objective(body)
         from ..reporting.study import _pick_recommended
@@ -826,6 +828,7 @@ def handle_study(body: dict, tier: Tier) -> dict:
                                     date_record=(_date_record(rec.ladder, document=intake.document)
                                                  if tier is not Tier.PUBLIC else None))
         out = _rendered(report, results, fmt)
+        out["calibration"] = calibration_block(results)
         if bundle:
             # The paid Envelope Study pack: the long study and the one-page board summary from ONE solve, so the
             # two cannot disagree about the model, the objective, the evidence classes or the watermark. Each
@@ -842,7 +845,9 @@ def handle_study(body: dict, tier: Tier) -> dict:
                              "artifacts": ["study", "board_summary"],
                              "formats": ["html", "md"]}
         return out
-    return model_pack(intake, results)
+    pack = model_pack(intake, results)
+    pack["calibration"] = calibration_block(results)
+    return pack
 
 
 def handle_diff(body: dict, tier: Tier) -> dict:
@@ -886,6 +891,7 @@ def handle_diff(body: dict, tier: Tier) -> dict:
         "model_drift_known": d.drift_known,
         "unprobed_inputs": d.unprobed,
         "unprobeable_inputs": d.unprobeable,
+        "calibration": calibration_block_for_bindings([d.before.binding_id, d.after.binding_id]),
     }
     fmt = str(body.get("format") or "json").lower()
     if fmt in ("html", "md"):
@@ -909,7 +915,8 @@ def handle_deck(body: dict, tier: Tier) -> dict:
     deck = build_deck_report(intake, results, objective=_objective(body))
     return {"format": "html", "title": deck.title, "slides": len(deck.slides),
             "document": deck_to_html(deck, full_document=False),
-            "document_full": deck_to_html(deck, full_document=True)}
+            "document_full": deck_to_html(deck, full_document=True),
+            "calibration": calibration_block(results)}
 
 
 def handle_proposal(body: dict, tier: Tier) -> dict:
@@ -924,6 +931,7 @@ def handle_proposal(body: dict, tier: Tier) -> dict:
     out = _rendered(report, results, str(body.get("format") or "html").lower())
     out["engagement"] = {"id": eng.id, "name": eng.name, "price_eur": eng.price_eur,
                          "turnaround_days": eng.turnaround_days}
+    out["calibration"] = calibration_block(results)
     return out
 
 
@@ -941,7 +949,7 @@ def handle_spec(body: dict, tier: Tier) -> dict:
             {"constraint_id": st.binding_id, "constraint": st.binding_name,
              "racks_unlocked": st.racks_unlocked, "cost_key": st.cost_key,
              "relief": st.relief_description}
-            for st in relief_steps(result)]}
+            for st in relief_steps(result)], "calibration": calibration_block(results)}
     try:
         pkg = build_spec(intake, result, constraint_id=str(body.get("constraint") or ""))
     except ProcurementError as exc:
@@ -952,6 +960,7 @@ def handle_spec(body: dict, tier: Tier) -> dict:
                                contact=str(body.get("contact") or ""),
                                claims=collect_claims(results))
     out = _rendered(report, results, str(body.get("format") or "html").lower())
+    out["calibration"] = calibration_block(results)
     out["specification"] = {
         "constraint_id": pkg.constraint_id, "constraint": pkg.constraint_name,
         "relief": pkg.relief_title, "sized_for_racks": pkg.sized_for_racks,
@@ -965,7 +974,7 @@ def handle_spec(body: dict, tier: Tier) -> dict:
         "specification": {"project": pkg.project, "hall": pkg.hall,
                           "constraint": pkg.constraint_id,
                           "sized_for_racks": pkg.sized_for_racks},
-        "supplier": "", "received_on": "", "valid_until": "",
+        "supplier": "", "received_on": "", "valid_until": "", "currency": "",     # a priced response names its currency (C-01: EUR)
         "values": {f.key: None for f in pkg.response_fields},
         "compliance": {q.id: "" for q in pkg.mandatory()},
     }
@@ -1001,6 +1010,7 @@ def handle_power_deploy_assess(body: dict, tier: Tier) -> dict:
     except DeploymentRequestError as exc:
         raise ApiError(422, str(exc))
     result = assess_deployment(**kwargs)
+    result["calibration"] = btm_calibration_block()
     return redact(result, tier)
 
 
@@ -1046,7 +1056,7 @@ def _btm_spec_from_body(body: dict):
 def _btm_response_template(spec) -> dict:
     """Same shape as the hall `response_template`: what `SupplierResponse.from_dict` reads."""
     return {
-        "supplier": "", "received_on": "", "valid_until": "",
+        "supplier": "", "received_on": "", "valid_until": "", "currency": "",     # a priced response names its currency (C-01: EUR)
         "values": {f.key: None for f in spec.response_fields},
         "compliance": {q.id: "" for q in spec.mandatory()},
     }
@@ -1070,7 +1080,7 @@ def handle_power_deploy_spec(body: dict, tier: Tier) -> dict:
         report = build_spec_report(spec, reference=str(body.get("reference") or ""),
                                    return_by=str(body.get("return_by") or ""),
                                    contact=str(body.get("contact") or ""))
-        extra = {"specification": summary, "response_template": _btm_response_template(spec)}
+        extra = {"specification": summary, "response_template": _btm_response_template(spec), "calibration": btm_calibration_block()}
         if fmt == "md":
             return {"format": "md", "title": report.title, "document": to_markdown(report),
                     **extra}
@@ -1081,6 +1091,7 @@ def handle_power_deploy_spec(body: dict, tier: Tier) -> dict:
     return {
         "specification": summary,
         "response_template": {f.key: None for f in spec.response_fields},
+        "calibration": btm_calibration_block(),
     }
 
 
@@ -1106,6 +1117,7 @@ def handle_power_deploy_bids(body: dict, tier: Tier) -> dict:
         "ranked": _ranked_rows(spec, ranked),
         "leading": best.supplier if best else None,
         "note": _BID_NOTE,
+        "calibration": btm_calibration_block(),
     }
 
 
@@ -1300,6 +1312,7 @@ def handle_bids(body: dict, tier: Tier) -> dict:
                 "relief": pkg.relief_title, "constraint_id": pkg.constraint_id,
                 "scope_quantity": pkg.scope_quantity, "scope_quantity_unit": pkg.scope_quantity_unit,
                 "lines": [q.to_dict() for q in quote_lines(pkg, responses)],
+                "calibration": calibration_block(results),
             }
         ranked = rank_bids(pkg, responses)
     except ProcurementError as exc:
@@ -1313,6 +1326,7 @@ def handle_bids(body: dict, tier: Tier) -> dict:
         "ranked": _ranked_rows(pkg, ranked),
         "leading": best.supplier if best else None,
         "note": _BID_NOTE,
+        "calibration": calibration_block(results),
     }
     if body.get("ingest") and best is not None:
         winner = next(r for r in responses if r.supplier == best.supplier)
@@ -1376,6 +1390,7 @@ def handle_portfolio(body: dict, tier: Tier) -> dict:
         "halls": portfolio_rows(entries, objective),
         "total_racks": sum(e.racks for e in entries),
         "total_racks_evidence": min(e.rack_class for e in entries).name,
+        "calibration": calibration_block([r for e in entries for r in e.results]),
     }
     # Beside the sum of the rows: what it can and cannot be read as. total_racks stays the sum of every hall's own figure (an upper bound
     # while a connection is shared or a hall was not evaluated against every constraint); the comparable total adds only halls that are

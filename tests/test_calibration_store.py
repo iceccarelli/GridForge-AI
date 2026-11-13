@@ -292,7 +292,9 @@ def test_small_cells_are_reduced_to_counts(path):
     approve(path, "obs-0002")
     rep = R.public_report(store.approved_records(path))
     v = rep["subsystems"]["envelope"]["variables"]["it_load_kW"]
-    assert v["residuals"] == {"n": 2, "sites": 2, "suppressed": "fewer than 3 sites"}
+    # The published minimum is five sites (audit D2: three sites with a mean, a median and a maximum were all three sites), so the reason is
+    # "fewer than 5 sites"; the old expectation, "fewer than 3 sites", pinned the threshold that was the defect.
+    assert v["residuals"] == {"n": 2, "sites": 2, "suppressed": "fewer than 5 sites: no statistic and no interval over sites is published"}
     assert v["by_capacity_bucket"]["<1 MW"]["suppressed"]
     assert "mean_abs_error" not in json.dumps(v)
 
