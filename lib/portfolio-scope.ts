@@ -4,7 +4,7 @@
 //   SOLD     five to fifteen halls   the engagement as it is sold: the price band is for that range and the fee is agreed in writing before work starts.
 //   FORM     two to fifteen halls    what the hall-list form accepts (lib/engagement-intake.ts PORTFOLIO_MIN_HALLS / PORTFOLIO_MAX_HALLS). Two is the least a
 //                                    ranking means anything for; it is a limit of the form, not a statement that two halls is what is sold.
-//   ENGINE   up to 50 halls          what one POST /v1/portfolio request may rank (gridforge/api/server.py MAX_PORTFOLIO_HALLS). A bound on the work a request
+//   ENGINE   up to 50 halls          what one POST /v1/portfolio request may rank (gridforge/api/metering.py MAX_PORTFOLIO_HALLS). A bound on the work a request
 //                                    can demand, not a scope: tests/site/portfolio-scope.test.ts reads it from the engine's source.
 //
 // More than fifteen halls is a separate engagement. This file is pure data (no React, no I/O) so a client component can import it.

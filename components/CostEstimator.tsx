@@ -3,6 +3,7 @@
 import { useId, useMemo, useState } from "react";
 import Link from "next/link";
 import { PAYG } from "@/lib/products";
+import { PORTFOLIO_ENGINE_MAX_HALLS } from "@/lib/portfolio-scope";
 import { getEngineEstimate, type ClientFailure, type EngineEstimate } from "@/lib/payg-client";
 import {
   callsInFreeAllowance,
@@ -171,6 +172,12 @@ export default function CostEstimator({
 
       <ul className="mt-4 space-y-1.5 text-sm text-mute">
         <li>{op.basis}</li>
+        {perHall && halls > PORTFOLIO_ENGINE_MAX_HALLS ? (
+          <li data-testid="estimate-request-cap">
+            One request ranks at most {PORTFOLIO_ENGINE_MAX_HALLS} halls, so {halls} halls are {Math.ceil(halls / PORTFOLIO_ENGINE_MAX_HALLS)} requests;
+            the units add up the same (one a hall). The live check below asks the engine about one request at a time.
+          </li>
+        ) : null}
         {fits !== null ? (
           <li>
             The {PAYG.freeAllowanceUnits}-unit free allowance covers {fits} call{fits === 1 ? "" : "s"} of this size
