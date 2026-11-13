@@ -2,6 +2,7 @@
  * lib/ai/* — the honesty-kernel building blocks the chat agent is built on,
  * tested in isolation from the model and the network.
  */
+import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import { checkEntitlement } from "@/lib/ai/entitlements";
 import { extractQuantities, weakestEvidence } from "@/lib/ai/provenance";
@@ -49,10 +50,36 @@ describe("the tool registry mirrors gridforge/api/tools.py", () => {
     expect(TOOLS_BY_NAME.gridforge_proposal.endpoint).toBe("/v1/proposal");
   });
 
-  it("qualify's required inputs match the seven-number free read", () => {
-    expect(requiredKeys(TOOLS_BY_NAME.gridforge_qualify).sort()).toEqual(
-      ["busway_ampacity_A", "contracted_MW", "current_site_peak_MW", "tapoff_max_A"].sort()
-    );
+  it("qualify names no required figure, as the engine's published schema does: at least three of the seven, any three", () => {
+    const published = (JSON.parse(readFileSync("public/reference/tools.json", "utf8")) as { tools: { name: string; description: string; inputSchema: { required?: string[]; properties: Record<string, unknown> } }[] }).tools.find(
+      (t) => t.name === "gridforge_qualify"
+    )!;
+    // The engine publishes no `required` list for it (gridforge/api/tools.py _qualify_schema) and the mirror must not invent one.
+    expect(published.inputSchema.required).toBeUndefined();
+    expect(requiredKeys(TOOLS_BY_NAME.gridforge_qualify)).toEqual([]);
+    const mirror = TOOLS_BY_NAME.gridforge_qualify.inputSchema as { description: string; properties: Record<string, unknown> };
+    for (const figure of ["contracted_MW", "current_site_peak_MW", "current_it_load_MW", "busway_ampacity_A", "tapoff_max_A", "plant_supply_C", "positions_available"]) {
+      expect(Object.keys(mirror.properties), figure).toContain(figure);
+      expect(Object.keys(published.inputSchema.properties), figure).toContain(figure);
+    }
+    expect(mirror.description).toContain("Send at least three of these seven figures");
+    expect(mirror.description).toContain("each one you omit is an assumption named in the answer");
+    expect(mirror.description).toContain("figures_not_supplied");
+    expect(mirror.description).toContain("Fewer than three is refused with 422");
+    expect(TOOLS_BY_NAME.gridforge_qualify.description).toContain("at least three; each one you leave out is an assumption named in the answer");
+    // The sentence the engine publishes for the rule is the sentence the mirror carries.
+    expect(published.description).toContain("at least three; each one you leave out is an assumption named in the answer");
+  });
+
+  it("portfolio carries the engine's published cap of 50 halls per request, in its description and as maxItems", () => {
+    const published = (JSON.parse(readFileSync("public/reference/tools.json", "utf8")) as { tools: { name: string; inputSchema: { properties: { intakes: { maxItems: number } } } }[] }).tools.find(
+      (t) => t.name === "gridforge_portfolio"
+    )!;
+    const mirror = (TOOLS_BY_NAME.gridforge_portfolio.inputSchema as { properties: { intakes: { maxItems: number } } }).properties.intakes;
+    expect(published.inputSchema.properties.intakes.maxItems).toBe(50);
+    expect(mirror.maxItems).toBe(50);
+    expect(TOOLS_BY_NAME.gridforge_portfolio.description).toContain("at most 50 halls in one request");
+    expect(TOOLS_BY_NAME.gridforge_portfolio.description).toContain("is listed after the ranked ones with rank null");
   });
 
   it("converts cleanly to Anthropic's tool-calling shape", () => {

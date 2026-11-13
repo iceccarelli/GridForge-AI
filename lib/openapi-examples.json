@@ -1,6 +1,7 @@
 {
-  "note": "Request examples for /openapi.json, one or two per POST operation, built from inputs the repository already ships and labels synthetic: examples/intake/*.json (invented halls), public/reference/examples/qualify-request.json, public/reference/response_template.json (the supplier response template of the published reference specification) and a behind-the-meter deployment request lifted from the engine's own tests (a synthetic load profile and invented units). A value that is {\"$from\": <repository path or #bases/<name>>, \"$set\": {<dotted path>: <value>}} is that file with the named fields replaced; lib/openapi-examples.ts (the document) and tests/test_api_published_contract.py (the engine) resolve it the same way. tests/site/openapi-examples.test.ts checks every example against its operation's request schema, and tests/test_api_published_contract.py sends every example to the real server and fails if one is refused.",
+  "note": "Request examples for /openapi.json, one to three per POST operation, built from inputs the repository already ships and labels synthetic: examples/intake/*.json (invented halls), public/reference/examples/qualify-request.json, public/reference/response_template.json (the supplier response template of the published reference specification), a three-figure qualify request (the first, second and fourth figures of that same file, which the engine accepts as the least it answers on) and a behind-the-meter deployment request lifted from the engine's own tests (a synthetic load profile and invented units). A value that is {\"$from\": <repository path or #bases/<name>>, \"$set\": {<dotted path>: <value>}} is that file with the named fields replaced; lib/openapi-examples.ts (the document) and tests/test_api_published_contract.py (the engine) resolve it the same way. tests/site/openapi-examples.test.ts checks every example against its operation's request schema, and tests/test_api_published_contract.py sends every example to the real server and fails if one is refused.",
   "bases": {
+    "qualify_three_figures": {"contracted_MW": 12, "current_site_peak_MW": 7.4, "busway_ampacity_A": 400},
     "btm_deployment": {
       "load_profile": {
         "csv": "timestamp,kW\n2026-01-01T00:00:00,30000\n2026-01-01T00:15:00,30000\n2026-01-01T00:30:00,30000\n",
@@ -30,6 +31,10 @@
       "figures_declared_assumed": {
         "summary": "The same seven figures, two of them declared assumptions (for example values copied from a reference template).",
         "value": {"$from": "public/reference/examples/qualify-request.json", "$set": {"assumed_fields": ["contracted_MW", "tapoff_max_A"]}}
+      },
+      "three_figures": {
+        "summary": "Three of the seven figures, the least the engine answers on: each of the other four is an assumption, named in figures_not_supplied and in intake.gaps.",
+        "value": {"$from": "#bases/qualify_three_figures"}
       }
     },
     "/v1/estimate": {

@@ -6,6 +6,7 @@
     "max_body_bytes": 524288,
     "max_mcp_batch": 10,
     "max_estimate_halls": 100000,
+    "max_portfolio_halls": 50,
     "solve_shed_retry_after_seconds": 2,
     "ledger_unavailable_retry_after_seconds": 30
   },
@@ -107,7 +108,7 @@
     {
       "code": -32600,
       "name": "Invalid Request",
-      "when": "the message is not a JSON-RPC object with a non-empty string method, the batch is empty, or the batch holds more messages than the limit. HTTP 400 for a bad single message or a bad batch; one bad message inside a batch gets this error in its own slot of the 200 answer"
+      "when": "the message is not a JSON-RPC object that declares \"jsonrpc\": \"2.0\" with a non-empty string method (a message that declares another version, or none, is refused, and the message says which), the batch is empty, or the batch holds more messages than the limit. HTTP 400 for a bad single message or a bad batch; one bad message inside a batch gets this error in its own slot of the 200 answer"
     },
     {
       "code": -32601,
@@ -117,7 +118,7 @@
     {
       "code": -32602,
       "name": "Invalid params",
-      "when": "the tool name is unknown (data.available lists the names), arguments is not an object, the arguments are refused (the refusal a REST call gets as 422, with its message and fields in data), or the Idempotency-Key is reused with other arguments (data.status 422) or is too long (data.status 400). Nothing is charged"
+      "when": "tools/call has no params object or no string name (the message names name, and data.available lists the tool names), the tool name is unknown (data.available lists the names), arguments is not an object, the arguments are refused (the refusal a REST call gets as 422, with its message and fields in data: for example allowed, for a format the route cannot render, which is refused before anything is metered, and max_halls, for a portfolio over the cap), or the Idempotency-Key is reused with other arguments (data.status 422) or is too long (data.status 400). Nothing is charged"
     },
     {
       "code": -32001,
@@ -186,7 +187,7 @@
   ],
   "responses": {
     "/v1/qualify": {
-      "when": "the plain request; with assumed_fields the answer also carries inputs_declared_assumed (only what you declared), and intake gains assumed_count and assumed_count_note. inputs_derived_assumed lists the firm connection capacity the qualifier derived from contracted_MW when you sent contracted_MW and no firm_capacity_MVA (class E0; a separate list from the declared one)",
+      "when": "the plain request; figures_not_supplied has one row per figure of the seven the request left out or sent as null (field, path, sent \"null\" or \"absent\", assumed) and is an empty list when all seven were sent. With assumed_fields the answer also carries inputs_declared_assumed (only what you declared), and intake gains assumed_count and assumed_count_note. inputs_derived_assumed lists the firm connection capacity the qualifier derived from contracted_MW when you sent contracted_MW and no firm_capacity_MVA (class E0; a separate list from the declared one). Fewer than three of the seven figures is a 422 whose body lists all seven in required_at_least and adds minimum_figures and figures_sent",
       "top_level": [
         "platform",
         "as_found",
@@ -195,13 +196,24 @@
         "intake",
         "calibration",
         "notice",
-        "inputs_derived_assumed"
+        "inputs_derived_assumed",
+        "figures_not_supplied"
       ],
       "after_relief": [
+        "racks",
+        "racks_evidence",
+        "sets_the_date",
+        "sets_the_date_reason",
         "date_basis",
         "date_evidence_class",
         "date_label"
       ],
+      "nested": {
+        "as_found": [
+          "racks",
+          "racks_evidence"
+        ]
+      },
       "intake_gaps": true,
       "intake_fields": [
         "completeness",
@@ -213,6 +225,7 @@
       ]
     },
     "/v1/estimate": {
+      "when": "the units and the price of one call. For /v1/portfolio over 50 halls (hall_count, or the number of intakes in body.intakes) the answer is instead a 422 that names max_halls, requests_needed (how many requests the estate is) and units_per_hall, not a price for a request the engine would refuse; GET and POST answer it the same way",
       "top_level": [
         "endpoint",
         "units",
@@ -262,7 +275,17 @@
         "retail_price_context",
         "provenance",
         "calibration"
-      ]
+      ],
+      "nested": {
+        "scenarios[].as_found": [
+          "racks",
+          "racks_evidence"
+        ],
+        "scenarios[].after_ladder": [
+          "racks",
+          "racks_evidence"
+        ]
+      }
     },
     "/v1/study": {
       "top_level": [
@@ -294,7 +317,16 @@
         "constraint_rollup",
         "totals_note"
       ],
-      "when": "format json, the default; md and html add document and model_packs (one model pack per hall). warnings is present only when there is something to warn about"
+      "when": "format json, the default; md and html add document and model_packs (one model pack per hall). warnings is present only when there is something to warn about. At most 50 halls in intakes: more is a 422 with max_halls, refused before anything is metered. A hall that is not ranked on a figure (no deployable rack, a required input missing or an equipment bank not declared) has rank null and is listed after the ranked ones; the ranks that exist run 1 to k with no gap, and position is the row's 1-based place in the table",
+      "nested": {
+        "halls[]": [
+          "rank",
+          "position",
+          "rankable",
+          "racks",
+          "racks_evidence"
+        ]
+      }
     },
     "/v1/diff": {
       "top_level": [
@@ -321,9 +353,12 @@
         "unprobeable_inputs",
         "material_reasons",
         "not_compared",
-        "calibration"
+        "calibration",
+        "changed_inputs_known",
+        "evidence_changed_inputs",
+        "drivers_note"
       ],
-      "when": "format json, the default; md and html add format, title and document to the same keys"
+      "when": "format json, the default; md and html add format, title and document to the same keys. Against a recorded previous_state the earlier inputs are not stored (only fingerprints of them), so when the inputs are not verifiably unchanged changed_inputs_known is false, changed_inputs and drivers are empty because the driver cannot be named (not because nothing moved) and drivers_note says so; send before to get the drivers. drivers_note is null otherwise. evidence_changed_inputs names the inputs whose declared evidence class moved (what before can show)"
     },
     "/v1/spec": {
       "top_level": [
@@ -347,7 +382,18 @@
         "note",
         "calibration"
       ],
-      "when": "the default ranking; evidence_only=true returns the validated quote lines instead, and ingest=true adds cost_library_entries"
+      "when": "the default ranking; evidence_only=true returns the validated quote lines instead, and ingest=true adds cost_library_entries. A bid is held to the numbers of the shall clauses it answers (duty_at_site_conditions, validity_days), not only to the code it declared: a bid whose own figure contradicts a clause it declared C on is not compliant on that clause, and its row lists the clause, the figure asked and the figure offered in figure_checks. A response that was not evaluated (disqualified) has rank null, is never compliant and states no effect on the date. Every row carries score_basis: scores are relative to the bids in the same comparison, so compare them only within one. A refusal names the field it refused by its path (responses[i]...)",
+      "nested": {
+        "ranked[]": [
+          "rank",
+          "compliant",
+          "disqualified",
+          "score",
+          "score_basis",
+          "figure_checks",
+          "schedule_impact"
+        ]
+      }
     },
     "/v1/proposal": {
       "top_level": [
@@ -382,7 +428,14 @@
         "evidence",
         "next_action",
         "intake"
-      ]
+      ],
+      "when": "capacity.target_reachable says whether the full headroom ladder reaches the target and capacity.gap_racks_after_ladder how many racks are still missing once every relief on it is taken (0 when it is reachable). When the target is not reachable next_action.action leads with that fact, and next_action also carries target_reachable, gap_racks_after_ladder and ladder_action (the action the ladder alone would have given)",
+      "nested": {
+        "capacity": [
+          "target_reachable",
+          "gap_racks_after_ladder"
+        ]
+      }
     },
     "/v1/power/deploy/assess": {
       "top_level": [
@@ -391,7 +444,8 @@
         "architectures",
         "next_action",
         "calibration"
-      ]
+      ],
+      "when": "a load profile with fewer than 24 readings, or covering less than 24 hours, is directional: load_profile.directional is true, and next_action carries the caveat in its action and why (it says to re-run on a full-day profile before an RFQ) and adds directional and directional_reason. A peak more than 100 times below, or more than 100 times above, both the stated target and the grid capacity is named in load_profile.warnings as a likely unit slip with load_profile.peak_plausible false: no architecture passes on it and next_action says to check the units (profile_problem names the problem). The minimum readings, the minimum span and the factor are MIN_SAMPLES_FOR_SIZING, MIN_SPAN_HOURS_FOR_SIZING and PEAK_PLAUSIBILITY_FACTOR in gridforge/power/load_profile.py. A load-profile CSV may start with a byte-order mark and may be comma-, semicolon- or tab-separated; a decimal comma is read only in a semicolon-separated file, and load_profile.warnings says so"
     },
     "/v1/power/deploy/spec": {
       "top_level": [
@@ -409,7 +463,19 @@
         "leading",
         "note",
         "calibration"
-      ]
+      ],
+      "when": "the same ranked rows as /v1/bids: rank is null for a response that was not evaluated (disqualified), every row carries score_basis and figure_checks, and a refusal names the field by its path (responses[i]...)",
+      "nested": {
+        "ranked[]": [
+          "rank",
+          "compliant",
+          "disqualified",
+          "score",
+          "score_basis",
+          "figure_checks",
+          "schedule_impact"
+        ]
+      }
     }
   }
 }

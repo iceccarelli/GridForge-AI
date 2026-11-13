@@ -14,6 +14,7 @@
 import Anthropic from "@anthropic-ai/sdk";
 import { z } from "zod";
 import { engineFetch } from "@/lib/rate-limit";
+import { PORTFOLIO_ENGINE_MAX_HALLS } from "@/lib/portfolio-scope";
 
 export type ToolTier = "public" | "client" | "internal";
 
@@ -52,17 +53,25 @@ export const TOOLS: ToolDef[] = [
   {
     name: "gridforge_qualify",
     description:
-      "Free. Seven numbers about an existing air-cooled hall in, one answer out: which " +
-      "physical constraint binds first when you try to deploy AI racks in it, how many " +
-      "racks fit as found, and which item sets the energisation date. Use this to triage " +
-      "a portfolio before paying for anything.",
+      "Free. Up to seven numbers about an existing air-cooled hall in (at least three; each one you " +
+      "leave out is an assumption named in the answer), one answer out: which physical constraint " +
+      "binds first when you try to deploy AI racks in it, how many racks fit as found, and which " +
+      "item sets the time to power (labelled 'assumed lead time, not a date' when that item's lead " +
+      "time is an assumption). Use this to triage a portfolio before paying for anything.",
     endpoint: "/v1/qualify",
     method: "POST",
     tier: "public",
     units: 0,
     inputSchema: {
       type: "object",
-      required: ["contracted_MW", "current_site_peak_MW", "busway_ampacity_A", "tapoff_max_A"],
+      // No `required` list: the engine names no one figure as required (gridforge/api/server.py QUALIFY_MIN_FIGURES), any three of the seven are enough.
+      description:
+        "Seven figures about one air-cooled hall, and an objective. Send at least three of these seven figures; " +
+        "each one you omit is an assumption named in the answer (listed under intake.gaps and, with the way you left " +
+        "it out, under figures_not_supplied). Fewer than three is refused with 422, and no one figure is required: " +
+        "any three are enough. A figure sent as null is not sent: it counts as omitted, and the answer says so. " +
+        "Each figure you do send is checked by its own name against the plausibility bounds the engine's intake uses " +
+        "(a refusal names the figure you sent, with the limit).",
       properties: {
         contracted_MW: { type: "number", description: "Contracted grid capacity, MW." },
         current_site_peak_MW: { type: "number", description: "Current site peak demand, MW." },
@@ -121,8 +130,10 @@ export const TOOLS: ToolDef[] = [
   {
     name: "gridforge_portfolio",
     description:
-      "Rank halls. Many intakes in, an ordered list out: racks, weeks to power, capex per " +
-      "rack and what binds first for each. Bills one unit per hall.",
+      `Rank halls. Many intakes in (at most ${PORTFOLIO_ENGINE_MAX_HALLS} halls in one request; a larger estate is several requests), ` +
+      "an ordered list out: racks, weeks to power, capex per rack and what binds first for each. A hall " +
+      "that is not ranked on a figure (no deployable rack, a required input missing or an equipment bank " +
+      "undeclared) is listed after the ranked ones with rank null. Bills one unit per hall.",
     endpoint: "/v1/portfolio",
     method: "POST",
     tier: "client",
@@ -131,7 +142,15 @@ export const TOOLS: ToolDef[] = [
       type: "object",
       required: ["intakes"],
       properties: {
-        intakes: { type: "array", items: INTAKE_SCHEMA, minItems: 1 },
+        intakes: {
+          type: "array",
+          items: INTAKE_SCHEMA,
+          minItems: 1,
+          maxItems: PORTFOLIO_ENGINE_MAX_HALLS,
+          description:
+            `The halls to rank, one intake each: at most ${PORTFOLIO_ENGINE_MAX_HALLS} per request (more is refused with 422 and ` +
+            "nothing is charged; send the rest as further requests).",
+        },
         objective: OBJECTIVE_SCHEMA,
       },
       additionalProperties: false,
@@ -155,7 +174,10 @@ export const TOOLS: ToolDef[] = [
         previous_state: {
           type: "object",
           additionalProperties: true,
-          description: "A recorded envelope state from an earlier run.",
+          description:
+            "A recorded envelope state from an earlier run. It keeps fingerprints of that run's inputs, not the " +
+            "inputs: a change is detected (inputs: changed) but no driver can be named, and drivers_note says so. " +
+            "Send before to get the drivers.",
         },
         after: INTAKE_SCHEMA,
         objective: OBJECTIVE_SCHEMA,
