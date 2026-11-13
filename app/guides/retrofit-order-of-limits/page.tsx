@@ -5,6 +5,7 @@ import { LadderBars } from "@/components/diagrams/LadderBars";
 import { PathList } from "@/components/for/PathList";
 import { PageJsonLd } from "@/components/PageJsonLd";
 import { QuestionList } from "@/components/QuestionList";
+import K from "@/lib/engineering-constants.json";
 import { EVIDENCE_CLASSES } from "@/lib/evidence-classes";
 import { FOUNDER_ID, orgRef } from "@/lib/entity";
 import { breadcrumbJsonLd, webPageJsonLd } from "@/lib/jsonld";
@@ -22,11 +23,14 @@ import {
   fmtLead,
   fmtQty,
   lc,
+  leadProvenanceFor,
+  leadSourceFor,
   loadGuideModel,
   type GuideModel,
   type OrderedLimit,
+  sentencesMatching,
+  suppliedBandNote,
   type Qty,
-  ucfirst,
   words,
 } from "@/lib/retrofit-order-data";
 import { OG_BASE, SITE, siteUrl } from "@/lib/site";
@@ -59,16 +63,62 @@ function lastmodOf(route: string): string | null {
 const longDate = (iso: string) => new Date(`${iso}T00:00:00Z`).toLocaleDateString("en-GB", { day: "numeric", month: "long", year: "numeric", timeZone: "UTC" });
 
 const P = "mt-3 text-[15px] leading-relaxed text-mute";
-const H2 = "text-xl font-semibold text-ghost";
-const TH = "p-3 font-mono text-[10px] uppercase tracking-[0.14em] text-faint";
+const H2 = "scroll-mt-24 text-xl font-semibold text-ghost";
+const TH = "p-3 font-mono text-xs uppercase tracking-[0.1em] text-faint";
 const A = "text-power underline";
 
 /** A wide table in a region the keyboard can reach and scroll. */
 function Scroll({ label, children }: { label: string; children: ReactNode }) {
+  // The cue is text, always shown, and named by the region (aria-describedby): a reader who cannot see a clipped column is told it is there.
+  const cue = `scroll-cue-${label.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "")}`;
   return (
-    <div className="mt-4 overflow-x-auto rounded border border-line" role="region" aria-label={label} tabIndex={0}>
-      {children}
-    </div>
+    <>
+      <p id={cue} className="mt-4 text-xs text-faint">
+        Scroll sideways to see every column. <span aria-hidden="true">↔</span>
+      </p>
+      <div className="mt-1 overflow-x-auto rounded border border-line" role="region" aria-label={label} aria-describedby={cue} tabIndex={0}>
+        {children}
+      </div>
+    </>
+  );
+}
+
+/** The source the pack records for a lead time, shown under it where the pack records one. */
+function Src({ m, name }: { m: GuideModel; name: string }) {
+  const label = leadSourceFor(m.scenario, name);
+  return label ? <span className="mt-1 block text-[13px] text-faint">Source in the pack: {label}</span> : null;
+}
+
+/** The in-page list of sections: real anchors to the h2s, directly under the short answer. */
+function JumpList({ m }: { m: GuideModel | null }) {
+  const items: [string, string][] = [
+    ["who-h", "Terms, and how this relates to the method"],
+    ...(m
+      ? ([
+          ["case-h", "The case this guide shows"],
+          ["arch-h", "Which cooling architectures can carry the rack"],
+          ["order-h", "The order the limits bind in"],
+          ["air-h", "Why liquid cooling does not remove the air-side limit"],
+          ["seq-h", "The order to relieve them in"],
+          ["limits-h", "Limit by limit, in the order they bind"],
+          ["evidence-h", "How the evidence class changes the confidence"],
+        ] as [string, string][])
+      : ([["nodata-h", "The worked example"]] as [string, string][])),
+    ["unknown-h", "What is not known, and what would establish it"],
+    ["next-h", "Run it on your own hall"],
+    ...(m ? ([["faq-h", "Common questions"]] as [string, string][]) : []),
+  ];
+  return (
+    <nav aria-label="On this page" className="mt-6 rounded-lg border border-line p-4">
+      <p className="data text-xs tracking-[0.14em] text-faint">ON THIS PAGE</p>
+      <ol className="mt-2 grid gap-x-8 text-[15px] sm:grid-cols-2">
+        {items.map(([id, label]) => (
+          <li key={id}>
+            <a href={`#${id}`} className="inline-flex min-h-11 items-center text-power underline underline-offset-4">{label}</a>
+          </li>
+        ))}
+      </ol>
+    </nav>
   );
 }
 
@@ -93,7 +143,7 @@ function statePhrase(o: OrderedLimit, m: GuideModel): string {
     case "fails":
       return "A pass-or-fail gate, closed: it permits 0 racks as found.";
     case "passes":
-      return "A pass-or-fail gate, open: it passes as found, so it attaches no rack count and does not cap the hall.";
+      return "A pass-or-fail gate: the engine's check comes out as a pass on these inputs, so it attaches no rack count. That is the result of the stated arithmetic on the stated inputs, not an approval.";
     case "not_assessed":
       return "Not assessed in this example: the engine attaches no rack count, so this limit has not been shown adequate. That is not the same as passing.";
     case "not_applicable":
@@ -105,12 +155,17 @@ function statePhrase(o: OrderedLimit, m: GuideModel): string {
   }
 }
 
-function rungPhrase(o: OrderedLimit): string | null {
+function src(m: GuideModel, name: string): string {
+  const label = leadSourceFor(m.scenario, name);
+  return label ? `; the pack records its source as “${label}”` : "";
+}
+
+function rungPhrase(o: OrderedLimit, m: GuideModel): string | null {
   if (!o.rungs.length) return null;
   return o.rungs
     .map((r) =>
       r.taken
-        ? `Relieved at step ${r.step}: ${fmt(r.racksBefore)} → ${fmt(r.racksAfter)} racks, lead time ${leadProse(r.leadTime)}.`
+        ? `Relieved at step ${r.step}: ${fmt(r.racksBefore)} → ${fmt(r.racksAfter)} racks, lead time ${leadProse(r.leadTime)}${src(m, r.name)}.`
         : `The next limit after the ladder (step ${r.step}); the engine does not take its relief: ${r.notTakenReason ?? "no reason stated"}.`,
     )
     .join(" ");
@@ -143,7 +198,7 @@ export default async function Guide() {
       <nav aria-label="Breadcrumb" className="mb-4 text-[12px] text-faint">
         <Link href="/" className="hover:text-power">Home</Link> / <span className="text-mute">The order of limits in a retrofit</span>
       </nav>
-      <p className="eyebrow mb-3 text-power">GUIDE · EXISTING AI HALLS</p>
+      <p className="eyebrow mb-3 !text-xs text-power">GUIDE · EXISTING AI HALLS</p>
       <h1 className="[overflow-wrap:anywhere] text-3xl font-semibold leading-tight text-ghost sm:text-4xl">{TITLE}</h1>
       <p className="mt-2 text-[13px] text-faint">
         {SITE.founder} · <time dateTime={PUBLISHED}>{longDate(PUBLISHED)}</time>
@@ -162,6 +217,8 @@ export default async function Guide() {
       </p>
 
       {m ? <ShortAnswer m={m} /> : null}
+
+      <JumpList m={m} />
 
       <section className="mt-10" aria-labelledby="who-h">
         <h2 id="who-h" className={H2}>Terms, and how this relates to the method</h2>
@@ -240,7 +297,7 @@ function ShortAnswer({ m }: { m: GuideModel }) {
   const first = starts[0];
   return (
     <section aria-labelledby="answer-h" className="mt-6 rounded-lg border border-line bg-panel p-5">
-      <h2 id="answer-h" className="data text-[11px] tracking-[0.14em] text-power">THE SHORT ANSWER</h2>
+      <h2 id="answer-h" className="data scroll-mt-24 text-xs tracking-[0.14em] text-power">THE SHORT ANSWER</h2>
       <p className="mt-2 text-[16px] leading-relaxed text-ghost">
         In a hall built for lower density the limits do not bind in the order of the power chain from the grid. In the synthetic hall below, a rack of {platform.name} ({d1(platform.rack_kW)} kW)
         cannot run at all until {zero.length === 1 ? "one limit that applies to a single rack position is" : `${words(zero.length)} limits that apply to a single rack position are`} relieved:{" "}
@@ -254,7 +311,7 @@ function ShortAnswer({ m }: { m: GuideModel }) {
       </p>
       {first ? (
         <p className="mt-3 text-[16px] leading-relaxed text-ghost">
-          The relief to start first is not the limit that binds first. {first.name} has the longest lead time in the example, {fmtLead(first.lead)}, an assumed library figure and not a quotation.
+          The relief to start first is not the limit that binds first. {first.name} has the longest lead time in the example, {fmtLead(first.lead)}. {leadProvenanceFor(m.scenario, first.name)}
         </p>
       ) : null}
     </section>
@@ -311,7 +368,7 @@ function CaseSection({ m }: { m: GuideModel }) {
               <th scope="col" className={TH}>Rack kW (peak)</th>
               <th scope="col" className={TH}>Liquid share</th>
               <th scope="col" className={TH}>Air-side kW</th>
-              <th scope="col" className={TH}>Feed A</th>
+              <th scope="col" className={TH}>Feed A ({K.rack_feed.library_feed_current_class}, ±{Math.round(K.rack_feed.library_feed_current_band_fraction * 100)}%)</th>
               <th scope="col" className={TH}>Sources</th>
             </tr>
           </thead>
@@ -418,7 +475,7 @@ function OrderSection({ m }: { m: GuideModel }) {
           steps={steps.map((s) => ({ step: s.step, name: s.name, before: s.racksBefore, after: s.racksAfter, taken: s.taken }))}
         />
       </div>
-      <p className="mt-3 text-[13px] leading-relaxed text-faint">Every plotted value is in the table below. Source: the pack&rsquo;s <span className="font-mono">ladder</span> for <span className="font-mono">{scenario.id}</span>. Lead times are the library&rsquo;s (class E0), not quotations.</p>
+      <p className="mt-3 text-[13px] leading-relaxed text-faint">Every plotted value is in the table below. Source: the pack&rsquo;s <span className="font-mono">ladder</span> for <span className="font-mono">{scenario.id}</span>. Lead times are assumptions (class E0), not quotations; the pack says where one of them came from, in the section on the order to relieve them in.</p>
 
       <Scroll label="The headroom ladder for the scenario followed in this guide">
         <table className="w-full min-w-[720px] text-left text-sm">
@@ -438,7 +495,7 @@ function OrderSection({ m }: { m: GuideModel }) {
                 <td className="p-3 font-mono text-ghost">{s.step}</td>
                 <th scope="row" className="p-3 font-normal text-ghost">
                   {m.docs.has(s.constraint) ? <LimitName m={m} id={s.constraint} /> : s.name}
-                  {!s.taken ? <span className="data ml-2 text-[10px] text-queue">NOT TAKEN</span> : null}
+                  {!s.taken ? <span className="data ml-2 text-xs text-queue">NOT TAKEN</span> : null}
                 </th>
                 <td className="p-3 font-mono text-ghost">{fmt(s.racksBefore)} → {fmt(s.racksAfter)}</td>
                 <td className="p-3 text-mute">
@@ -446,7 +503,7 @@ function OrderSection({ m }: { m: GuideModel }) {
                   {s.risk ? <span className="mt-1 block text-[13px] text-faint">{s.risk}</span> : null}
                   {!s.taken && s.notTakenReason ? <span className="mt-1 block text-[13px] text-faint">Not taken: {s.notTakenReason}.</span> : null}
                 </td>
-                <td className="p-3 text-mute">{leadText(s.leadTime)}</td>
+                <td className="p-3 text-mute">{leadText(s.leadTime)}<Src m={m} name={s.name} /></td>
               </tr>
             ))}
           </tbody>
@@ -533,7 +590,7 @@ function ResidualAirSection({ m }: { m: GuideModel }) {
     if (hit) hit.names.push(s.name);
     else airRows.push({ basis, racks: c?.racks ?? null, names: [s.name] });
   }
-  const feedClosed = band ? band.rows.every((r) => r.feedA > pack.hall.tapoffA) : false;
+  const feedClosed = band ? band.rows.every((r) => r.feedLowA > pack.hall.tapoffA) : false;
   return (
     <section className="mt-12" aria-labelledby="air-h">
       <h2 id="air-h" className={H2}>Why liquid cooling does not remove the air-side limit</h2>
@@ -578,7 +635,7 @@ function ResidualAirSection({ m }: { m: GuideModel }) {
           <h3 className="mt-8 text-lg font-semibold text-ghost">The same arithmetic across 100 to 150 kW</h3>
           <p className={P}>
             <strong className="text-ghost">Arithmetic, not an engine solve.</strong> The rack powers below are the points where the library&rsquo;s practical ranges for the two liquid architectures start and stand. Feed current is the
-            library&rsquo;s {platform.name} figure ({fmt(platform.rack_feed_current_A ?? 0)} A at {d1(platform.rack_kW)} kW) scaled in proportion to rack power. Air-side load is rack power × (1 − liquid share), with the liquid
+            library&rsquo;s {platform.name} figure ({fmt(platform.rack_feed_current_A ?? 0)} A at {d1(platform.rack_kW)} kW) scaled in proportion to rack power. It is one of the library&rsquo;s working values (class {band.feed.evidence}, band ±{Math.round(band.feed.bandFraction * 100)}%, stated at {fmt(band.feed.voltageV)} V three-phase), not an OEM figure, to be confirmed against an OEM drawing; the brackets show its band. Air-side load is rack power × (1 − liquid share), with the liquid
             share of each sourced NVL72 platform in the library; a rack of another power is not a library platform, so for it the share is an assumption. Capability is the hall&rsquo;s: {fmt(pack.hall.tapoffA)} A
             tap-offs and {d1(air)} kW per position.
           </p>
@@ -589,7 +646,7 @@ function ResidualAirSection({ m }: { m: GuideModel }) {
                 <tr className="border-b border-line">
                   <th scope="col" className={TH}>Rack kW</th>
                   <th scope="col" className={TH}>Why this point</th>
-                  <th scope="col" className={TH}>Feed A (tap-off {fmt(pack.hall.tapoffA)})</th>
+                  <th scope="col" className={TH}>Feed A ({band.feed.evidence}, ±{Math.round(band.feed.bandFraction * 100)}%), tap-off {fmt(pack.hall.tapoffA)}</th>
                   {libraryPlatforms.map((p) => (
                     <th key={p.id} scope="col" className={TH}>Air kW at {Math.round(p.liquid_fraction * 100)}% liquid (position {d1(air)})</th>
                   ))}
@@ -600,7 +657,7 @@ function ResidualAirSection({ m }: { m: GuideModel }) {
                   <tr key={r.kw} className="border-t border-line/60 align-top">
                     <th scope="row" className="p-3 font-mono font-normal text-ghost">{d1(r.kw)}</th>
                     <td className="p-3 text-mute">{r.from.join("; ")}</td>
-                    <td className="p-3 font-mono text-ghost">{fmt(Math.round(r.feedA))}</td>
+                    <td className="p-3 font-mono text-ghost">{fmt(Math.round(r.feedA))} [{fmt(Math.round(r.feedLowA))}–{fmt(Math.round(r.feedHighA))}]</td>
                     {r.air.map((a) => (
                       <td key={a.platformId} className="p-3 font-mono text-ghost">{f1(a.kw)}</td>
                     ))}
@@ -611,8 +668,8 @@ function ResidualAirSection({ m }: { m: GuideModel }) {
           </Scroll>
           <ul className="mt-3 list-disc space-y-2 pl-5 text-[15px] leading-relaxed text-mute">
             <li>
-              A {fmt(pack.hall.tapoffA)} A tap-off feeds a rack of up to {f1(band.maxRackOnTapoffKw)} kW at the library ratio.{feedClosed ? <> Every point of the band needs more than that, so the feed limit
-              ({lc(docOf(m, "rack_feed_tapoff").name)}) is closed across the whole band.</> : null}
+              A {fmt(pack.hall.tapoffA)} A tap-off feeds a rack of up to {f1(band.maxRackOnTapoffKw)} kW at the library ratio, and at most {f1(band.maxRackOnTapoffHighKw)} kW if the library&rsquo;s current were {Math.round(band.feed.bandFraction * 100)}% too high.{feedClosed ? <> Every point of the band needs more than the installed tap-off even at the low end of its band, so the feed limit
+              ({lc(docOf(m, "rack_feed_tapoff").name)}) is closed even at &minus;{Math.round(band.feed.bandFraction * 100)}%.</> : null}
             </li>
             <li>
               A position that removes {d1(air)} kW supports a rack of up to {band.maxRackOnAir.map((a) => `${f1(a.kw)} kW at ${Math.round(a.liquidShare * 100)}% liquid`).join(" or ")}.
@@ -647,6 +704,8 @@ function SequenceSection({ m }: { m: GuideModel }) {
   const gateSteps = [...new Set(m.zero.flatMap((z) => z.rungs.filter((r) => r.taken).map((r) => r.step)))].sort((a, b) => a - b);
   const lastGate = gateSteps.length ? gateSteps[gateSteps.length - 1] : 0;
   const afterGates = scenario.ladder.find((s) => s.step === lastGate)?.racksAfter;
+  const caveats = t.limitation ? sentencesMatching(t.limitation, /first-rack/) : [];
+  const bandNote = starts[0] ? suppliedBandNote(scenario, starts[0].lead) : null;
   const startPosition = starts[0] ? m.order.find((o) => o.id === starts[0].id)?.position : undefined;
   return (
     <section className="mt-12" aria-labelledby="seq-h">
@@ -666,10 +725,19 @@ function SequenceSection({ m }: { m: GuideModel }) {
         </li>
         <li>
           <strong className="text-ghost">Do not read a date out of it.</strong> The model&rsquo;s own label for the programme is &ldquo;{t.dateLabel ?? "no date"}&rdquo;.
-          {t.limitation ? <> {firstSentences(t.limitation, 2)}</> : null}
         </li>
       </ol>
+      {t.limitation ? (
+        <figure className="mt-4 rounded border border-line bg-panel p-4">
+          <figcaption className="data text-xs text-faint">The pack&rsquo;s own statement of what the schedule does not model</figcaption>
+          <blockquote className="mt-2 text-[14px] leading-relaxed text-mute">{t.limitation}</blockquote>
+        </figure>
+      ) : null}
 
+      <p className={P}>
+        <strong className="text-ghost">Where the lead times come from.</strong> The pack records a source only for the lead time that sets the date: {t.controllingComponent ?? "none named"}, {t.leadTimeSourceLabel ? <>“{t.leadTimeSourceLabel}”</> : "source not recorded"}.
+        {m.suppliedLeadTimes.length ? <> The intake lists {joinAnd(m.suppliedLeadTimes)} among the inputs it supplies.</> : null} For the other reliefs the pack does not mark a source per row, and its limitation text, printed below, says a lead time here may be a library placeholder or a figure the customer supplied.{bandNote ? <> {bandNote}</> : null}
+      </p>
       <Scroll label="Reliefs taken by the ladder, longest lead time first">
         <table className="w-full min-w-[520px] text-left text-sm">
           <caption className="sr-only">The reliefs the ladder takes, longest assumed lead time first, with the ladder steps that use each</caption>
@@ -678,6 +746,7 @@ function SequenceSection({ m }: { m: GuideModel }) {
               <th scope="col" className={TH}>Relief</th>
               <th scope="col" className={TH}>Ladder step(s)</th>
               <th scope="col" className={TH}>Lead time, weeks (class)</th>
+              <th scope="col" className={TH}>Source of the lead time</th>
             </tr>
           </thead>
           <tbody>
@@ -686,6 +755,7 @@ function SequenceSection({ m }: { m: GuideModel }) {
                 <th scope="row" className="p-3 font-normal text-ghost">{m.docs.has(s.id) ? <LimitName m={m} id={s.id} /> : s.name}</th>
                 <td className="p-3 font-mono text-ghost">{s.steps.join(", ")}</td>
                 <td className="p-3 text-mute">{fmtQty(s.lead)} ({classOf(s.lead.evidence)})</td>
+                <td className="p-3 text-mute">{leadSourceFor(scenario, s.name) ?? "not marked in the pack"}</td>
               </tr>
             ))}
           </tbody>
@@ -717,7 +787,7 @@ function SequenceSection({ m }: { m: GuideModel }) {
             </table>
           </Scroll>
           <p className="mt-3 text-[13px] leading-relaxed text-faint">
-            Every elapsed figure is an assumed lead time (class {t.dateClass ?? "E0"}), not an energisation date.
+            Every elapsed figure is an assumed lead time (class {t.dateClass ?? "E0"}), not an energisation date.{caveats.length ? <> {caveats.join(" ")}</> : null}
           </p>
         </>
       ) : null}
@@ -735,16 +805,17 @@ function LimitsSection({ m }: { m: GuideModel }) {
       <div className="mt-2 divide-y divide-line/60">
         {m.order.map((o) => {
           const d = docOf(m, o.id);
-          const rungs = rungPhrase(o);
+          const rungs = rungPhrase(o, m);
           return (
             <article key={o.id} className="py-5" aria-labelledby={`lim-${o.id}`}>
               <h3 id={`lim-${o.id}`} className="text-lg font-semibold text-ghost">
-                <span className="data mr-2 text-[11px] text-faint">{String(o.position).padStart(2, "0")}</span>
+                <span className="data mr-2 text-xs text-faint">{String(o.position).padStart(2, "0")}</span>
                 <Link href={`/constraints/${d.slug}`} className="underline underline-offset-4 hover:text-power">{d.name}</Link>
-                <span className="data ml-2 text-[10px] uppercase tracking-[0.12em] text-faint">{d.domain}</span>
+                <span className="data ml-2 text-xs uppercase tracking-[0.12em] text-faint">{d.domain}</span>
               </h3>
               <p className={P}><span className="text-ghost">What it limits.</span> {d.limits}</p>
               <p className={P}><span className="text-ghost">In this hall.</span> {statePhrase(o, m)} {rungs}</p>
+              {o.id === "floor_loading" ? <FloorBlock m={m} o={o} /> : null}
               <p className="mt-3 text-[13px] leading-relaxed text-faint"><span className="text-mute">Basis.</span> {o.basis}</p>
               <p className="mt-2 text-[13px] leading-relaxed text-faint">
                 <span className="text-mute">Evidence.</span> {o.classes.length ? `${o.classes.join(", ")}; weakest ${o.weakest}.` : "No class is named in the basis."}
@@ -761,6 +832,7 @@ function LimitsSection({ m }: { m: GuideModel }) {
 function EvidenceSection({ m }: { m: GuideModel }) {
   const { order, withE0, calibration, libraryPlatforms } = m;
   const present = EVIDENCE_CLASSES.filter((c) => order.some((o) => o.classes.includes(c.code)));
+  const e3 = order.filter((o) => o.classes.includes("E3")).length;
   return (
     <section className="mt-12" aria-labelledby="evidence-h">
       <h2 id="evidence-h" className={H2}>How the evidence class changes the confidence</h2>
@@ -774,7 +846,8 @@ function EvidenceSection({ m }: { m: GuideModel }) {
           <thead>
             <tr className="border-b border-line">
               <th scope="col" className={TH}>Class</th>
-              <th scope="col" className={TH}>What was done to the number</th>
+              <th scope="col" className={TH}>The class's definition</th>
+              <th scope="col" className={TH}>In this example</th>
               <th scope="col" className={TH}>Limits naming it</th>
             </tr>
           </thead>
@@ -783,19 +856,23 @@ function EvidenceSection({ m }: { m: GuideModel }) {
               <tr key={c.code} className="border-t border-line/60 align-top">
                 <th scope="row" className="p-3 font-mono font-normal text-ghost">{c.code} <span className="font-sans text-mute">{c.verb}</span></th>
                 <td className="p-3 text-mute">{c.meaning}</td>
+                <td className="p-3 text-mute">{IN_THIS_EXAMPLE[c.code] ?? "Named in the basis of at least one limit."}</td>
                 <td className="p-3 font-mono text-ghost">{fmt(order.filter((o) => o.classes.includes(c.code)).length)}</td>
               </tr>
             ))}
           </tbody>
         </table>
       </Scroll>
+      <p className={P}>
+        <strong className="text-ghost">No engineer reviewed this synthetic hall.</strong> {fmt(e3)} of {fmt(order.length)} limits name E3 in their basis. The definition above is what the class means in the engine&rsquo;s list; it is not what happened here. Read the E3 rows as the engine&rsquo;s own estimate: arithmetic on supplied ratings and estimated inputs, in a hall whose inputs are invented, with the engine capping a threshold comparison at E3. Nobody checked them against practice.
+      </p>
       <ul className="mt-4 list-disc space-y-2 pl-5 text-[15px] leading-relaxed text-mute">
         <li>
           <strong className="text-ghost">A vendor claim stays a vendor claim.</strong> The platform figures come from sources the library marks [V] ({libraryPlatforms.map((p) => p.name).join(" and ")}). The guide uses them as the library holds them, as assumptions, and does not present any of
           them as validated performance.
         </li>
         <li>
-          <strong className="text-ghost">What would raise a class.</strong> The hall&rsquo;s own drawings and ratings make a hall-side figure E5, supplied by the client and not measured by us. A review by a qualified engineer against practice makes an estimate E3. Only a measurement
+          <strong className="text-ghost">What would raise a class.</strong> The hall&rsquo;s own drawings and ratings make a hall-side figure E5, supplied by the client and not measured by us. A review by a qualified engineer against practice is what the class E3 is defined to mean, and none was done here. Only a measurement
           reconciled with the model reaches E6.
         </li>
         <li>
@@ -823,11 +900,11 @@ function UnknownSection({ m }: { m: GuideModel | null }) {
           lists the inputs nobody has measured as a data request for your engineers. Neither measures the hall: both use what you supply and label what they had to assume.
         </li>
         <li>
-          <strong className="text-ghost">Vendor quotations.</strong> Every cost and lead time in the ladder is a library default (class E0). Today the engine keeps a supplied lead time at E0 as well, so a quotation improves the input but not its label. The Procurement
+          <strong className="text-ghost">Vendor quotations.</strong> {m?.costBasis === "library_default" ? "Every price in the ladder is a library default (class E0)." : "The prices in the ladder carry the bases the pack states."} Every lead time is an assumption (class E0), whether it came from the library or was supplied in the intake. Today the engine keeps a supplied lead time at E0, so a quotation improves the input but not its label. The Procurement
           Specification is how the quotations are asked for and compared in racks and weeks.
         </li>
         <li>
-          <strong className="text-ghost">A structural survey.</strong> The floor-loading limit is arithmetic on a library rack mass and footprint against a design value from the building record. It is not a structural assessment, and none of the engagements is one.
+          <strong className="text-ghost">A structural survey.</strong> The floor-loading limit is arithmetic on a library rack mass and footprint against a design value from the building record. It is not a structural assessment, and none of the engagements is one. {m?.floorNote ? <>The engine&rsquo;s own note for a raised floor: {m.floorNote} </> : null}A structural engineer decides.
         </li>
         <li>
           <strong className="text-ghost">Local grid rules.</strong> The utility&rsquo;s conditions are outside the model. The example assumes no increase in connection capacity inside the study horizon, so the grid limit is where the ladder ends; a different answer from your
@@ -854,3 +931,34 @@ function UnknownSection({ m }: { m: GuideModel | null }) {
     </section>
   );
 }
+
+// What the arithmetic behind the floor-loading row is, and who decides. Every figure is read from the published files.
+function FloorBlock({ m, o }: { m: GuideModel; o: OrderedLimit }) {
+  const { platform, pack, floorNote } = m;
+  const perFootprint = platform.rack_mass_kg / platform.rack_footprint_m2;
+  const basis = /^([\d,.]+) \[/.exec(o.basis);
+  const capacity = /against ([\d,.]+) kg\/m2/.exec(o.basis);
+  const imposed = basis ? Number(basis[1].replace(/,/g, "")) : null;
+  const cap = capacity ? Number(capacity[1].replace(/,/g, "")) : null;
+  const risk = m.scenario.constraints.find((c) => c.id === o.id)?.relief?.risk;
+  return (
+    <div className="mt-3 rounded border border-line bg-panel p-4 text-[14px] leading-relaxed text-mute">
+      <p>
+        <strong className="text-ghost">What the arithmetic is.</strong> The engine&rsquo;s imposed figure{imposed !== null ? <> ({fmt(imposed)} kg/m²)</> : null} is the rack&rsquo;s mass averaged over the aisle pitch, the floor area its row takes at the pitch installed
+        ({d1(pack.hall.aislePitchM)} m in the intake). The same rack over its own footprint is {fmt(platform.rack_mass_kg)} kg / {String(platform.rack_footprint_m2)} m² = {fmt(Math.round(perFootprint))} kg/m².
+        The design capacity is {cap !== null ? <>{fmt(cap)} kg/m², which is </> : null}{d1(pack.hall.floorLoadingKPa)} kPa: {pack.hall.floorLoadingNote.toLowerCase()}.
+        {imposed !== null && cap !== null ? <> The pitch-averaged figure is {imposed <= cap ? "below" : "above"} it and the per-footprint figure is {perFootprint <= cap ? "below" : "above"} it.</> : null} Point loads under the castors are a separate check that this guide does not compute.
+      </p>
+      <p className="mt-2">
+        This is arithmetic on library values, not a structural assessment, and it is not a verdict: a structural engineer decides which basis applies and whether the floor can carry the rack. {floorNote ? <>{floorNote}</> : <>The published study does not carry the engine&rsquo;s raised-floor note, so none is shown.</>}{risk ? <> The pack records against the relief: {risk}</> : null}
+      </p>
+    </div>
+  );
+}
+
+/** What each class means on the rows of this example, in plain words. The definitions beside them are the engine's list (lib/evidence-classes.ts). */
+const IN_THIS_EXAMPLE: Record<string, string> = {
+  E0: "A library default or an assumption: the platform's figures and every lead time.",
+  E3: "The engine's own estimate on supplied ratings and estimated inputs. Nobody reviewed it.",
+  E5: "The hall's declared ratings, which in this example are invented.",
+};
