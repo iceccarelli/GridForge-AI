@@ -14,7 +14,7 @@ import { storeFault } from "@/lib/safe-log";
 import { engineFetch } from "@/lib/rate-limit";
 
 import { QUALIFY_ASSUMABLE, type QualifyAssumable } from "@/lib/qualify-assumed";
-import { rackCountIsUpperBound, rackNoun } from "@/lib/qualify-readout";
+import { CHECK_INPUTS_NOTE, hasInputProblem, rackCountIsUpperBound, rackNoun } from "@/lib/qualify-readout";
 export { QUALIFY_ASSUMABLE, type QualifyAssumable };
 const QUALIFY_ASSUMABLE_KEYS = Object.keys(QUALIFY_ASSUMABLE) as [QualifyAssumable, ...QualifyAssumable[]];
 
@@ -200,8 +200,16 @@ export async function callEngine(input: QualifyInput): Promise<EngineOutcome> {
  *  never from the form, so it cannot drift from the model.
  *
  *  A count is "about" only when nothing was left out of it. The engine treats an equipment bank nobody declared as "no limit" (the most
- *  favourable reading), which it states in the gap's own text: the count is then an upper bound and is said as "at most". */
+ *  favourable reading), which it states in the gap's own text: the count is then an upper bound and is said as "at most".
+ *
+ *  While the engine warns that the inputs disagree with each other or may be in the wrong unit (a peak below the IT load, a MW/MVA/kW slip), the
+ *  verdict is not a finding about the hall: it opens with that, so a "cannot host" is never read as settled. */
 export function headline(r: QualifyResult): string {
+  const verdict = verdictSentence(r);
+  return hasInputProblem(r) ? `${CHECK_INPUTS_NOTE} ${verdict}` : verdict;
+}
+
+function verdictSentence(r: QualifyResult): string {
   const { as_found: found, after_relief: after } = r;
   const atMost = rackCountIsUpperBound(r);
   if (found.racks === 0 && after.racks === 0) {

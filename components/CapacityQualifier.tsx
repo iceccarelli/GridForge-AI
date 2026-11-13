@@ -12,7 +12,7 @@ import { PAYG } from "@/lib/products";
 import { formatSetsTheDate } from "@/lib/date-basis";
 import FreeAllowanceForm from "@/components/FreeAllowanceForm";
 import { NEXT_STEP_HREFS } from "@/lib/qualify-next-steps";
-import { joinNames, rackNoun, upperBoundInputs } from "@/lib/qualify-readout";
+import { isInputProblem, joinNames, orderedWarnings, rackNoun, upperBoundInputs } from "@/lib/qualify-readout";
 import { assumedRecordMatches, type QualifyAssumable } from "@/lib/qualify-assumed";
 import {
   HALL_PRESETS,
@@ -541,9 +541,12 @@ export function QualifyReadout({
   const { as_found: found, after_relief: after, intake } = result;
   // The inputs the engine treated as "no limit": the rack counts are then upper bounds, and the page says so beside them.
   const unevaluated = upperBoundInputs(result);
+  // Everything the engine warned about, the unit and inconsistency findings first. The verdict below is not a finding about the hall while one stands.
+  const warnings = orderedWarnings(result);
   return (
     <div className="mt-8 animate-slide-up">
       {template ? <TemplateNotice template={template} recorded={result.inputs_declared_assumed ?? []} /> : null}
+      {warnings.length ? <EngineWarnings warnings={warnings} /> : null}
       <p ref={headlineRef} tabIndex={-1} className="text-lg text-ghost leading-snug max-w-3xl outline-none focus-visible:ring-2 focus-visible:ring-power/60">{headline}</p>
       {share ? <ShareLink href={share} /> : null}
 
@@ -652,6 +655,34 @@ export function QualifyReadout({
       />
 
       <p className="text-[11px] text-faint mt-5 leading-relaxed max-w-3xl">{result.notice}</p>
+    </div>
+  );
+}
+
+/**
+ * What the engine warned about, above the verdict it qualifies. Each warning is text the engine wrote about THESE inputs; it is rendered as
+ * text (React escapes it), never as markup. A unit or consistency finding (a peak below the IT load, a MW/MVA/kW slip) is listed first and the
+ * box says so: the zero beside it can then be a sign of a typo rather than of a full hall.
+ */
+function EngineWarnings({ warnings }: { warnings: string[] }) {
+  const problems = warnings.filter(isInputProblem).length;
+  return (
+    <div
+      role="note"
+      aria-label="Warnings from the engine"
+      data-testid="qualify-warnings"
+      className={`mb-4 rounded border p-4 text-sm text-ghost ${problems ? "border-flag/50 bg-flag/10" : "border-line bg-panel-2"}`}
+    >
+      <p className={`font-mono text-[10px] uppercase tracking-[0.14em] ${problems ? "text-flag" : "text-faint"}`}>
+        {problems ? `Check these figures · ${warnings.length === 1 ? "1 warning" : `${warnings.length} warnings`} from the engine` : `Noted by the engine · ${warnings.length === 1 ? "1 warning" : `${warnings.length} warnings`}`}
+      </p>
+      <ul className="mt-2 grid gap-2">
+        {warnings.map((w, i) => (
+          <li key={i} className={isInputProblem(w) ? "text-ghost" : "text-mute"}>
+            {w}
+          </li>
+        ))}
+      </ul>
     </div>
   );
 }

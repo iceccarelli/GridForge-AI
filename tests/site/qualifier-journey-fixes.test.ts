@@ -228,3 +228,117 @@ describe("J1-5: a rack count the engine marks as an upper bound is said as 'at m
     expect(t).toMatch(/Deployable today 0 racks/);
   });
 });
+
+// ================================================================================================ J1-3: the engine's warnings, and a verdict that is not settled while they stand
+/** The warnings the real engine returned for current_it_load_MW = 40 against contracted_MW = 12 and a 7.4 MW peak (gridforge/power/plausibility.py), in its order. */
+const UNIT_WARNINGS = [
+  "The firm supply ceiling (12.00 MW: the lesser of the firm connection 12.37 MVA x 0.97 and the contracted 12.00 MW) cannot cover the current IT load (40.00 MW). No hall can run on that supply, so the zero headroom below says the inputs disagree with each other, not that the hall is full. Check the units (MW, MVA, kW) before relying on this result.",
+  "The current site peak (7.40 MW) is below the current IT load (40.00 MW), but the IT load is part of the site peak, so one of the two figures is wrong or in the wrong unit (MW, MVA, kW), or one is a design value and the other a metered one. Supply headroom is taken from the peak, so a peak that is too low frees supply that does not exist and overstates the racks the grid can carry. Confirm both figures from the same metering period before relying on this result.",
+];
+const UNIT_SLIP = resultOf({
+  intake: { gaps: EXAMPLE_GAPS.map(([i, r, a]) => gap(i, r, a)), warnings: [...EXAMPLE_ROUTINE_WARNINGS, ...UNIT_WARNINGS], required_inputs_missing: 5 },
+  after_relief: { racks: 0 },
+});
+
+describe("J1-3: the engine's warnings are shown above the verdict, and a unit warning stops the verdict reading as settled", () => {
+  it("a unit slip's own warning reaches the reader beside a 'cannot host' headline, even if the headline string is the bare one", () => {
+    const t = text(readout(UNIT_SLIP, "This hall cannot host NVIDIA GB300 NVL72 racks on these inputs. Rack feed / tap-off rating is what stops it."));
+    expect(t).toContain("Check the units (MW, MVA, kW) before relying on this result.");
+  });
+
+  it("every warning is rendered, the unit and inconsistency ones before the routine ones, each once", () => {
+    const html = readout(UNIT_SLIP);
+    const t = text(html);
+    for (const w of [...UNIT_WARNINGS, ...EXAMPLE_ROUTINE_WARNINGS]) expect(t.split(w).length - 1, w.slice(0, 40)).toBe(1);
+    const at = (w: string) => t.indexOf(w);
+    expect(at(UNIT_WARNINGS[0])).toBeLessThan(at(UNIT_WARNINGS[1]));
+    expect(at(UNIT_WARNINGS[1])).toBeLessThan(at(EXAMPLE_ROUTINE_WARNINGS[0]));
+    // the routine ones keep the engine's order after them
+    const routine = EXAMPLE_ROUTINE_WARNINGS.map(at);
+    expect([...routine].sort((a, b) => a - b)).toEqual(routine);
+  });
+
+  it("the warnings are a note above the verdict, not below it", () => {
+    const html = readout(UNIT_SLIP);
+    const note = html.indexOf('role="note"');
+    expect(note).toBeGreaterThan(-1);
+    expect(note).toBeLessThan(html.indexOf("Check your inputs first:"));
+    expect(note).toBeLessThan(html.indexOf("Deployable today"));
+    expect(html.indexOf("Check the units (MW, MVA, kW)")).toBeLessThan(html.indexOf("This hall cannot host"));
+  });
+
+  it("a read with only routine warnings shows them too, still as a note, and does not claim an input problem", () => {
+    const html = readout(EXAMPLE);
+    expect(html).toContain('role="note"');
+    const t = text(html);
+    for (const w of EXAMPLE_ROUTINE_WARNINGS) expect(t).toContain(w);
+    expect(t).not.toContain("Check your inputs first:");
+    expect(headline(EXAMPLE)).not.toContain("Check your inputs first");
+  });
+
+  it("a read with no warnings has no note", () => {
+    expect(readout(resultOf({ intake: { warnings: [] } }))).not.toContain('role="note"');
+    const bare = resultOf({});
+    delete (bare.intake as Partial<QualifyResult["intake"]>).warnings;
+    expect(readout(bare)).not.toContain('role="note"');
+  });
+
+  it("warnings are plain text: markup in one is shown as characters, never interpreted", () => {
+    const evil = 'Check the units (MW, MVA, kW) <img src=x onerror="alert(1)"> <b>bold</b> & more';
+    const html = readout(resultOf({ intake: { warnings: [evil] } }));
+    expect(html).not.toContain("<img");
+    expect(html).not.toContain("<b>bold");
+    expect(html).toContain("&lt;img src=x");
+    expect(text(html)).toContain(evil);
+  });
+
+  it("while a unit or consistency warning stands the headline opens with 'Check your inputs first:' and then still gives the verdict", () => {
+    const h = headline(UNIT_SLIP);
+    expect(h.startsWith("Check your inputs first:")).toBe(true);
+    expect(h).toContain("the warning shown with this result");
+    expect(h).toContain("provisional");
+    expect(h).toContain("This hall cannot host NVIDIA GB300 NVL72 racks on these inputs. Rack feed / tap-off rating is what stops it.");
+    // the prefix is one line: it does not run into the verdict's own sentences
+    expect(h.split(/(?<=\.) /)[0]).toContain("Check your inputs first:");
+    // the visitor reads it in the page, above the tiles
+    const t = text(readout(UNIT_SLIP));
+    expect(t.indexOf("Check your inputs first:")).toBeLessThan(t.indexOf("Deployable today"));
+  });
+
+  it("every verdict shape gets the prefix, and only the unit and consistency warnings cause it", () => {
+    const gaps = EXAMPLE_GAPS.map(([i, r, a]) => gap(i, r, a));
+    for (const over of [{ as_found: { racks: 0 }, after_relief: { racks: 0 } }, { as_found: { racks: 0 }, after_relief: { racks: 12 } }, { as_found: { racks: 4 }, after_relief: { racks: 12 } }]) {
+      expect(headline(resultOf({ ...over, intake: { gaps, warnings: UNIT_WARNINGS } })).startsWith("Check your inputs first:")).toBe(true);
+      expect(headline(resultOf({ ...over, intake: { gaps, warnings: EXAMPLE_ROUTINE_WARNINGS } })).startsWith("Check your inputs first:")).toBe(false);
+    }
+    // each of the engine's three kinds of finding (plausibility.py) is a unit or consistency warning on its own
+    for (const w of [
+      "The contracted capacity (12.00 MW) is more than the firm connection can deliver (5.00 MVA x 0.97 = 4.85 MW). One of the two figures may be wrong or in the wrong unit (MW, MVA, kW), or the contract may include capacity that is not firm.",
+      "The firm supply ceiling (12.00 MW) cannot cover the current site peak (13.00 MW). The connection is already overdrawn on the inputs given, so the zero headroom below says the inputs disagree with each other.",
+      UNIT_WARNINGS[1],
+    ]) {
+      expect(headline(resultOf({ intake: { warnings: [w] } })).startsWith("Check your inputs first:"), w.slice(0, 50)).toBe(true);
+    }
+  });
+
+  describe("through the route", () => {
+    let previous: typeof fetch;
+    beforeEach(() => {
+      previous = globalThis.fetch;
+      process.env.GRIDFORGE_API_URL = "http://engine.test";
+      delete process.env.SUPABASE_URL;
+      delete process.env.SUPABASE_SERVICE_ROLE_KEY;
+      resetMemoryLimiter();
+    });
+    afterEach(() => { globalThis.fetch = previous; delete process.env.GRIDFORGE_API_URL; });
+
+    it("a unit slip answered by the engine comes back with the prefixed headline and every warning in the result", async () => {
+      globalThis.fetch = (async () => new Response(JSON.stringify(UNIT_SLIP), { status: 200, headers: { "content-type": "application/json" } })) as typeof fetch;
+      const { POST } = await import("@/app/api/qualify/route");
+      const body = await (await POST(post({ ...SEVEN, currentItLoadMW: 40 }))).json();
+      expect(body.ok).toBe(true);
+      expect(body.headline.startsWith("Check your inputs first:")).toBe(true);
+      expect(body.result.intake.warnings).toEqual([...EXAMPLE_ROUTINE_WARNINGS, ...UNIT_WARNINGS]);
+    });
+  });
+});
