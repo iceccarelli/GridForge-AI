@@ -148,6 +148,24 @@ def _next_action(intake: Intake, relief: list[dict]) -> dict:
     }
 
 
+def _says_target_unreachable(base: dict, *, target: int, ceiling: int, current: int) -> dict:
+    """The next action when the requested target is above what the FULL headroom ladder reaches.
+
+    Without this the answer to "we need 200 racks" on a hall whose ladder tops out at 62 was a gap of 200 and "obtain a quote for tap-off units",
+    with no word that no relief on the ladder gets there. The sentence now leads with that, and the action the ladder alone would have given is
+    kept (`ladder_action`) for a caller that reads it. It adds no physics: ``ceiling`` is the ladder's own figure."""
+    short = target - ceiling
+    head = (f"The target of {target} racks is not reachable at this hall on the inputs given: the full headroom ladder reaches {ceiling} racks, "
+            f"{short} short")
+    if ceiling > current:
+        base_action = base["action"]
+        action = f"{head}. To reach {ceiling}: {base_action[:1].lower()}{base_action[1:]}"
+    else:
+        action = (f"{head}, and no relief on the ladder adds to the {current} racks deployable now. Lower the target, or look for the capacity "
+                  "at another hall or site")
+    return {**base, "action": action, "target_reachable": False, "gap_racks_after_ladder": short, "ladder_action": base["action"]}
+
+
 def assess(intake: Intake, results: list[ScenarioResult], *,
            objective: Objective = Objective.MAX_COMPUTE,
            target_racks: int | None = None) -> dict:
@@ -168,6 +186,10 @@ def assess(intake: Intake, results: list[ScenarioResult], *,
     ladder_ceiling = rec.unlocked_racks
     target = target_racks if target_racks is not None else ladder_ceiling
     gap = max(target - current, 0)
+    gap_after_ladder = max(target - ladder_ceiling, 0)       # what is still missing once EVERY relief on the ladder is taken
+    next_action = _next_action(intake, relief)
+    if gap_after_ladder:
+        next_action = _says_target_unreachable(next_action, target=target, ceiling=ladder_ceiling, current=current)
 
     bound_ids = sorted({r.envelope.binding.id for r in results})
     keys = [constraint_key(b) for b in bound_ids] + ["envelope.racks", "envelope.it_load_kW"]
@@ -181,6 +203,10 @@ def assess(intake: Intake, results: list[ScenarioResult], *,
             "current_deployable_racks": current,
             "racks_after_full_headroom_ladder": ladder_ceiling,
             "gap_racks": gap,
+            # `gap_racks` is the target less what deploys now. These two say whether the ladder closes it: false (and the rest of the gap) when
+            # the target is above what the full headroom ladder reaches, whatever is bought.
+            "target_reachable": gap_after_ladder == 0,
+            "gap_racks_after_ladder": gap_after_ladder,
             "current_deployable_MW": round(current * plat.rack_kW.value / 1000, 3),
             "requested_target_given": target_racks is not None,
         },
@@ -211,7 +237,7 @@ def assess(intake: Intake, results: list[ScenarioResult], *,
                 "all, and this case says so rather than implying otherwise."
             ),
         },
-        "next_action": _next_action(intake, relief),
+        "next_action": next_action,
         "intake": {
             "completeness": round(intake.report.completeness, 3),
             "can_issue_a_study": intake.report.can_issue,

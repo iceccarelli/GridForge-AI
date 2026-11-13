@@ -204,6 +204,27 @@ def with_sharing(entries: list[SiteEntry]) -> list[SiteEntry]:
     return out
 
 
+def holds_a_rank(e: SiteEntry) -> bool:
+    """True when this hall is ranked on a figure. A hall with no deployable rack, a required input missing or an equipment bank undeclared is
+    NOT ranked (``rank_notes`` says so): it is listed after the halls that are, and carries no rank. ``rank`` is null for it, never a number
+    that reads as a place."""
+    return e.racks > 0 and e.rankable
+
+
+def ranks(ordered: list[SiteEntry]) -> list[int | None]:
+    """The rank of each hall of an ordered list: 1, 2, 3 ... over the halls that hold one, None for the rest. A hall without a rank is placed
+    after every hall that has one (``_sort_key``), so the ranks that exist are always 1..k with no gap."""
+    out: list[int | None] = []
+    held = 0
+    for e in ordered:
+        if holds_a_rank(e):
+            held += 1
+            out.append(held)
+        else:
+            out.append(None)
+    return out
+
+
 def rank_notes(ordered: list[SiteEntry], objective: Objective) -> list[str]:
     """Why each position can or cannot be relied on, from the figures themselves (not from a label)."""
     notes: list[list[str]] = [[] for _ in ordered]
@@ -269,10 +290,10 @@ def portfolio_rows(entries: list[SiteEntry], objective: Objective = Objective.MA
     ordered = rank(entries, objective)
     notes = rank_notes(ordered, objective)
     rows = []
-    for i, (e, note) in enumerate(zip(ordered, notes), 1):
+    for i, (e, note, rk) in enumerate(zip(ordered, notes, ranks(ordered)), 1):
         w, c, cpr = e.weeks_q, e.capex_q, e.capex_per_rack_q
         rows.append({
-            "rank": i, "site": e.intake.context.site.name, "hall": e.intake.context.hall.id,
+            "rank": rk, "site": e.intake.context.site.name, "hall": e.intake.context.hall.id,
             "metro": e.intake.context.site.metro,
             "racks": e.racks, "racks_evidence": e.rack_class.name,
             "weeks_to_full": None if w is None else w.value,
@@ -299,6 +320,8 @@ def portfolio_rows(entries: list[SiteEntry], objective: Objective = Objective.MA
             # Other halls in this ranking that, on the face of the documents, draw on the same grid connection (hall ids).
             "shares_site_connection": list(e.site_siblings),
             "likely_shares_connection_with": list(e.likely_siblings),
+            # The row's place in this table (1-based), which `rank` used to double as: a hall that is not ranked is listed but has no rank.
+            "position": i,
         })
     return rows
 
@@ -348,10 +371,10 @@ def portfolio_summary(entries: list[SiteEntry], objective: Objective = Objective
         "comparable_total_racks": sum(e.racks for e in comparable) if comparable else None,
         "comparable_total_racks_by_site_max": _by_site_max(comparable) if comparable else None,
         "comparable_total_racks_evidence": min(e.rack_class for e in comparable).name if comparable else None,
-        "incomparable_halls": [{"rank": i, "site": e.intake.context.site.name, "hall": e.hall_id, "racks": e.racks,
+        "incomparable_halls": [{"rank": rk, "site": e.intake.context.site.name, "hall": e.hall_id, "racks": e.racks,
                                 "required_gaps": e.required_gap_paths, "unassessed_banks": e.unassessed_banks,
-                                "reason": e.rankable_reason}
-                               for i, e in enumerate(ordered, 1) if not e.rankable],
+                                "reason": e.rankable_reason, "position": i}
+                               for i, (e, rk) in enumerate(zip(ordered, ranks(ordered)), 1) if not e.rankable],
         "constraint_rollup": constraint_rollup(ordered),
         "totals_note": (f"Every total sums, for each hall, the figure of the architecture the objective {objective.value!r} selects for it; "
                         "another objective selects other architectures and gives other totals. total_racks and total_racks_upper_bound "
@@ -469,11 +492,11 @@ def build(entries: list[SiteEntry], *, client: str = "Portfolio",
     for text in shared:
         s.blocks.append(Callout("warning", text))
     rows = []
-    for i, (e, note) in enumerate(zip(ordered, notes), 1):
+    for rk, e, note in zip(ranks(ordered), ordered, notes):
         hid = e.intake.context.hall.id
         cpr = e.capex_per_rack_q
         rows.append([
-            Lit(str(i)),
+            Lit(str(rk) if rk is not None else "—"),         # a hall that is not ranked is listed without a place, as its note says
             e.name,
             e.intake.context.site.metro,
             V(float(e.racks), "racks", f"{hid}: deployable racks", e.rack_class),

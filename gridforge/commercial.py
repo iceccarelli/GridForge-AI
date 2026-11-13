@@ -203,7 +203,7 @@ API_PLANS: dict[str, ApiPlan] = {
         audience="A platform or fund pricing halls continuously rather than in batches.",
         includes=(
             "2,500 units a month.",
-            "Portfolio endpoint billed per hall, so a 200-hall sweep is 200 units.",
+            "Portfolio endpoint billed per hall (one unit each); one request ranks up to 50 halls, so a 200-hall estate is four requests and 200 units.",
             "Change notes via /v1/diff: what moved and which input moved it (available on every plan).",
         ),
     ),

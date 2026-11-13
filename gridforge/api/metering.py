@@ -63,6 +63,18 @@ UNIT_COST: dict[str, int] = {
     "/v1/estimate": 0,       # asking what a call would cost is never itself a cost
 }
 
+#: The most halls one /v1/portfolio request may rank. A bound on the work a request can demand (every hall is a full solve, about 0.2 s each, and
+#: the 512 KiB body limit alone admits well over a hundred), not a statement about how large a portfolio may be: the Portfolio Screen ENGAGEMENT is
+#: sold for five to fifteen halls, the intake form accepts two to fifteen, and a larger estate through the API is several requests. The ONE
+#: definition: the handler, the estimator, the published input schema (`maxItems`) and the rate card all read it from here.
+MAX_PORTFOLIO_HALLS = 50
+
+
+def portfolio_cap_message(halls: int) -> str:
+    """The refusal for a portfolio request over the cap: one sentence, worded once, used by the handler and by the estimator."""
+    return f"intakes lists {halls} halls, more than the {MAX_PORTFOLIO_HALLS} one request may rank; send the rest as further requests"
+
+
 #: The routes that are free ON PURPOSE (weight 0). tests/test_payg_unmetered.py pins this set, so a new route
 #: cannot become free by omission: it must either carry a positive weight or be added here with a reason.
 FREE_ENDPOINTS = frozenset(p for p, u in UNIT_COST.items() if u == 0)

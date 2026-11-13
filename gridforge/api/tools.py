@@ -23,7 +23,7 @@ Zero dependencies: MCP here is a JSON-RPC dialect, not a package.
 from __future__ import annotations
 
 from ..compute.library import PLATFORMS
-from .metering import UNIT_COST, payg_public
+from .metering import MAX_PORTFOLIO_HALLS, UNIT_COST, payg_public
 from .tiers import Tier
 
 PROTOCOL_VERSION = "2025-06-18"
@@ -201,7 +201,8 @@ TOOLS: list[dict] = [
          "properties": {"endpoint": {"type": "string",
                                      "description": "The engine route to price, e.g. /v1/study."},
                         "hall_count": {"type": "integer", "minimum": 1,
-                                       "description": "Halls in a /v1/portfolio request (one unit each)."},
+                                       "description": (f"Halls in a /v1/portfolio request (one unit each). A portfolio request ranks at most "
+                                                       f"{MAX_PORTFOLIO_HALLS} halls: a larger hall_count is refused with 422, as the request would be.")},
                         "body": {"type": "object", "additionalProperties": True,
                                  "description": "Optional: the request body you intend to send; the "
                                                 "units are read from it exactly as the meter would."}},
@@ -272,11 +273,15 @@ TOOLS: list[dict] = [
     ),
     _tool(
         "gridforge_portfolio",
-        ("Rank halls. Many intakes in, an ordered list out: racks, weeks to power, capex per "
-         "rack and what binds first for each. Bills one unit per hall."),
+        (f"Rank halls. Many intakes in (at most {MAX_PORTFOLIO_HALLS} halls in one request; a larger estate is several requests), "
+         "an ordered list out: racks, weeks to power, capex per "
+         "rack and what binds first for each. A hall that is not ranked on a figure (no deployable rack, a required input missing or an "
+         "equipment bank undeclared) is listed after the ranked ones with rank null. Bills one unit per hall."),
         "/v1/portfolio",
         {"type": "object", "required": ["intakes"],
-         "properties": {"intakes": {"type": "array", "items": _INTAKE_SCHEMA, "minItems": 1},
+         "properties": {"intakes": {"type": "array", "items": _INTAKE_SCHEMA, "minItems": 1, "maxItems": MAX_PORTFOLIO_HALLS,
+                                    "description": (f"The halls to rank, one intake each: at most {MAX_PORTFOLIO_HALLS} per request (more is "
+                                                    "refused with 422 and nothing is charged; send the rest as further requests).")},
                         "objective": _OBJECTIVE,
                         "format": {"type": "string", "enum": ["json", "md", "html"], "default": "json",
                                    "description": "json: the ranking rows. md or html: also the rendered Portfolio Screen "
@@ -385,9 +390,11 @@ TOOLS: list[dict] = [
                                                         "can reach"},
                         "objective": _OBJECTIVE},
          "additionalProperties": False},
-        returns=("capacity (current/target/gap), binding_constraint, headroom_ladder (every "
+        returns=("capacity (current/target/gap; target_reachable and gap_racks_after_ladder say whether the full headroom ladder reaches the "
+                 "target, and what is still missing when it does not), binding_constraint, headroom_ladder (every "
                  "relief priced and dated), time_to_power (critical item and dependencies), "
-                 "evidence (calibration state, evidence classes used), and next_action."),
+                 "evidence (calibration state, evidence classes used), and next_action (which leads with the fact when the target is not "
+                 "reachable)."),
         boundary=("Composed from the same solved scenario as the screen and the study: no price, lead time or date is invented, every figure "
                   "traces to the engine or an explicit input with its evidence class, and the calibration state is stated."),
     ),
@@ -598,7 +605,9 @@ def mcp_tools() -> list[dict]:
 #: not an agent tool (a human walkthrough); an integrator pricing a deployment still needs its weight.
 def rate_card() -> list[dict]:
     by_endpoint = {t["endpoint"]: t["name"] for t in TOOLS}
-    return [{"endpoint": e, "units": u, "tool": by_endpoint.get(e)}
+    return [{"endpoint": e, "units": u, "tool": by_endpoint.get(e),
+             # additive, on the one row it applies to: a request over this many halls is refused (422), not priced
+             **({"max_halls_per_request": MAX_PORTFOLIO_HALLS} if e == "/v1/portfolio" else {})}
             for e, u in sorted(UNIT_COST.items())]
 
 

@@ -118,7 +118,8 @@ from ..serialize import csv_bundle, model_pack
 from .keys import revocation_persistable, revoke, revoked_ids
 from ..provenance import provenance
 from .costs import BUCKET_BOUNDS_MS, timer
-from .metering import METER, UNIT_COST, key_plans, payg_public, plan_for, refusal, units_for
+from .metering import (MAX_PORTFOLIO_HALLS, METER, UNIT_COST, key_plans, payg_public, plan_for, portfolio_cap_message, refusal,
+                       units_for)
 from .payloads import (btm_calibration_block, calibration_block, calibration_block_for_bindings, grid_queue_context_for, qualify_payload,
                        retail_price_context_for, screen_payload)
 from .tiers import Tier, redact
@@ -1396,12 +1397,8 @@ def handle_bids(body: dict, tier: Tier) -> dict:
     return payload
 
 
-#: The most halls one /v1/portfolio request may rank. A bound on the work a request can demand (every hall is a full solve, about 0.2 s
-#: each, and the 512 KiB body limit alone admits well over a hundred), not a statement about how large a portfolio may be: the Portfolio
-#: Screen is sold for five to fifteen halls, and a larger estate is several requests.
-MAX_PORTFOLIO_HALLS = 50
-
-
+#: MAX_PORTFOLIO_HALLS (the most halls one /v1/portfolio request may rank) is defined once, in metering.py, and imported above: the published
+#: input schema, the estimator and the rate card read the same number.
 from ..reporting.portfolio_guard import (declares_hall_ids as _declares_hall_ids, hall_key as _hall_key,  # noqa: E402
                                          identical_physics_warning as _identical_warning, is_repeat as _is_repeat_hall,
                                          physics_fingerprint as _fingerprint)
@@ -1412,8 +1409,7 @@ def handle_portfolio(body: dict, tier: Tier) -> dict:
     if not isinstance(docs, list) or not docs:
         raise ApiError(422, "expected {\"intakes\": [ ... ]} with at least one intake")
     if len(docs) > MAX_PORTFOLIO_HALLS:
-        raise ApiError(422, f"intakes lists {len(docs)} halls, more than the {MAX_PORTFOLIO_HALLS} one request may rank; send the rest as "
-                            "further requests", max_halls=MAX_PORTFOLIO_HALLS)
+        raise ApiError(422, portfolio_cap_message(len(docs)), max_halls=MAX_PORTFOLIO_HALLS)
     objective = _objective(body)
     fmt = str(body.get("format") or "json").lower()
     if fmt not in ("json", "md", "html"):
@@ -1501,7 +1497,7 @@ def _units_basis(endpoint: str, units: int, halls: int | None) -> str:
     if endpoint == _PORTFOLIO:
         base = UNIT_COST[_PORTFOLIO]
         if halls is None:
-            return (f"{base} unit per hall in the request; give hall_count (or body.intakes) for a total. "
+            return (f"{base} unit per hall in the request, at most {MAX_PORTFOLIO_HALLS} halls per request; give hall_count (or body.intakes) for a total. "
                     f"Units are reserved when the call starts and refunded if it produces no answer.")
         return (f"{base} unit per hall x {halls} halls = {units} units. "
                 f"Units are reserved when the call starts and refunded if it produces no answer.")
@@ -1536,6 +1532,11 @@ def handle_estimate(body: dict, tier: Tier) -> dict:
             halls = max(1, len(intakes))
         elif hall_count is not None:
             halls = hall_count
+        if halls is not None and halls > MAX_PORTFOLIO_HALLS:
+            # A price for a request the engine would refuse is not an estimate: refuse it in the engine's own words, and say how many requests
+            # the estate is (each is priced on its own by asking again with its own hall_count).
+            raise ApiError(422, portfolio_cap_message(halls), max_halls=MAX_PORTFOLIO_HALLS,
+                           requests_needed=-(-halls // MAX_PORTFOLIO_HALLS), units_per_hall=UNIT_COST[_PORTFOLIO])
         units = UNIT_COST[_PORTFOLIO] * (halls if halls is not None else 1)
     else:
         units = units_for(endpoint, req_body)
@@ -1612,6 +1613,15 @@ def validate_format(endpoint: str, body) -> None:
         raise ApiError(422, f"unknown format {fmt[:40]!r}", allowed=list(allowed))
 
 
+def validate_request(endpoint: str, body) -> None:
+    """What can be refused from the request alone, before it is metered: an unsupported `format` (`validate_format`) and a portfolio over
+    MAX_PORTFOLIO_HALLS (the handler's own refusal, in the same words, which would otherwise come after `units_for` had reserved a unit per
+    hall and a key short of that many units had been told it was over quota instead of told the cap)."""
+    validate_format(endpoint, body)
+    if endpoint == "/v1/portfolio" and isinstance(body, dict) and isinstance(body.get("intakes"), list) and len(body["intakes"]) > MAX_PORTFOLIO_HALLS:
+        raise ApiError(422, portfolio_cap_message(len(body["intakes"])), max_halls=MAX_PORTFOLIO_HALLS)
+
+
 #: Routes whose result depends on prices and can therefore take accepted cost evidence for that one request.
 EVIDENCE_ROUTES = frozenset({"/v1/screen", "/v1/study", "/v1/compare", "/v1/diff", "/v1/deck", "/v1/spec"})
 MAX_EVIDENCE_LINES = 200
@@ -1660,7 +1670,7 @@ def _invoke_inner(endpoint: str, handler, body, tier):
     The evidence applies to THIS call only (a request-scoped overlay over the library); an entry that is not accepted,
     has expired, is not in EUR, or is superseded by a newer one in the same request is ignored with a reason that is
     returned and printed. The answer says which evidence it used and, for a screen or study, what that changed."""
-    validate_format(endpoint, body)            # already checked before the charge on both transports; this covers any other caller of `_invoke`
+    validate_request(endpoint, body)           # already checked before the charge on both transports; this covers any other caller of `_invoke`
     if _nests_deeper_than(body, MAX_BODY_DEPTH):
         raise ApiError(422, f"the request nests more than {MAX_BODY_DEPTH} levels deep; no field of any route needs that")
     if not isinstance(body, dict) or "cost_evidence" not in body:
@@ -1728,7 +1738,7 @@ def _mcp_call_tool(params: dict, tier: Tier, charge) -> dict:
     if not isinstance(args, dict):
         raise RpcError(-32602, "arguments must be an object")
     try:
-        validate_format(endpoint, args)        # before the idempotency lookup and the charge: nothing to refund
+        validate_request(endpoint, args)       # before the idempotency lookup and the charge: nothing to refund
     except ApiError as exc:
         raise RpcError(-32602, exc.message, exc.extra)
     # Idempotency-Key, exactly as REST honours it: a retry after a timeout is neither charged twice nor handed a
@@ -2359,7 +2369,7 @@ class Handler(BaseHTTPRequestHandler):
         if not isinstance(body, dict):
             return self._send(400, {"error": "expected a JSON object"})
         try:
-            validate_format(path, body)        # a format the route cannot render is refused before anything is metered
+            validate_request(path, body)       # a format the route cannot render, or a portfolio over the cap, is refused before anything is metered
         except ApiError as exc:
             return self._send(exc.status, {"error": exc.message, **exc.extra})
 
