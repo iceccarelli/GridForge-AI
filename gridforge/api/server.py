@@ -13,8 +13,11 @@ Endpoints
     GET  /v1/version                    engine version and tier configuration
     GET  /v1/platforms                  the platform library, and what is deliberately absent
     GET  /v1/intake/template            blank intake document
+    GET  /v1/estimate?endpoint=...      what a call would cost, before spending anything (public; POST takes the same, with a body)
+    POST /v1/estimate                   the same, for a request body: units read exactly as the meter reads them (public)
     POST /v1/qualify                    seven fields -> binding constraint  (public)
     POST /v1/screen                     full intake -> screen payload       (key)
+    POST /v1/compare                    full intake -> scenarios side by side, with only the dates the lead times support (key)
     POST /v1/study                      full intake -> model pack           (key)
     POST /v1/portfolio                  [intakes]  -> ranked halls          (key)
     POST /v1/proposal                   intake     -> priced proposal       (key)
@@ -32,6 +35,9 @@ Endpoints
     GET  /v1/usage                      this key's metered usage             (key)
     POST /mcp                           Model Context Protocol, JSON-RPC 2.0 (public
                                         transport; each tool keeps its own tier)
+    (an operator-only route, /v1/revoke, exists and is in no listing: it answers 404 to everyone but the operator)
+A route answers the methods it takes; any other method on a known route is 405 with an Allow header, HEAD answers a GET route as GET does
+without the body, and every error is JSON with schema_version.
 
 Auth: X-API-Key, or Authorization: Bearer <key>, against GRIDFORGE_API_KEYS
 (comma separated, `key[:label[:monthly_units]]`). With no keys configured the paid
@@ -1201,8 +1207,10 @@ def handle_power_deploy_bids(body: dict, tier: Tier) -> dict:
 
 
 def _mcp_message_is_valid(message) -> bool:
-    """The least JSON-RPC 2.0 asks of a request or notification: an object with a string method. Anything else is an Invalid Request."""
-    return isinstance(message, dict) and isinstance(message.get("method"), str) and bool(message["method"])
+    """The least JSON-RPC 2.0 asks of a request or notification: an object declaring `"jsonrpc": "2.0"` with a string method. Anything else
+    is an Invalid Request: a message that says it is another version (`"1.0"`) or none at all is not one this endpoint is entitled to read as 2.0."""
+    return (isinstance(message, dict) and message.get("jsonrpc") == "2.0"
+            and isinstance(message.get("method"), str) and bool(message["method"]))
 
 
 def _invalid_rpc_request(message) -> dict:
@@ -1211,8 +1219,13 @@ def _invalid_rpc_request(message) -> dict:
     rid = message.get("id") if isinstance(message, dict) else None
     if isinstance(rid, bool) or not isinstance(rid, (str, int)):
         rid = None
-    return {"jsonrpc": "2.0", "id": rid,
-            "error": {"code": -32600, "message": 'invalid request: expected a JSON-RPC object with a string "method"'}}
+    if isinstance(message, dict) and message.get("jsonrpc") != "2.0":
+        got = message.get("jsonrpc")
+        shown = ("missing" if "jsonrpc" not in message else repr(got) if isinstance(got, str) and len(got) <= 20 else f"a {type(got).__name__}")
+        what = f'invalid request: "jsonrpc" must be the string "2.0" (it is {shown})'
+    else:
+        what = 'invalid request: expected a JSON-RPC object with a string "method"'
+    return {"jsonrpc": "2.0", "id": rid, "error": {"code": -32600, "message": what}}
 
 
 def handle_revoke(body: dict, tier: Tier) -> dict:
@@ -1278,6 +1291,51 @@ ECONOMICS_BASIS = (
     "fees, any model or LLM provider cost (the engine makes no model calls, so there is none to include), "
     "support and engineering time, taxes, minimum-invoice carry-forward, and invoices not yet paid."
 )
+
+
+def withhold_non_finite(payload):
+    """(a copy of payload with every non-finite float replaced by None, the paths where that happened); (payload, []) when there is none.
+
+    NaN and the infinities are not JSON: `Infinity` in a response breaks every strict parser downstream, and a client that coerces it to 0 has
+    turned "unbounded" into "none". The loader refuses the inputs that can cause one; this is the defence behind it. The value becomes null (never
+    zero, never a number made up) and its path is named, so the caller is told rather than left to find a hole. A tuple is read as a list."""
+    paths: list[str] = []
+
+    def clean(node, path):
+        if isinstance(node, float):
+            if math.isfinite(node):
+                return node
+            paths.append(path or "$")
+            return None
+        if isinstance(node, dict):
+            return {k: clean(v, f"{path}.{k}" if path else str(k)) for k, v in node.items()}
+        if isinstance(node, (list, tuple)):
+            return [clean(v, f"{path}[{i}]") for i, v in enumerate(node)]
+        return node
+
+    out = clean(payload, "")
+    return (out, paths) if paths else (payload, [])
+
+
+def _warn_non_finite(payload, paths: list[str]):
+    """The payload with a `warnings` entry per withheld figure. Top level of the answer, beside any warnings it already carries; in a JSON-RPC
+    response (which has no room for one) inside its `result`. A list (an MCP batch) is handled element by element."""
+    if isinstance(payload, list):
+        return [_warn_non_finite(m, [p for p in paths if p.startswith(f"[{i}]")]) if isinstance(m, dict) else m for i, m in enumerate(payload)]
+    if not isinstance(payload, dict):
+        return payload
+    notes = [f"non-finite figure withheld at {p}" for p in paths]
+    if not notes:
+        return payload
+    target = payload["result"] if "jsonrpc" in payload and isinstance(payload.get("result"), dict) else payload
+    existing = target.get("warnings")
+    if isinstance(existing, list):
+        target["warnings"] = existing + notes
+    elif existing is None:
+        target["warnings"] = notes
+    else:
+        target["non_finite_warnings"] = notes
+    return payload
 
 
 def _strict(obj):
@@ -1729,6 +1787,12 @@ GET_ROUTES = ("/health", "/v1/version", "/v1/platforms", "/v1/intake/template",
               "/v1/calibration", "/v1/calibration/residuals", "/v1/tools", "/v1/usage")
 
 
+def public_endpoints() -> list[str]:
+    """The routes a caller may be told exist: every POST and GET route except the operator-only ones (`Tier.INTERNAL`: /v1/revoke), which answer
+    404 to everyone else precisely so they do not confirm they exist, and so are in no listing. The one list behind GET /v1/version `endpoints`."""
+    return sorted(r for r, (_, tier) in ROUTES.items() if tier is not Tier.INTERNAL) + sorted(GET_ROUTES)
+
+
 # --- Model Context Protocol --------------------------------------------------
 # JSON-RPC 2.0 over one POST endpoint. Implemented here rather than pulled in as a
 # dependency because the whole engine is standard-library-only and an agent-facing
@@ -1747,6 +1811,9 @@ def _mcp_call_tool(params: dict, tier: Tier, charge) -> dict:
     if limit is not None and not limit():
         raise RpcError(-32005, "rate limit exceeded", {"status": 429, "limit_per_minute": RATE_LIMIT_PER_MINUTE})
     name = params.get("name")
+    if not isinstance(name, str) or not name:
+        got = "missing" if name is None else "empty" if name == "" else f"a {type(name).__name__}, not a string"
+        raise RpcError(-32602, f"params.name is {got}: name the tool to call (a string)", {"available": sorted(TOOLS_BY_NAME)})
     tool = TOOLS_BY_NAME.get(name)
     if tool is None:
         raise RpcError(-32602, f"unknown tool {name!r}",
@@ -1875,10 +1942,13 @@ def handle_mcp(body: dict, tier: Tier, charge) -> dict | None:
     """One JSON-RPC request. Returns None for a notification (no id)."""
     rpc_id = body.get("id")
     method = body.get("method")
+    # A notification is a message with NO `id` member (JSON-RPC 2.0 section 4.1). `"id": null` is a request, answered with id null: it used to be
+    # taken for a notification, so the caller got a 202 and nothing else.
+    notification = "id" not in body
     params = body.get("params") if isinstance(body.get("params"), dict) else {}
 
     def ok(result):
-        return None if rpc_id is None else {"jsonrpc": "2.0", "id": rpc_id, "result": result}
+        return None if notification else {"jsonrpc": "2.0", "id": rpc_id, "result": result}
 
     try:
         if method == "initialize":
@@ -1913,15 +1983,35 @@ def handle_mcp(body: dict, tier: Tier, charge) -> dict | None:
             # for us than for them.
             return ok({"tools": mcp_tools()})
         if method == "tools/call":
+            if not isinstance(body.get("params"), dict):
+                raise RpcError(-32602, 'tools/call needs params: an object with a string "name" (the tool to call) and an "arguments" object',
+                               {"available": sorted(TOOLS_BY_NAME)})
             return ok(_mcp_call_tool(params, tier, charge))
         raise RpcError(-32601, f"method not found: {method}")
     except RpcError as exc:
-        if rpc_id is None:
+        if notification:
             return None
         err = {"code": exc.code, "message": exc.message}
         if exc.data is not None:
             err["data"] = exc.data
         return {"jsonrpc": "2.0", "id": rpc_id, "error": err}
+
+
+def _encode(payload) -> bytes:
+    """A response body as strict JSON. `allow_nan=False`: a NaN or an infinity is never written (`Infinity` is not JSON). If one reaches here it
+    is replaced by null where it stands and named in a top-level `warnings` entry ('non-finite figure withheld at <path>'): never a 500, never
+    silent, never a zero. A body that fails for any other reason is the caller's exception, as before."""
+    try:
+        return json.dumps(payload, allow_nan=False).encode()
+    except ValueError as exc:
+        try:
+            clean, paths = withhold_non_finite(payload)
+        except RecursionError:             # a payload that refers to itself: not a non-finite figure, so the original error stands
+            raise exc from None
+        if not paths:
+            raise
+        print(f"gridforge: non-finite figure withheld at {', '.join(paths[:5])}", file=sys.stderr)
+        return json.dumps(_warn_non_finite(clean, paths), allow_nan=False).encode()
 
 
 class Handler(BaseHTTPRequestHandler):
@@ -1963,12 +2053,12 @@ class Handler(BaseHTTPRequestHandler):
         self.send_header("Access-Control-Expose-Headers",
                          "X-GridForge-Units, X-GridForge-Units-Month, X-GridForge-Units-Remaining, "
                          "X-GridForge-Charge-Cents, X-GridForge-Idempotent-Replay, Idempotent-Replay")
-        self.send_header("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
+        self.send_header("Access-Control-Allow-Methods", "GET, POST, OPTIONS")      # HEAD is CORS-safelisted like GET and POST: not listed
 
     def _send(self, status: int, payload: dict) -> None:
         if isinstance(payload, dict) and "jsonrpc" not in payload:
             payload = {"schema_version": API_SCHEMA, **payload}
-        data = json.dumps(payload).encode()
+        data = _encode(payload)
         self.send_response(status)
         self.send_header("Content-Type", "application/json; charset=utf-8")
         self.send_header("Content-Length", str(len(data)))
@@ -1980,6 +2070,8 @@ class Handler(BaseHTTPRequestHandler):
             self.send_header("X-GridForge-Idempotent-Replay", "true")
         if getattr(self, "_retry_after", None):
             self.send_header("Retry-After", str(self._retry_after))
+        if getattr(self, "_allow", None):
+            self.send_header("Allow", self._allow)
         self._usage_headers()
         self._cors()
         self.end_headers()
@@ -2056,8 +2148,60 @@ class Handler(BaseHTTPRequestHandler):
 
     def do_OPTIONS(self) -> None:  # noqa: N802
         self.send_response(204)
+        allow = self._allowed_methods(urlparse(self.path).path.rstrip("/") or "/")
+        if allow:
+            self.send_header("Allow", ", ".join(allow))
         self._cors()
         self.end_headers()
+
+    # -- methods -----------------------------------------------------------
+    @staticmethod
+    def _allowed_methods(path: str) -> list[str] | None:
+        """The methods a known route answers, for a 405's Allow header; None when the path is not a route a caller may know exists.
+        Operator routes (/v1/revoke, /v1/admin/*) are None on purpose: they answer 404 to everyone else and never confirm they exist."""
+        reads = path in ("/", "/health", "/v1/estimate") or path in GET_ROUTES
+        posts = path == "/mcp" or (path in ROUTES and ROUTES[path][1] is not Tier.INTERNAL)
+        if not (reads or posts):
+            return None
+        return (["GET", "HEAD"] if reads else []) + (["POST"] if posts else []) + ["OPTIONS"]
+
+    def _method_not_allowed(self, path: str):
+        """405 with an Allow header for a known route reached by a method it does not take; 404 for a path that is no route."""
+        allow = self._allowed_methods(path)
+        if allow is None:
+            return self._send(404, {"error": "not found", "endpoints": public_endpoints() + ["/mcp"]})
+        self._allow = ", ".join(allow)
+        return self._send(405, {"error": f"{self.command} is not allowed on {path}", "allow": allow})
+
+    def _other_method(self) -> None:
+        """PUT, DELETE and PATCH: no route takes them. They used to get the standard library's HTML 501 page."""
+        self._method_not_allowed(urlparse(self.path).path.rstrip("/") or "/")
+
+    do_PUT = do_DELETE = do_PATCH = _other_method  # noqa: N815
+
+    def do_HEAD(self) -> None:  # noqa: N802
+        """HEAD answers a GET route exactly as GET does (same status, same headers, no body: `_send` leaves the body out), so a monitor that
+        probes with HEAD is not told the service is down."""
+        self.do_GET()
+
+    def send_error(self, code, message=None, explain=None) -> None:
+        """Every error the standard library raises on its own (a malformed request line, an over-long header, an unsupported method such as
+        TRACE) as the engine's JSON, never its HTML page. Runs before any header is parsed on a bad request, so it reads nothing from them."""
+        short = self.responses.get(code, ("error",))[0]
+        data = json.dumps({"schema_version": API_SCHEMA, "error": message or short, "status": code}).encode()
+        try:
+            self.log_error("code %d, message %s", code, message)
+            self.send_response(code, message)
+            self.send_header("Content-Type", "application/json; charset=utf-8")
+            self.send_header("Content-Length", str(len(data)))
+            self.send_header("Cache-Control", "no-store")
+            self.send_header("X-Content-Type-Options", "nosniff")
+            self.send_header("Connection", "close")
+            self.end_headers()
+            if self.command != "HEAD" and code >= 200 and code not in (204, 205, 304):
+                self.wfile.write(data)
+        except (OSError, ValueError):       # the peer is gone: nothing to tell it
+            pass
 
     def do_GET(self) -> None:  # noqa: N802
         parsed = urlparse(self.path)
@@ -2123,7 +2267,7 @@ class Handler(BaseHTTPRequestHandler):
                                 f"or on an /mcp tools/call, to make a retry free and identical"),
                 "idempotency_key_max_chars": MAX_IDEM_KEY_CHARS,
                 "tier": self._tier().value,
-                "endpoints": sorted(ROUTES) + sorted(GET_ROUTES),
+                "endpoints": public_endpoints(),
                 # Behaviour a route has that its path does not show. A site that depends on one reads it here and, from an engine that does
                 # not list it (an older deployment), hides the feature instead of sending a field that engine would silently ignore.
                 "capabilities": dict(CAPABILITIES),
@@ -2189,8 +2333,7 @@ class Handler(BaseHTTPRequestHandler):
                 return self._send(401, dict(refusal(self._supplied_key()),
                                             hint="GET /v1/tools is free and needs no key"))
             return self._send(200, METER.statement(plan))
-        return self._send(404, {"error": "not found",
-                                "endpoints": sorted(ROUTES) + sorted(GET_ROUTES)})
+        return self._method_not_allowed(path)       # a POST route read with GET: 405 and Allow; a path that is no route: the 404 it always was
 
     # -- metering ----------------------------------------------------------
     def _project(self) -> str:
@@ -2327,8 +2470,7 @@ class Handler(BaseHTTPRequestHandler):
     def _do_post(self) -> None:
         path = urlparse(self.path).path.rstrip("/") or "/"
         if path not in ROUTES and path != "/mcp":
-            return self._send(404, {"error": "not found",
-                                    "endpoints": sorted(ROUTES) + ["/mcp"]})
+            return self._method_not_allowed(path)          # a GET route sent a POST: 405 and Allow; a path that is no route: 404
 
         if not self._within(self.limiter):
             return self._send(429, {"error": "rate limit exceeded",
@@ -2507,7 +2649,7 @@ class Handler(BaseHTTPRequestHandler):
             except Exception:
                 self._refund()
                 _log_engine_error(charge.request_id)
-                if message.get("id") is None:
+                if "id" not in message:
                     return None
                 return {"jsonrpc": "2.0", "id": message.get("id"),
                         "error": {"code": -32603, "message": "engine error",
