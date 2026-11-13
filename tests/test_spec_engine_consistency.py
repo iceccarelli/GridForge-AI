@@ -26,7 +26,7 @@ import pytest
 from gridforge.common import ASSUMED, V
 from gridforge.intake.loader import load
 from gridforge.procurement import build_spec, relief_steps
-from gridforge.procurement.build import GENERATORS, scenario_context
+from gridforge.procurement.build import GENERATORS, context_at_step, scenario_context
 from gridforge.scenario.run import run_all
 from gridforge.thermal.constraints import cdu_capacity, plant_capacity
 from gridforge.thermal.library import PUE_BY_ARCHITECTURE
@@ -323,7 +323,12 @@ def test_the_thermal_and_electrical_figures_carry_the_class_of_the_platform_data
                 if r.value is not None:
                     by.setdefault(r.id, set()).add(r.value.evidence)
                     if r.id == "T-02":
-                        t02.append((r.value.evidence, facility_water_supply(scenario_context(intake, res)).temperature.evidence))
+                        # the water at the rung that is specified: a proposed trim chiller's setpoint is an ASSUMPTION about an asset that is
+                        # not installed (E0), the existing plant's own setpoint keeps the class the client supplied it at
+                        step = next(st for st in relief_steps(res) if st.binding_id == cid)
+                        water = facility_water_supply(context_at_step(intake, res, step))
+                        expected = EvidenceClass.E0_ASSUMPTION if water.source == "trim_chiller" else water.temperature.evidence
+                        t02.append((r.value.evidence, expected))
     for rid in ("T-01", "T-03", "T-04", "T-20", "E-10", "E-20", "E-30"):
         assert by.get(rid) == {EvidenceClass.E0_ASSUMPTION}, (rid, by.get(rid))
     for rid, classes in by.items():
@@ -352,7 +357,10 @@ def test_t04_is_the_available_approach_the_engines_cdu_derate_prints(worlds):
             continue
         seen.append((example, res.spec.id))
         pkg = build_spec(intake, res, constraint_id=cid)
-        ctx = res.ladder.initial_context
+        # The engine at the CDU's OWN rung: a CDU is bought after the earlier reliefs (the trim chiller that fixes the water), so that is the
+        # water it will be fed. Evaluated on the hall as found, full DLC reads dry-cooler water above the TCS target and no approach at all.
+        step = next(s for s in relief_steps(res) if s.binding_id == cid)
+        ctx = context_at_step(intake, res, step)
         req = next(r for r in pkg.requirements if r.id == "T-04")
         t04 = req.value
         assert t04.unit == "K"
@@ -373,10 +381,10 @@ def test_t04_is_the_available_approach_the_engines_cdu_derate_prints(worlds):
             assert t04.value <= 0, (example, res.spec.id, t04.value)
             assert "not colder than the technology-loop target" in req.basis, (example, res.spec.id, req.basis)
             deferred += 1
-    # Measured on the four shipped halls: 8 scenarios buy CDU relief; 2 are hybrid (the engine prints an approach) and 6 are full DLC,
-    # where the dry coolers' water is above the TCS target and the engine's CDU row is "not assessed". Before the facility-water helper
-    # all 8 printed the legacy plant's 24 K, which is exactly the figure the engine no longer stands behind for full DLC.
-    assert compared >= 2 and deferred >= 1 and compared + deferred >= 8, (compared, deferred, seen)
+    # Measured on the four shipped halls: 8 scenarios buy CDU relief, and at the CDU's own rung the engine prints an approach in every one of them
+    # (2 hybrid on the existing plant's water, 6 full DLC on the water of the trim chiller the ladder buys first), so the spec equals the engine
+    # in all 8. The "not assessed" branch above stays for a hall whose CDU rung still sits behind an unrelieved water gate.
+    assert compared + deferred >= 8 and compared >= 8 - deferred, (compared, deferred, seen)
 
 
 def test_the_reference_hall_t04_is_24_k_not_the_survival_rating_less_the_supply(worlds):
@@ -483,3 +491,20 @@ def test_an_assumed_input_never_carries_its_evidence_class_twice():
         assert path in rows, (path, sorted(rows))                      # the rows exist, so the loop below is not vacuous
     for path, text in rows.items():
         assert len(re.findall(r"\bE[0-7]\)", text)) <= 1, (path, text)
+
+
+@pytest.mark.parametrize("example", EXAMPLES)
+def test_a_cdu_specification_never_states_a_mandatory_non_positive_approach_where_the_engine_buys_the_cdu(worlds, example):
+    """The default CDU specification of Dublin, Nordic and the reference hall used to quote the water of the hall AS FOUND (dry coolers above the
+    TCS target: "Required: -6 K") beside a supply line from the existing plant, for a CDU the ladder buys only after the trim chiller that fixes the
+    water (review R3). At its own rung the approach is positive and agrees with the supply line the same document prints."""
+    intake, results = worlds[example]
+    checked = 0
+    for res in results:
+        if not any(s.binding_id == "cdu_capacity" for s in relief_steps(res)):
+            continue
+        pkg = build_spec(intake, res, constraint_id="cdu_capacity")
+        t04 = next(r for r in pkg.requirements if r.id == "T-04").value
+        assert t04.value > 0, (example, res.spec.id, t04.render())
+        checked += 1
+    assert checked >= 1

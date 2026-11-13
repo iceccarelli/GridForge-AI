@@ -18,7 +18,7 @@ import re
 from dataclasses import replace
 from typing import Iterable
 
-from ..common import ESTIMATED, V
+from ..common import ASSUMED, ESTIMATED, V
 from ..constraints import EnvelopeContext
 from ..envelope.solver import LadderStep, rack_evidence
 from ..scenario.run import ScenarioResult
@@ -95,6 +95,28 @@ def scenario_context(intake, result: ScenarioResult) -> EnvelopeContext:
     c.architecture = result.spec.architecture
     c.pue = PUE_BY_ARCHITECTURE[result.spec.architecture]
     return result.spec.overrides(c) if result.spec.overrides is not None else c
+
+
+def context_at_step(intake, result: ScenarioResult, step) -> EnvelopeContext:
+    """The hall at the moment ``step`` is bought: the scenario as found with every EARLIER relief on the ladder applied, in order (the ladder
+    applies them one after another and keeps only the first and last context).
+
+    A CDU is bought AFTER the trim chiller that fixes the facility water, so its duty has to be specified against that water, not against the
+    dry-cooler water of the hall as found (which under full DLC can be above the TCS target and leave no approach at all). Only reliefs that
+    were actually taken change the context, exactly as the ladder itself treats them."""
+    from ..constraints import all_constraints
+    ctx = scenario_context(intake, result)
+    for st in result.ladder.steps:
+        if st.step == step.step:
+            break
+        if not st.taken:
+            continue
+        evaluated = [fn(ctx) for fn in all_constraints()]
+        c = next((x for x in evaluated if x.id == st.binding_id), None)
+        if c is None or c.relief is None or c.relief.apply is None:
+            continue
+        ctx = c.relief.apply(ctx)
+    return ctx
 
 
 # --- per-constraint requirement generators ----------------------------------
@@ -280,6 +302,11 @@ def _cdu(ctx: EnvelopeContext, racks: int, count_ev: EvidenceClass = SPEC_CEILIN
     # dedicated loop receives is the dry coolers' (design dry bulb plus their approach), not the existing chiller's.
     fws = facility_water_supply(ctx)
     fws_t = fws.temperature
+    if fws.source == "trim_chiller":
+        # The setpoint of a chiller the relief PROPOSES: an assumption about an asset that is not installed, whatever class the plant's own
+        # setpoint carries (thermal/constraints.py tcs_supply_achievable labels it the same way).
+        fws_t = fws_t.relabel("facility water temperature assumed achievable with a proposed trim chiller on the high-temperature loop",
+                              "spec.trim_chiller_fws", step_evidence=ASSUMED)
     approach = tcs - fws_t
     if approach.value > 0:
         approach_note = (f"Available approach = TCS supply target {tcs.render()} less facility-water supply "
@@ -714,7 +741,10 @@ def build_spec(intake, result: ScenarioResult, *, step: LadderStep | None = None
     # The rack count is itself a result of the capacity model, so it is no better evidenced than the weakest constraint behind it.
     count_ev = rack_evidence(result.ladder.final or result.envelope)
     gen = GENERATORS.get(step.binding_id)
-    reqs = gen(ctx, racks, count_ev) if gen else _generic(ctx, racks, step, count_ev)
+    # A CDU's duty depends on the facility water it will be fed, and that is fixed by reliefs EARLIER on the ladder (the trim chiller): specify it
+    # at its own rung. Every other generator keeps the scenario as found, which is what "installed" means in its basis.
+    gen_ctx = context_at_step(intake, result, step) if step.binding_id == "cdu_capacity" else ctx
+    reqs = gen(gen_ctx, racks, count_ev) if gen else _generic(ctx, racks, step, count_ev)
 
     conds = site_conditions(intake, ctx)
     pkg = SpecPackage(
