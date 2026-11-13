@@ -2,6 +2,7 @@ import {
   GATE_COUNT_WORD,
   LEDGER_GATES,
   LEDGER_LIMITS,
+  PUBLICATION_CONDITIONS,
   PUBLISHED_VARIABLES,
   RECORD_SHAPE,
   RESIDUALS_PATH,
@@ -202,8 +203,9 @@ export function CalibrationTransparency({ live }: { live: ResidualRead }) {
       </h2>
       <p className="mt-2 text-[15px] text-mute">
         A measurement from a delivered system enters the shared calibration ledger only through a database view that applies {GATE_COUNT_WORD}{" "}
-        gates, made up of {VIEW_CONDITION_COUNT} conditions in all (counting the shape of the record). All must hold at once; the list below
-        follows the view as it stands today. Clearing them makes an observation exportable; it does not make it accurate.
+        gates, made up of {VIEW_CONDITION_COUNT} conditions in all (counting the shape of the record and the three publication conditions of
+        migration 0056). All must hold at once; the list below follows the view as it is defined in this site&rsquo;s migrations. Clearing them
+        makes an observation exportable; it does not make it accurate.
       </p>
       <ol className="mt-4 space-y-3">
         {LEDGER_GATES.map((g, i) => (
@@ -224,6 +226,14 @@ export function CalibrationTransparency({ live }: { live: ResidualRead }) {
         <span className="font-semibold text-ghost">{RECORD_SHAPE.title}.</span> {RECORD_SHAPE.rule} These are not decisions anyone takes, so
         they are not counted among the {GATE_COUNT_WORD} gates.
       </p>
+      <div className="mt-3 rounded border border-line bg-panel-2 p-4" id="publication-conditions">
+        <h3 className="text-[15px] font-semibold text-ghost">{PUBLICATION_CONDITIONS.title}</h3>
+        <p className="mt-1 text-sm text-mute">{PUBLICATION_CONDITIONS.rule}</p>
+        <p className="mt-2 text-[13px] leading-relaxed text-mute">
+          <span className="text-faint">What passing them does not establish: </span>
+          {PUBLICATION_CONDITIONS.limit}
+        </p>
+      </div>
 
       <h3 className="mt-6 text-base font-semibold text-ghost">Limits that hold whatever the gates say</h3>
       <ul className="mt-2 list-disc space-y-1 pl-5 text-[15px] text-mute">
@@ -239,8 +249,9 @@ export function CalibrationTransparency({ live }: { live: ResidualRead }) {
       {live.status === "read" ? <Subsystems report={live.report} /> : null}
       <Schema />
       <p className="mt-3 text-sm text-faint">
-        The administrator sees the same gates, read record by record, before anything is exported. The reviewer name recorded is text typed
-        under one shared password, not an authenticated identity.
+        The administrator sees the {GATE_COUNT_WORD} gates and the record&rsquo;s shape, read record by record, before anything is exported; the
+        publication conditions above are applied by the database view alone and are not on that screen yet. The reviewer name recorded is text
+        typed under one shared password, not an authenticated identity.
       </p>
     </section>
   );

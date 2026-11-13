@@ -15,6 +15,7 @@ started from (set it to 0045); the tests are written for the full chain.
 
 The service role must be able to bypass RLS, as it is on Supabase and in scripts/realdb-up.sh: the rig creates it that way when absent.
 """
+import contextlib
 import hashlib
 import json
 import os
@@ -220,6 +221,23 @@ def satisfy_publication_gates(db, project, reached_on="2020-01-01"):
         p = {"project_id": project, "milestone": "energised", "reached_on": reached_on, "evidence_id": proof, "basis": "rig: energisation certificate",
              "attested_by": owner}
         psql(db, f"select public.gf_attest_completion_milestone({q(json.dumps(p))}::jsonb, '{GOOD % 'completion_milestone_attested'}'::jsonb)")
+
+
+@contextlib.contextmanager
+def publication_gates_off(db):
+    """For a test of ANOTHER migration's read model (a timeline, a registry listing) that needs an observation row to exist and has nothing to say about whether
+    it could be published: record rows inside this block as a database would have before 0056 was applied. ONLY 0056's insert gate (the trigger
+    project_observations_publication_gates) is switched off, and only for the block: every other guard (the forecast freeze, append-only, the function's own
+    checks) stays on, and the row is stored with no organisation and no consent, so it is NOT in the ledger view. A no-op on a database built before 0056.
+    A test about the gates themselves never uses this: it gives the project what a real submission has (`satisfy_publication_gates`)."""
+    if scalar(db, "select to_regclass('public.calibration_consents') is null") == "t":
+        yield
+        return
+    psql(db, "alter table public.project_observations disable trigger project_observations_publication_gates")
+    try:
+        yield
+    finally:
+        psql(db, "alter table public.project_observations enable trigger project_observations_publication_gates")
 
 
 def stamp_organisation(db, oid):

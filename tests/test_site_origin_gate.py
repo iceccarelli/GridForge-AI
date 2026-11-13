@@ -1,22 +1,32 @@
 """0052: an observation of a project sitting in a test or synthetic site is not eligible for the calibration ledger.
 
-Real PostgreSQL, the whole chain (0001..0052). Every case starts from an observation that IS exported (the control: a reviewer who is not the
-submitter, a verified file with a decision on record, a frozen forecast made before the outcome, production origin, a standing permission) and
-changes ONLY where its project sits in the site registry (0049/0050). Everything is a SYNTHETIC fixture.
+Real PostgreSQL, the whole chain (0001..0056). Every case starts from an observation that IS exported (the control: a reviewer who is not the
+submitter, a verified file with a decision on record, a frozen forecast made before the outcome, production origin, a standing permission and, from
+0056 on, the organisation's consent and the project's attested completion milestone) and changes ONLY where its project sits in the site registry
+(0049/0050). Everything is a SYNTHETIC fixture.
 
   attached to a production site                     -> exported (unchanged)
   attached to a test site                           -> not exported
   attached to a synthetic site                      -> not exported
   attached to a test site, then detached            -> still NOT exported (detaching does not turn a rehearsal into ledger data)
-  never attached                                    -> exported (unchanged: every project that exists today)
-  observation stored before the project was attached -> still gated (the view, not an insert-time check, carries the gate)
+  never attached                                    -> CANNOT BE RECORDED AS PRODUCTION any more (0056: no hall, no organisation, no consent that could
+                                                       cover it; GF015). Before 0056 this case was "exported, unchanged". Its premise is gone; its
+                                                       intent (0052's condition is not what decides it) is kept by showing the insert is refused
+  recorded in a production site, project moved to a test site later -> still gated (the view, not an insert-time check, carries the gate: 0056
+                                                       derives the organisation from the project's site WHATEVER the site's origin)
+
+Under 0056 a production observation needs a project that is already in a hall of an organisation when the row is recorded, so each fixture attaches the
+project FIRST (the registry's own halls, one per origin) and then submits through the rig, whose `satisfy_publication_gates` finds that organisation and
+records its consent and the project's completion milestone.
 """
 import re
 import uuid
 
 import pytest
 
-from calibration_pg_rig import MIGRATIONS, drop_database, export_rows, make_database, psql, record_permission, review, scalar, skip_without_db, submitted
+from calibration_pg_rig import (
+    MIGRATIONS, drop_database, export_rows, make_database, new_project, psql, record_permission, review, scalar, skip_without_db, submit, submitted,
+)
 from registry_pg import add_member, new_hall, new_org, new_site, ok
 
 pytestmark = skip_without_db
@@ -38,12 +48,15 @@ class Registry:
         add_member(db, self.org, self.owner, self.editor, "editor")
         self.halls = {origin: new_hall(db, self.owner, new_site(db, self.owner, self.org, origin=origin)) for origin in ("production", "test", "synthetic")}
 
-    def exported_observation(self, attach=None):
-        """An observation that is exported; with `attach` (an origin) its project is first put in a hall of a site of that origin. Returns
-        (observation id, project id)."""
-        project, _, obs = submitted(self.db)
-        if attach:
-            self.attach(project, attach)
+    def exported_observation(self, attach="production"):
+        """An observation that clears every gate with its project in a hall of a site of origin `attach`. The project is attached FIRST (0056 derives
+        the organisation from the hall the project is in when the row is recorded); the rig then records the organisation's consent and the project's
+        completion milestone and submits. Returns (observation id, project id)."""
+        project = new_project(self.db)
+        self.attach(project, attach)
+        _, _, obs = submitted(self.db, project=project)
+        # the organisation is the registry's own whatever the origin of the site, so what is left to keep a row out of the view is where the project sits
+        assert scalar(self.db, f"select organisation_id from project_observations where id = '{obs['id']}'") == self.org
         assert review(self.db, obs["id"]).returncode == 0
         record_permission(self.db, project)
         return obs["id"], project
@@ -64,9 +77,14 @@ def reg(db):
     return Registry(db)
 
 
-def test_a_project_never_attached_to_a_hall_is_exported_as_before(reg):
-    oid, project = reg.exported_observation()
-    assert reg.exported(oid)
+def test_a_project_never_attached_to_a_hall_can_no_longer_have_a_production_observation(reg):
+    """Before 0056 this was 'exported as before'. A production observation now needs an organisation, which is the one the project's hall belongs to, so a
+    project that was never attached has none: the insert is refused (GF015) and there is nothing to export. 0052's condition is not what stops it (the
+    project sits in no site at all), which was always this case's point."""
+    project = new_project(reg.db)
+    r = submit(reg.db, project=project, gates=False)[2]
+    assert r.returncode != 0 and "attached to a hall of an organisation" in r.stderr, r.stderr
+    assert scalar(reg.db, f"select count(*) from project_observations where project_id = '{project}'") == "0"
     assert scalar(reg.db, f"select count(*) from hall_project_attachments where project_id = '{project}'") == "0"
 
 
@@ -79,7 +97,8 @@ def test_a_project_in_a_production_site_is_exported(reg):
 def test_a_project_in_a_test_or_synthetic_site_is_not_exported_although_its_observation_says_production(reg, origin):
     oid, project = reg.exported_observation(attach=origin)
     assert scalar(reg.db, f"select data_origin from project_observations where id = '{oid}'") == "production"      # the observation's own claim
-    assert scalar(reg.db, f"select review_status from project_evidence where project_id = '{project}'") == "verified"
+    # every file of the project is verified (the observation's own and, since 0056, the one that backs the completion milestone): no file gate is what keeps it out
+    assert scalar(reg.db, f"select string_agg(distinct review_status, ',') from project_evidence where project_id = '{project}'") == "verified"
     assert not reg.exported(oid)
     assert export_rows(reg.db, f"id = '{oid}'") == []
 
@@ -94,9 +113,14 @@ def test_detached_from_a_non_production_site_the_observation_stays_out(reg, orig
     assert scalar(reg.db, f"select count(*) from hall_project_attachments a join hall_project_detachments d on d.attachment_id = a.id where a.project_id = '{project}'") == "1"
 
 
-def test_an_observation_stored_before_its_project_was_attached_is_gated_once_it_is(reg):
+def test_an_observation_stored_before_its_project_was_moved_to_a_test_site_is_gated_once_it_is(reg):
+    """The row was recorded (and exported) while its project sat in a production hall; moving the project to a test hall afterwards takes it out. The view,
+    not an insert-time check, carries this gate: 0056's insert gate derives the organisation from the hall whatever the site's origin, and a row already
+    stored is not looked at again at insert."""
     oid, project = reg.exported_observation()
     assert reg.exported(oid)
+    reg.detach(project, "production")
+    assert reg.exported(oid)                       # detaching from a production site leaves it where it was
     reg.attach(project, "test")
     assert not reg.exported(oid)
 
@@ -149,12 +173,23 @@ def test_the_view_is_the_0048_view_plus_exactly_one_condition_with_the_same_colu
 
 
 def test_replaying_0052_is_harmless(reg):
+    """0052 is idempotent: replayed twice it leaves the view exactly as one replay does, and the same rows are in and out. What changed with 0056 is that
+    0052 no longer holds the FINAL view: run after the whole chain it puts back a definition without 0056's consent, milestone and tombstone conditions
+    (tests/test_calibration_final_gate.py shows that being reported), so the replay is followed by 0056, as the headers of both say, and the final view is
+    then what it was before."""
     oid, _ = reg.exported_observation(attach="production")
     blocked, _ = reg.exported_observation(attach="test")
-    before = scalar(reg.db, "select pg_get_viewdef('public.calibration_ledger_rows'::regclass, true)")
-    psql(reg.db, file=next(MIGRATIONS.glob("0052_*.sql")))
-    psql(reg.db, file=next(MIGRATIONS.glob("0052_*.sql")))
-    assert scalar(reg.db, "select pg_get_viewdef('public.calibration_ledger_rows'::regclass, true)") == before
+    view = "select pg_get_viewdef('public.calibration_ledger_rows'::regclass, true)"
+    before = scalar(reg.db, view)
+    try:
+        psql(reg.db, file=next(MIGRATIONS.glob("0052_*.sql")))
+        once = scalar(reg.db, view)
+        psql(reg.db, file=next(MIGRATIONS.glob("0052_*.sql")))
+        assert scalar(reg.db, view) == once
+        assert reg.exported(oid) and not reg.exported(blocked)
+    finally:
+        psql(reg.db, file=next(MIGRATIONS.glob("0056_*.sql")))
+    assert scalar(reg.db, view) == before
     assert reg.exported(oid) and not reg.exported(blocked)
 
 

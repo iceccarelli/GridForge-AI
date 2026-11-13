@@ -205,7 +205,9 @@ describe("/evidence and /reference", () => {
     expect(t).toContain("What a site measurement must clear before it can count");
     expect(t).toContain("Uncalibrated: 0 approved production records.");
     expect(t).toContain("What has to be true before a site measurement can count toward calibration?");
-    expect(t).toMatch(/Six gates, applied together by one database view across 18 conditions/);
+    expect(t).toMatch(/Six gates, applied together by one database view across 21 conditions/);
+    // the three conditions migration 0056 adds are named, as conditional on that migration and as not gates
+    expect(t).toMatch(/Once migration 0056 is applied the same view also requires, among those conditions but not as gates, that the organisation's consent still stands/);
     expect(html).toContain('id="ledger-gates"');
     // the structured data carries the same answer
     expect(html).toContain("Clearing the gates makes an observation exportable, not accurate.");

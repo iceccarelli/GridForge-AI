@@ -11,6 +11,7 @@ import re
 import uuid
 
 import pytest
+from calibration_pg_rig import publication_gates_off
 from registry_pg import (add_member, call, drop_database, make_database, needs_db, new_hall, new_org, new_site, ok, psql, refused, scalar, seed_actual_review,
                          seed_evidence, seed_observation, seed_package, seed_project, seed_project_event, seed_supplier_actual)
 
@@ -59,7 +60,13 @@ class World:
         return seed_supplier_actual(self.db, pid, pkg, resp, ev, supersedes, **dates)
 
     def observation(self, pid, ev, observed_on="2026-03-01", observed=11.0, review=None):
-        return seed_observation(self.db, pid, ev, observed_on, observed, review)
+        # The timeline is a read model of what the hall's projects HOLD; whether an observation could be published is not its business. Since 0056 a production
+        # observation needs the organisation's consent and the project's completion milestone to be RECORDED, and a hall has observations that were recorded
+        # before 0056 (no organisation, no consent) which its timeline must show as well. So the row is stored as such a database would hold it: only 0056's
+        # insert gate is off, for this call. A consent and a milestone would add three project events of their own (evidence attached, evidence reviewed,
+        # milestone attested) to a log whose exact content these tests assert.
+        with publication_gates_off(self.db):
+            return seed_observation(self.db, pid, ev, observed_on, observed, review)
 
     def timeline(self, actor=None, hall=None, **kw):
         return call(self.db, "gf_hall_timeline", p_actor=actor or self.viewer, p_hall=hall or self.hall, **kw)

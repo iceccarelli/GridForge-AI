@@ -5,9 +5,11 @@ reference 0053) must leave true, which no single family's tests can see. (The fi
     function to the API roles; each migration has to take it back);
   * project_events_event_type_check allows every event type any code writes (lib/ and app/ via ev("..."), the database functions that
     emit, and the types the migrations themselves add), so no migration's rebuild of that list dropped another's type;
-  * replaying 0049-0053 a second time changes nothing;
-  * applying 0046-0053 over a database that already holds rows from 0001-0045 succeeds and rewrites nothing (0053 holds no table, column or row change:
-    an existing observation keeps its unsalted site_ref, which is why one site can carry two references across the boundary).
+  * replaying 0049-0053 a second time changes nothing (0056 is replayed last, in each round: 0056 holds the FINAL ledger view, 0052's replay puts the
+    older definition back and only a later 0056 restores it, which is the replay order those migrations' headers state);
+  * applying 0046-0053 and then 0056 over a database that already holds rows from 0001-0045 succeeds and rewrites nothing (0053 holds no table, column
+    or row change: an existing observation keeps its unsalted site_ref, which is why one site can carry two references across the boundary; 0056 adds two
+    nullable columns to the observations and back-fills neither: a legacy row has no organisation and no consent, so it is never in the ledger view).
 
 Real PostgreSQL. Skipped, loudly, where there is none; GRIDFORGE_REQUIRE_DB=1 turns the skip into a failure. Every value is synthetic.
 """
@@ -17,6 +19,7 @@ import uuid
 from pathlib import Path
 
 import pytest
+from calibration_pg_rig import satisfy_publication_gates
 from registry_pg import (MIGRATIONS, ROOT, add_member, drop_database, make_database, needs_db, new_hall, new_org, new_site, ok, psql, q, scalar,
                          seed_evidence, seed_observation, seed_project)
 
@@ -148,12 +151,17 @@ def test_replaying_0049_to_0053_twice_is_harmless():
         ok(name, "gf_attach_project_to_hall", p_actor=editor, p_hall=hall, p_project_token=token)
         ok(name, "gf_record_hall_input", p_actor=editor, p_hall=hall, p_field_path="grid.firm_capacity_mva", p_value=40, p_unit="MVA", p_evidence_class="E1",
            p_origin="assumed", p_project_evidence=None, p_intake_evidence=None, p_as_of="2026-01-15")
+        # the observation is PRODUCTION (seed_observation's default), so from 0056 on it needs what a real submission has before it: the project is already
+        # in the organisation's hall, and the organisation records its consent and the project attests its completion milestone (the same rig helper
+        # the other calibration tests use). The fingerprint then covers those tables' rows and definitions too.
+        satisfy_publication_gates(name, pid)
         ev = seed_evidence(name, pid)
         seed_observation(name, pid, ev, review_class="E5")
         first = fingerprint(name)
         assert first["rows"].split("/")[5] == "1"
+        assert scalar(name, "select count(*) from calibration_consents") == "1" and scalar(name, "select count(*) from project_completion_milestones") == "1"
         for _ in range(2):
-            for n in ("0049", "0050", "0051", "0052", "0053"):
+            for n in ("0049", "0050", "0051", "0052", "0053", "0056"):
                 psql(name, file=migration(n))
         assert fingerprint(name) == first
         # and it still works afterwards: the registry's guard on the attached project holds, a new site can be made
@@ -180,7 +188,7 @@ def snapshot(db):
     return out
 
 
-def test_applying_0046_to_0053_over_legacy_rows_succeeds_and_rewrites_nothing():
+def test_applying_0046_to_0053_and_0056_over_legacy_rows_succeeds_and_rewrites_nothing():
     name = make_database(through="0045")
     try:
         old_types = allowed_event_types(name)
@@ -204,7 +212,7 @@ def test_applying_0046_to_0053_over_legacy_rows_succeeds_and_rewrites_nothing():
         before = snapshot(name)
         assert all(before[t]["rows"] for t in LEGACY_TABLES if t != "project_links"), {t: len(v["rows"]) for t, v in before.items()}
 
-        for n in ("0046", "0047", "0048", "0049", "0050", "0051", "0052", "0053"):
+        for n in ("0046", "0047", "0048", "0049", "0050", "0051", "0052", "0053", "0056"):
             r = psql(name, file=migration(n), check=False)
             assert r.returncode == 0, (n, r.stderr)
 
@@ -220,6 +228,12 @@ def test_applying_0046_to_0053_over_legacy_rows_succeeds_and_rewrites_nothing():
         assert new_obs["data_origin"] == "unclassified"
         assert new_obs["site_ref"] == LEGACY_SITE_REF == before["project_observations"]["rows"][0]["site_ref"]       # 0053 leaves the legacy (unsalted) reference exactly as it was
         assert after["power_deployment_cases"]["rows"][0]["case_digest"] is None
+        # 0056 adds the organisation and the consent a row was recorded under, and invents neither for a row recorded before it: such a row names no
+        # organisation, so no consent can cover it, and it stays out of the ledger however it is reviewed
+        assert new_obs["organisation_id"] is None and new_obs["consent_id"] is None
+        for table in ("calibration_consents", "project_completion_milestones", "calibration_tombstones", "calibration_release_snapshots",
+                      "calibration_snapshot_supersessions"):
+            assert scalar(name, f"select count(*) from {table}") == "0", table
         assert {r["review_status"] for r in after["project_evidence"]["rows"]} == {"verified", "rejected", "unverified"}
         assert all(r.get("site_id") is None and r.get("hall_id") is None for r in after["projects"]["rows"])
         # nothing legacy reaches the ledger (unclassified, no forecast digest, no decision row, no permission) and nothing was invented

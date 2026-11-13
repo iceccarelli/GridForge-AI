@@ -21,7 +21,7 @@ from pathlib import Path
 
 import pytest
 from calibration_pg_rig import (MIGRATIONS, ROOT, export_rows, new_case, new_evidence, new_project, obs_args, record_permission, review, submitted,
-                                database_fixture, drop_database, make_database as make_full_database, psql, scalar, skip_without_db)
+                                database_fixture, drop_database, make_database as make_full_database, psql, satisfy_publication_gates, scalar, skip_without_db)
 from registry_pg import make_database as make_database_through
 
 pytestmark = skip_without_db
@@ -103,6 +103,9 @@ def test_a_well_formed_site_ref_is_stored_as_given(db):
 def test_absent_or_null_site_ref_is_the_old_unsalted_derivation(db, how):
     """The OLD application sends no site_ref; a JSON null is the same. Both get exactly what 0038/0047 derived."""
     project = new_project(db, "  Cork DC2 ")
+    # This is a PRODUCTION observation sent straight to the function, so from 0056 on the project needs what a real submission has first: a hall of an
+    # organisation, that organisation's consent and an attested completion milestone (the rig does the same for `submitted`). The reference is the subject.
+    satisfy_publication_gates(db, project)
     case, ev = new_case(db, created_at="2026-03-02T09:00:00Z"), new_evidence(db, project)
     args = json.loads(obs_args(project, ev, case))
     if how == "json null":
