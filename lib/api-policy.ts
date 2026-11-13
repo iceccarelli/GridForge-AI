@@ -188,6 +188,41 @@ export const API_CHANGELOG: ApiChangelogEntry[] = [
   },
   {
     date: API_POLICY_DATE,
+    kind: "additive",
+    text:
+      "rungs_taken, step_limit, step_cap, rungs_needed_estimate, racks_reached, racks_ceiling, supported_MW: a hall too large for the capacity ladder to finish within one request is a named 422 on REST and on /mcp, and is refunded as any 422 is. " +
+      "It was a generic 422 that said only that the request could not be processed. The message names the intake fields that set the size of the hall; the keys carry the rungs taken, the rungs this hall's ladder was allowed, the most any request may take, " +
+      "an estimate of the rungs the hall needs (labelled an estimate), the racks reached when it stopped and the ceiling the supply and the free positions set, and supported_MW, the size of hall the engine measured that it finishes. " +
+      "A key whose value is not known is left out.",
+    keys: ["rungs_taken", "step_limit", "step_cap", "rungs_needed_estimate", "racks_reached", "racks_ceiling", "supported_MW"],
+  },
+  {
+    date: API_POLICY_DATE,
+    kind: "additive",
+    text:
+      "schema_version, $schema, warnings: the intake template that GET /v1/intake/template sends carries schema_version, and a document posted back to /v1/screen, /v1/compare or /v1/study may carry it, or $schema: both are the document's envelope, read as nothing and ignored without a word. " +
+      "Another top-level key that is not a section of the intake or a request option (a title, a note, a key that starts with _ or $, or any key far from every section) is ignored too, and warnings in the intake report names it (\"<key> is not read by the engine\"). " +
+      "A key that is nearly a section or a request option (one letter off, a case slip, two letters swapped) is refused with a did-you-mean, because a misspelt section would otherwise be dropped and the study run on the library defaults in its place.",
+    keys: ["schema_version", "$schema", "warnings"],
+  },
+  {
+    date: API_POLICY_DATE,
+    kind: "additive",
+    text:
+      'id: a request to /mcp whose "id" is an object, an array or a boolean is refused with -32600 and an id of null, because it could not be echoed as one; a string, a number (an integer or a fraction) or null is answered with that id, exactly as sent. ' +
+      "Before, a valid request echoed any id unchecked, and an invalid one with a fractional id was answered with null.",
+    keys: ["id"],
+  },
+  {
+    date: API_POLICY_DATE,
+    kind: "additive",
+    text:
+      "field, limit: a figure of POST /v1/qualify that is below the lowest the engine models for one hall (a chilled-water supply below -5 degC, a temperature below absolute zero) is a 422 that names the figure as you sent it in field and the lowest in limit, " +
+      "as one above the most already was. The refusal named an intake path you never sent (thermal.plant.design_supply_C) and carried no field.",
+    keys: ["field", "limit"],
+  },
+  {
+    date: API_POLICY_DATE,
     kind: "correction",
     text:
       "Four values the engine returned or published in a form that misled, now what they should have been. schema_version stays gridforge/api/1, and a client that read any of them in the old form must change. " +

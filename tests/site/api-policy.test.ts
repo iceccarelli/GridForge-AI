@@ -139,6 +139,10 @@ describe("the changelog is seeded with the commitment and the additive keys of 2
       "jsonrpc",
       "allow",
       "warnings",
+      "rungs_taken, step_limit, step_cap, rungs_needed_estimate, racks_reached, racks_ceiling, supported_MW",
+      "schema_version, $schema, warnings",
+      "id",
+      "field, limit",
     ]);
     // one correction, after the additions of the day, and no entry of a kind the renderer does not label
     expect(API_CHANGELOG.filter((e) => e.kind === "correction")).toHaveLength(1);
@@ -205,7 +209,7 @@ const PROOFS: Record<string, Proof[] | (() => boolean)> = {
   figures_not_supplied: [{ file: PAYLOADS, pattern: /out\["figures_not_supplied"\] = not_supplied/ }],
   minimum_figures: [{ file: SERVER, pattern: /minimum_figures=QUALIFY_MIN_FIGURES/ }],
   figures_sent: [{ file: SERVER, pattern: /figures_sent=sent/ }],
-  limit: [{ file: SERVER, pattern: /field=name, limit=ceiling/ }],
+  limit: [{ file: SERVER, pattern: /field=name, limit=ceiling/ }, { file: SERVER, pattern: /field=name, limit=floor/ }],
   sets_the_date_reason: [{ file: PAYLOADS, pattern: /"sets_the_date_reason": no_date_reason\(rec\.ladder, t\)/ }],
   date_label: [
     { file: "gridforge/envelope/time_to_power.py", pattern: /"no date: nothing is deployable in this scenario"/ },
@@ -246,7 +250,23 @@ const PROOFS: Record<string, Proof[] | (() => boolean)> = {
   available: [{ file: SERVER, pattern: /\{"available": sorted\(TOOLS_BY_NAME\)\}/ }],
   allow: [{ file: SERVER, pattern: /"allow": allow\}\)/ }],
   endpoints: [{ file: SERVER, pattern: /"endpoints": public_endpoints\(\)/ }],
-  warnings: [{ file: SERVER, pattern: /non-finite figure withheld at \{p\}/ }],
+  warnings: [
+    { file: SERVER, pattern: /non-finite figure withheld at \{p\}/ },
+    { file: "gridforge/intake/loader.py", pattern: /report\.warnings\.extend\(_ignored_key_warnings\(doc\)\)/ },
+  ],
+  schema_version: [{ file: "gridforge/intake/loader.py", pattern: /ENVELOPE_KEYS: frozenset\[str\] = frozenset\(\{"schema_version", "\$schema"\}\)/ }],
+  $schema: [{ file: "gridforge/intake/loader.py", pattern: /ENVELOPE_KEYS: frozenset\[str\] = frozenset\(\{"schema_version", "\$schema"\}\)/ }],
+  rungs_taken: [{ file: "gridforge/envelope/solver.py", pattern: /keys = \{"rungs_taken": self\.rungs_taken, "step_limit": self\.step_limit, "step_cap": self\.step_cap,/ }],
+  step_limit: [{ file: "gridforge/envelope/solver.py", pattern: /"step_limit": self\.step_limit/ }],
+  step_cap: [{ file: "gridforge/envelope/solver.py", pattern: /"step_cap": self\.step_cap/ }],
+  rungs_needed_estimate: [{ file: "gridforge/envelope/solver.py", pattern: /"rungs_needed_estimate": self\.rungs_needed_estimate/ }],
+  racks_reached: [{ file: "gridforge/envelope/solver.py", pattern: /"racks_reached": self\.racks_reached/ }],
+  racks_ceiling: [{ file: "gridforge/envelope/solver.py", pattern: /"racks_ceiling": self\.racks_ceiling/ }],
+  supported_MW: [
+    { file: "gridforge/envelope/solver.py", pattern: /"supported_MW": self\.supported_MW/ },
+    { file: SERVER, pattern: /raise ApiError\(422, str\(exc\), \*\*exc\.detail\(\)\) from None/ },
+  ],
+  id: [{ file: SERVER, pattern: /def _mcp_id_is_valid\(rid\) -> bool:/ }],
   rank: [
     { file: "gridforge/reporting/portfolio.py", pattern: /"rank": rk, "site":/ },
     { file: "gridforge/reporting/portfolio.py", pattern: /out\.append\(None\)/ },
