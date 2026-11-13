@@ -328,6 +328,18 @@ there is no separate machine price list.
   pre-authorized budget should treat the \`POST /api/checkout\` response URL as
   the transaction to complete, not as a completed purchase.
 
+## Visual architecture and diagram manifests
+
+Machine-readable manifest of all 90 engineering diagrams (PNG, WebP, OpenGraph cards and schema.org ImageObject records): ${SITE}/images/visuals/visual-manifest.json
+
+Per-surface plain-text diagram indexes (all screening-mode, evidence-graded E0 to E7, zero hardware sold):
+- ${SITE}/llms-visuals.txt — core 13-constraint solver, headroom ladder and platform diagrams
+- ${SITE}/llms-qualify.txt — Free Capacity Check diagrams
+- ${SITE}/llms-density-screen.txt — Density Screen diagrams (${SITE}/images/visuals/density-screen-manifest.json)
+- ${SITE}/llms-envelope-study.txt — Capacity & Density Envelope Study diagrams
+- ${SITE}/llms-hall-watch.txt — Hall Watch diagrams
+- ${SITE}/llms-intelligence.txt — regional siting and queue-context diagrams
+
 ## Citing us
 
 Cite the page and its generation date, and carry the evidence class with the

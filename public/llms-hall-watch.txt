@@ -1,0 +1,23 @@
+# Hall Watch Visual Pack
+# Time to Power / GridForge Engine
+# €6,000 per quarter — the model stays live
+
+## Images
+- hall-watch-live-resolve: Live re-solve dashboard
+- hall-watch-quarterly-change-note: Quarterly change note
+- hall-watch-before-after-resolve: Before/after constraint resolve
+- hall-watch-input-update: Input update interface
+- hall-watch-continuous-timeline: Continuous monitoring timeline
+- hall-watch-nothing-material: Nothing material to report
+- hall-watch-evidence-update: Evidence class update
+- hall-watch-subscription-card: Subscription pricing card
+- hall-watch-change-note-detail: Change note detail
+- hall-watch-live-envelope: Live capacity envelope
+- hall-watch-quarterly-vs-ondemand: Quarterly vs on-demand
+- hall-watch-persistent-model: Persistent hall model
+- hall-watch-decision-impact: Decision impact flag
+- hall-watch-process-steps: Process steps
+- hall-watch-final-cta: Start Hall Watch CTA
+
+## Note
+Change notes are automatic. Screening-mode with evidence classes. Calibration ledger 0 field rows. No hardware sold.

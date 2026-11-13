@@ -5,6 +5,7 @@ import { PRODUCT_PAGES, productForPage } from "@/lib/product-pages";
 import { OG_BASE } from "@/lib/site";
 import { pageImages } from "@/lib/page-cards";
 import { eurFromCents, priceLine, PRODUCTS } from "@/lib/products";
+import { GridForgeVisual } from "@/components/GridForgeVisual";
 
 const DESCRIPTION = `Engagements for owners of existing AI data halls: the ${eurFromCents(
   PRODUCTS.density_screen.amountCents
@@ -19,7 +20,11 @@ export const metadata: Metadata = {
   twitter: { card: "summary_large_image", images: pageImages("products") },
   openGraph: {
     ...OG_BASE,
-    images: pageImages("products"), title: "Engagements — capacity and density engineering", description: OG_DESCRIPTION, url: "/products" },
+    images: pageImages("products"),
+    title: "Engagements — capacity and density engineering",
+    description: OG_DESCRIPTION,
+    url: "/products",
+  },
 };
 
 export default function ProductsIndex() {
@@ -55,6 +60,18 @@ export default function ProductsIndex() {
             );
           })}
         </ul>
+        <div className="mt-12 space-y-8">
+          <GridForgeVisual
+            slug="synthetic-hall-worked-floorplan"
+            alt="Isometric floorplan of a synthetic 2.0 MW hall with three aisles: cyan active 120 kW, amber 36 kW capped, and dark stranded wireframes."
+            caption="Synthetic reference hall floorplan: active liquid-cooled aisle beside tap-off-capped and thermally stranded positions."
+          />
+          <GridForgeVisual
+            slug="portfolio-multi-hall-triage-matrix"
+            alt="Executive dashboard of six synthetic halls ranked by unlockable headroom, lead time and evidence class, highlighting fastest ROI and deferred transformer-bound halls."
+            caption="Multi-hall portfolio triage ranking synthetic halls under one deterministic methodology."
+          />
+        </div>
         <p className="mt-8 text-sm text-mute">
           Metered API access is on the <Link href="/developers#plans" className="text-power underline">developers page</Link>;
           every price in one place is on <Link href="/pricing" className="text-power underline">pricing</Link>.

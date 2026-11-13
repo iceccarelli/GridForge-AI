@@ -1,0 +1,23 @@
+# GridForge Intelligence Visual Pack
+# Time to Power / GridForge Engine
+# Siting by time to power · €499/month Solo
+
+## Images
+- intelligence-regional-ranking: Regional ranking dashboard
+- intelligence-queue-vs-btm: Queue vs behind-the-meter
+- intelligence-cost-of-delay: Cost of delay model
+- intelligence-lbnl-queue-history: LBNL queue history
+- intelligence-modelled-measured-assumed: Modelled measured assumed labels
+- intelligence-ai-siting-analyst: AI siting analyst
+- intelligence-board-brief: Board brief
+- intelligence-solo-pricing: Solo €499/month
+- intelligence-regional-map: Regional map
+- intelligence-price-grid-mix: Price and grid-mix
+- intelligence-saved-scenarios: Saved scenarios
+- intelligence-btm-unlocks: BTM unlocks
+- intelligence-modelled-badge: Modelled subscription badge
+- intelligence-live-scenario: Live scenario
+- intelligence-final-cta: Subscribe CTA
+
+## Note
+Modelled subscription, not a verified-site portfolio. Every figure labelled modelled, measured or assumed. Calibration ledger 0 field rows. No hardware sold.

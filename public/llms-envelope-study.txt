@@ -1,0 +1,23 @@
+# Capacity & Density Envelope Study Visual Pack
+# Time to Power / GridForge Engine
+# €9,000 deposit opens scoped engagement €22,000–€45,000
+
+## Images
+- envelope-study-capacity-envelope: Complete multi-architecture envelope
+- envelope-study-board-summary: One-page board summary
+- envelope-study-full-headroom-ladder: Full ladder to hard ceiling
+- envelope-study-cooling-architectures: Four cooling options compared
+- envelope-study-sensitivity-tornado: Sensitivity analysis
+- envelope-study-model-pack: model_pack.json visualization
+- envelope-study-walkthrough: 90-minute engineer walkthrough
+- envelope-study-time-to-power: Time to power comparison
+- envelope-study-economics-waterfall: CapEx vs unlock
+- envelope-study-architecture-matrix: Architecture decision matrix
+- envelope-study-deposit-flow: Deposit credits in full
+- envelope-study-constraint-ladder: 13 constraints feeding envelope
+- envelope-study-key-figures: Board key figures
+- envelope-study-scoping-call: Scoping process
+- envelope-study-final-cta: Order deposit CTA
+
+## Note
+Screening-mode with evidence classes. Calibration ledger 0 field rows. No hardware sold.

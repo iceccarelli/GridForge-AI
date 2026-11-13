@@ -17,6 +17,7 @@ import { CAPABILITY_REGISTRY } from "@/lib/capability-registry";
 import { callableRates } from "@/lib/payg-pricing";
 import { engineServes } from "@/lib/engine-capabilities";
 import { estimateEndpointServed, readToolRatesWithAvailability } from "@/lib/tool-rates";
+import { GridForgeVisual } from "@/components/GridForgeVisual";
 
 const PRICING_TITLE = "Pricing: free check, API, engagements";
 const PRICING_DESCRIPTION = `A free capacity check, a metered API with a free allowance, engagements from the ${eurFromCents(PRODUCTS.density_screen.amountCents)} Density Screen, and a market intelligence subscription.`;
@@ -89,6 +90,13 @@ export default async function PricingPage() {
 
           <div className="mt-10">
             <ThreePaths />
+
+          <div className="mt-12">
+            <GridForgeVisual
+              slug="commercial-model-three-paths"
+              alt="Three architectural monolith cards for free capacity check, metered engine API, and fixed-fee density screen engagements."
+            />
+          </div>
           </div>
 
           <TtpPhoto
@@ -111,6 +119,26 @@ export default async function PricingPage() {
               which credits in full against the Envelope Study.
             </p>
             <EngagementLadder />
+            <div className="mt-8 grid gap-5 md:grid-cols-3">
+              <GridForgeVisual
+                slug="density-screen-credits-against-study"
+                alt="Engagement progression diagram showing the Density Screen fee credited in full against a subsequent Envelope Study."
+                caption="Density Screen credits in full against an Envelope Study on the same hall."
+                sizes="(max-width: 768px) 100vw, 400px"
+              />
+              <GridForgeVisual
+                slug="envelope-study-deposit-flow"
+                alt="Engagement flow diagram showing deposit payment, human scoping agreement within the published fee band, and full deposit credit."
+                caption="Deposits open a human-scoped fee within the published band and credit in full."
+                sizes="(max-width: 768px) 100vw, 400px"
+              />
+              <GridForgeVisual
+                slug="hall-watch-subscription-card"
+                alt="Quarterly Hall Watch subscription summary showing recurring cadence, on-demand input updates, automatic change notes and no minimum term."
+                caption="Hall Watch keeps the hall model active quarterly and on every input update."
+                sizes="(max-width: 768px) 100vw, 400px"
+              />
+            </div>
           </section>
 
           <section id="metered" aria-labelledby="metered-h" className="mt-16 scroll-mt-24">
@@ -177,6 +205,14 @@ export default async function PricingPage() {
                 </li>
               ))}
             </ul>
+            <div className="mt-6 max-w-xl">
+              <GridForgeVisual
+                slug="intelligence-solo-pricing"
+                alt="Monthly subscription tier card for GridForge Intelligence Solo seat access with siting ranking, queue history and scenario tools."
+                caption="Monthly regional siting subscription — separate from metered engine API plans."
+                sizes="(max-width: 768px) 100vw, 560px"
+              />
+            </div>
             <Link href="/intelligence" className="mt-4 inline-flex min-h-11 items-center text-sm text-power underline">
               See what the subscription contains
             </Link>

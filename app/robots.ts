@@ -89,7 +89,7 @@ export default function robots(): MetadataRoute.Robots {
       // used for training and retrieval. It may. That is why we published it.
       ...AI_CRAWLERS.map((userAgent) => ({
         userAgent,
-        allow: ["/", "/constraints/", "/platforms", "/reference/", "/llms.txt", ...PUBLIC_API],
+        allow: ["/", "/constraints/", "/platforms", "/reference/", "/images/visuals/", "/images/og/", "/llms.txt", "/llms-visuals.txt", "/llms-qualify.txt", "/llms-density-screen.txt", "/llms-envelope-study.txt", "/llms-hall-watch.txt", "/llms-intelligence.txt", ...PUBLIC_API],
         disallow: PRIVATE_PATHS,
       })),
     ],
