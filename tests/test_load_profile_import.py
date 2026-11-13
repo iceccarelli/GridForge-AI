@@ -156,6 +156,54 @@ def test_a_thousands_separator_beside_a_decimal_comma_is_refused():
     assert "mixes a decimal point and a comma" in message
 
 
+# --- review E10: a thousands dot in a decimal-comma (semicolon) file -----------------------------------------------------------------
+
+@pytest.mark.parametrize("cell,thousands,plain", [("30.000", "30000", "30"), ("1.234", "1234", "1.234"), ("123.456", "123456", "123.456"), ("-30.000", "-30000", "-30")])
+def test_a_point_and_exactly_three_digits_in_a_semicolon_file_is_ambiguous_and_refused_by_row_and_column(cell, thousands, plain):
+    """`30.000` in a semicolon-separated file is thirty thousand kW in a decimal-comma locale; read as a decimal point it was 30 kW and the profile
+    was quietly a thousandth of the hall's real load. It is refused by row and column, with the plain number asked for."""
+    message = refusal(f"timestamp;kW\n2026-01-01T00:00:00;{cell}\n")
+    assert "row 2: kW" in message, message
+    assert f"could be {plain} (read with a decimal point) or {thousands} (read with the point as a thousands separator" in message, message
+    assert "this tool will not choose" in message and "Write the plain number with no thousands separator" in message
+    assert message.startswith("load_profile:")
+
+
+def test_the_ambiguous_cell_is_named_in_its_own_row_and_column_not_the_first_row():
+    csv = "timestamp;kW;kVAR\n2026-01-01T00:00:00;30000;10\n2026-01-01T00:15:00;31000;12.500\n"
+    message = refusal(csv)
+    assert "row 3: kVAR" in message and "'12.500'" in message, message
+
+
+@pytest.mark.parametrize("cell,expect_kW", [("30.5", 30.5), ("30.50", 30.5), ("30.5000", 30.5), ("0.500", 0.5), ("1234.567", 1234.567), ("30000", 30000.0),
+                                            ("30,0", 30.0), ("30,5", 30.5), ("12.34", 12.34), ("12.3", 12.3), ("100.00", 100.0)])
+def test_the_plain_numbers_of_a_semicolon_file_are_still_read_as_documented(cell, expect_kW):
+    """Not three digits after the point, a leading zero (never a thousands group), four or more digits before the point, or a decimal comma: read."""
+    from gridforge.reporting.load_profile_csv import load_profile_from_csv
+    rows = "".join(f"2026-01-01T{h:02d}:00:00;{cell}\n" for h in range(2))
+    assert load_profile_from_csv("timestamp;kW\n" + rows, source="t").peak_kW().value == pytest.approx(expect_kW)
+
+
+def test_a_comma_with_three_digits_is_still_refused_by_name_as_before():
+    message = refusal("timestamp;kW\n2026-01-01T00:00:00;30,000\n")
+    assert "row 2" in message and "will not choose" in message and "30,000" in message
+
+
+@pytest.mark.parametrize("sep", [",", "\t"])
+def test_a_point_and_three_digits_in_a_comma_or_tab_file_is_a_plain_decimal(sep):
+    """The ambiguity is the decimal-comma locale's: a comma- or tab-separated file has no decimal comma, so `30.000` is thirty."""
+    from gridforge.reporting.load_profile_csv import load_profile_from_csv
+    csv = f"timestamp{sep}kW\n2026-01-01T00:00:00{sep}30.000\n2026-01-01T01:00:00{sep}31.250\n"
+    assert load_profile_from_csv(csv, source="t").peak_kW().value == pytest.approx(31.25)
+
+
+def test_the_library_reader_refuses_the_same_cell_in_a_semicolon_file_with_its_own_error():
+    from gridforge.power.load_profile import CsvRows, from_rows
+    rows = CsvRows([(1, ["timestamp", "kW"]), (2, ["2026-01-01T00:00:00", "30.000"]), (3, ["2026-01-01T01:00:00", "31.000"])], ";")
+    with pytest.raises(LoadProfileError, match="row 2: kW.*could be 30"):
+        from_rows(rows)
+
+
 def test_rows_are_named_by_the_line_the_customer_sees_with_comments_above():
     csv = "# exported 2026-01-02\n\ntimestamp;kW\n2026-01-01T00:00:00;100\n2026-01-01T00:15:00;abc\n"
     assert "row 5" in refusal(csv)
