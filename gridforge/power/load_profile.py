@@ -99,6 +99,11 @@ class LoadProfile:
     def __post_init__(self) -> None:
         if not self.samples:
             raise LoadProfileError("a load profile with no samples is not a profile")
+        if not math.isfinite(self.interval_minutes) or self.interval_minutes <= 0:
+            # gaps() divides by the interval: zero (every inferred interval of a profile whose readings repeat an instant) used to be a
+            # ZeroDivisionError reported as a generic 422, and the real cause, duplicate timestamps, was never named.
+            raise LoadProfileError(f"the sampling interval is {self.interval_minutes!r} minutes; it must be a finite number above zero. "
+                                   f"If the readings repeat a timestamp, remove the repeats: a profile needs one reading per instant")
         if any(s.kW < 0 for s in self.samples):
             raise LoadProfileError(
                 "negative kW in the load profile — a sign convention error, not a real load")
@@ -168,6 +173,8 @@ class LoadProfile:
         interpolated gaps is a generator sized against data nobody measured."""
         out: list[Gap] = []
         expected = self.interval_minutes * 60
+        if expected <= 0:        # unreachable through the constructor; a profile mutated into it reports no gaps rather than divide by it
+            return out
         for a, b in zip(self.samples, self.samples[1:]):
             actual = (b.timestamp - a.timestamp).total_seconds()
             if actual > expected * 1.5:
@@ -242,6 +249,9 @@ def from_csv(text: str, *, source: str = "customer CSV",
             f"expected columns starting 'timestamp,kW[,kVAR]', got {rows[0]!r}")
     has_kvar = len(header) > 2 and header[2] == "kvar"
     samples: list[LoadSample] = []
+    first_seen: dict[datetime, int] = {}          # timestamp -> the first row that carried it
+    repeats: list[tuple[int, int]] = []           # (row, the earlier row it repeats)
+    first_aware: tuple[int, bool] | None = None   # (row, has a UTC offset) of the first timestamp
     for i, row in enumerate(rows[1:], start=2):
         if len(row) < 2:
             raise LoadProfileError(f"row {i}: expected at least timestamp,kW — got {row!r}")
@@ -249,6 +259,18 @@ def from_csv(text: str, *, source: str = "customer CSV",
             ts = datetime.fromisoformat(row[0].strip())
         except ValueError as exc:
             raise LoadProfileError(f"row {i}: unparseable timestamp {row[0]!r}") from exc
+        aware = ts.tzinfo is not None
+        if first_aware is None:
+            first_aware = (i, aware)
+        elif aware != first_aware[1]:
+            # Sorting and differencing a mix of local and offset timestamps is a TypeError, and guessing the zone of the local ones is a fabricated clock.
+            raise LoadProfileError(
+                f"row {i}: timestamp {row[0].strip()!r} {'has' if aware else 'has no'} UTC offset, but row {first_aware[0]}'s "
+                f"{'has' if first_aware[1] else 'has not'}. Give every timestamp the same form (all with an offset such as +01:00 or Z, or all without)")
+        if ts in first_seen:
+            repeats.append((i, first_seen[ts]))
+        else:
+            first_seen[ts] = i
         try:
             kW = float(row[1])
         except ValueError as exc:
@@ -262,6 +284,15 @@ def from_csv(text: str, *, source: str = "customer CSV",
                 raise LoadProfileError(f"row {i}: unparseable kVAR {row[2]!r}") from exc
             kVAR = _sane_kW(kVAR, f"row {i}: kVAR {row[2].strip()[:24]!r}")
         samples.append(LoadSample(ts, kW, kVAR))
+    if repeats:
+        # Refused BEFORE the sampling interval is inferred from the gaps between readings: a repeated instant is a zero-length step, and a
+        # median that lands on it is an interval of zero.
+        shown = "; ".join(f"row {i} repeats the timestamp of row {j}" for i, j in repeats[:5])
+        more = f" (and {len(repeats) - 5} more)" if len(repeats) > 5 else ""
+        raise LoadProfileError(
+            f"{len(repeats)} row(s) repeat an earlier timestamp: {shown}{more}. A profile needs exactly one reading per instant; remove the "
+            f"repeats, or combine overlapping meters into one series yourself (this tool will not sum or pick between them), and for a DST "
+            f"fold give the timestamps an offset")
     samples.sort(key=lambda s: s.timestamp)
     interval = _infer_interval_minutes(samples)
     return LoadProfile(samples=samples, interval_minutes=interval, evidence=evidence,
@@ -274,7 +305,10 @@ def _infer_interval_minutes(samples: list[LoadSample]) -> float:
     deltas = [(b.timestamp - a.timestamp).total_seconds() / 60.0
              for a, b in zip(samples, samples[1:])]
     deltas.sort()
-    return deltas[len(deltas) // 2]  # median — robust to one gap or one duplicate
+    median = deltas[len(deltas) // 2]  # median — robust to one gap
+    if not math.isfinite(median) or median <= 0:
+        raise LoadProfileError("the sampling interval cannot be inferred: the readings do not advance in time (repeated timestamps)")
+    return median
 
 
 def flat(kW: float, *, hours: float = 24.0, interval_minutes: float = 15.0,
@@ -287,6 +321,8 @@ def flat(kW: float, *, hours: float = 24.0, interval_minutes: float = 15.0,
     flat assumption tell you about transients."""
     from datetime import timedelta
     kW = _sane_kW(float(kW), "flat kW")
+    if not math.isfinite(interval_minutes) or interval_minutes <= 0:
+        raise LoadProfileError(f"flat interval_minutes is {interval_minutes!r}; it must be a finite number above 0")
     if not math.isfinite(hours) or not 0 < hours <= LOAD_PROFILE_MAX_HOURS:
         raise LoadProfileError(f"flat hours is {hours!r}; it must be a finite number above 0 and at most {LOAD_PROFILE_MAX_HOURS:g}")
     n = max(int(hours * 60 / interval_minutes), 1)
