@@ -257,12 +257,17 @@ GAPS_BASE = json.loads((ROOT / "tests" / "golden_gaps_b649b3e.json").read_text(e
 @pytest.mark.parametrize("name", ["dublin_hall", "london_hall", "nordic_hall", "reference_hall"])
 def test_the_first_eight_gaps_of_every_example_are_the_base_ones_and_the_new_row_is_last(name):
     intake = load(ROOT / "examples" / "intake" / f"{name}.json")
-    got = [[g.label, g.fallback_description, g.how_to_get_it] for g in intake.report.gaps]
+    # The water gate's two assumed approaches (thermal.cdu_approach_K, thermal.plant.dry_cooler_approach_K) are named optional rows that came later
+    # than every row below; they follow them (tests/test_intake_audit_fixes.py). The rows below are compared as they always were.
+    water_gate = ("thermal.plant.dry_cooler_approach_K", "thermal.cdu_approach_K")
+    assert {g.path for g in intake.report.gaps[-2:]} == set(water_gate)
+    rows = [g for g in intake.report.gaps if g.path not in water_gate]
+    got = [[g.label, g.fallback_description, g.how_to_get_it] for g in rows]
     assert got[:8] == (GAPS_BASE[name] + got[-2:])[:8]                # what the slide shows: every base gap keeps its place; a short list gains the rows
     assert all(g in got[:8] for g in GAPS_BASE[name][:8])
     assert got[:-2] == GAPS_BASE[name]                                # and nothing else moved: the base list, then the two optional rows
     # The rows, in order: this input, then hall.occupied_positions (tests/test_occupied_positions.py), the newest optional input, last.
-    assert [g.path for g in intake.report.gaps[-2:]] == [PATH, "hall.occupied_positions"]
+    assert [g.path for g in rows[-2:]] == [PATH, "hall.occupied_positions"]
 
 
 def test_the_deck_slide_lists_the_same_first_eight_inputs_as_base():

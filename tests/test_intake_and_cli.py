@@ -38,8 +38,9 @@ def test_reference_intake_supplies_every_required_input_and_names_what_it_defaul
     # The reference battery declares a firm factor and no energy rating, and its gas engine no unit count: named, not hidden.
     assert sorted(g.path for g in intake.report.gaps) == [
         "btm_options[BESS-2MW-8MWh].energy_MWh", "btm_options[GEN-5MW].units",
-        "economics.discount_rate", "economics.electricity_eur_per_MWh", "hall.occupied_positions", "lv.existing_busway_load_kW", "thermal.cdus",
-        "thermal.plant.existing_flow_l_per_min", "thermal.plant.existing_non_it_heat_kW", "thermal.rdhx.capacity_kW_per_rack", "thermal.tcs_target_supply_C"]
+        "economics.discount_rate", "economics.electricity_eur_per_MWh", "hall.occupied_positions", "lv.existing_busway_load_kW", "thermal.cdu_approach_K",
+        "thermal.cdus", "thermal.plant.dry_cooler_approach_K", "thermal.plant.existing_flow_l_per_min", "thermal.plant.existing_non_it_heat_kW",
+        "thermal.rdhx.capacity_kW_per_rack", "thermal.tcs_target_supply_C"]
     # The existing-flow field is an optional sharpener the reference hall does not give: asked for in the data request,
     # outside the completeness ratio (see FieldSpec.counts_toward_completeness).
     # A sanity floor, not a target. Completeness counts only gaps in the scalar intake fields (the ratio's denominator), so a

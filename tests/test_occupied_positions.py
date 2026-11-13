@@ -37,6 +37,8 @@ from gridforge.scenario import run_all
 ROOT = Path(__file__).resolve().parents[1]
 REFERENCE = json.loads((ROOT / "examples" / "intake" / "reference_hall.json").read_text(encoding="utf-8"))
 PATH = "hall.occupied_positions"
+#: The two optional rows the water gate added later than this one (tests/test_intake_audit_fixes.py): they follow it in the ledger.
+WATER_GATE = ("thermal.plant.dry_cooler_approach_K", "thermal.cdu_approach_K")
 KEY = "occupied-positions-test-key-0123456789abcdef"
 
 
@@ -108,7 +110,7 @@ def test_the_field_is_an_optional_gap_outside_the_completeness_ratio_and_listed_
     gap = next(g for g in intake.report.gaps if g.path == PATH)
     assert not gap.required and gap.unit == "positions" and gap.why_it_binds and gap.how_to_get_it
     assert gap.fallback_description.startswith("no occupied count") and "E0" not in gap.fallback_description and "not supplied" not in gap.fallback_description
-    assert intake.report.gaps[-1].path == PATH                           # after every long-standing row (the deck slide shows the first eight)
+    assert [g for g in intake.report.gaps if g.path not in WATER_GATE][-1].path == PATH      # after every long-standing row (the deck slide shows the first eight)
     assert PATH not in [g.path for g in intake.report.required_gaps]
     assert not FIELD_BY_PATH[PATH].required and not FIELD_BY_PATH[PATH].counts_toward_completeness
 
@@ -212,7 +214,7 @@ def test_null_and_empty_are_absent_not_zero():
         d = _doc()
         d["hall"]["occupied_positions"] = blank
         intake = load_document(d)
-        assert intake.context.hall.occupied_positions is None and intake.report.gaps[-1].path == PATH
+        assert intake.context.hall.occupied_positions is None and [g for g in intake.report.gaps if g.path not in WATER_GATE][-1].path == PATH
 
 
 # --- nothing it does not govern moves ------------------------------------------------------------------------------------------------

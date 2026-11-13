@@ -6,7 +6,6 @@ with the question that would close it.
 """
 from __future__ import annotations
 
-import json
 import math
 from dataclasses import dataclass
 from pathlib import Path
@@ -27,9 +26,13 @@ from ..thermal.schema import Architecture, CDUSpec, PlantSpec, RDHxSpec, Thermal
 from ..validation import EvidenceClass, Quantity, Source
 from .schema import FIELD_BY_PATH, INTAKE_FIELDS, DataGap, IntakeReport, SuppliedSource
 from . import thermal_inputs
+from .strict_json import DuplicateKeyError, read_json
 
 #: The keys of the annotated form of a figure ({"value": 7.4, "note": ..., "source": ..., "evidence": "E3", "unit": "MW"}). `unit` is checked, not read.
 _ANNOTATION_KEYS = frozenset({"value", "note", "source", "evidence", "unit"})
+#: How the note of a figure that a ROUTE derived (the qualifier's firm connection capacity, from the contract) begins. Such a figure is annotated
+#: E0 like a declared assumption but is not the caller's declaration, so the loader does not record a "declared as an assumption" row for it.
+DERIVED_FIGURE_NOTE_PREFIX = "Derived by"
 _EVIDENCE_BY_NAME = {e.short: e for e in EvidenceClass}
 #: The canonical enum names (E0_ASSUMPTION ... E7_DEPLOYED), read from the enum: our own model pack and reference files carry them, so a client who
 #: re-submits a value from them must be understood.
@@ -114,6 +117,48 @@ PLAUSIBLE_MAX: dict[str, float] = {
     "btm_options.capacity_MW": 5_000, "btm_options.lead_time_weeks": 520, "btm_options.capex_eur_per_kW": 50_000,
     "btm_options.energy_MWh": 100_000, "btm_options.opex_eur_per_MWh": 5_000, "btm_options.units": 100,
     "thermal.cdus.rated_capacity_kW": 20_000, "thermal.cdus.units": 500,
+    # The dry coolers' approach to the design dry bulb, in kelvin: the same sanity bound as the CDU approach (a typo, not a product claim).
+    "thermal.plant.dry_cooler_approach_K": 50,
+    # Economics inputs. Generous on purpose: each is a ceiling a typo or a unit slip crosses, not a claim about any market. Without them a
+    # fixed O&M of 1e308 EUR/kW/yr made the annual energy cost infinite (`Infinity` in the answer, which is not JSON) and 1e9 gave 8e12 EUR.
+    #   energy prices, EUR per MWh (fuel, variable O&M, the grid tariff): the same 5,000 as the all-in `opex_eur_per_MWh` above, about fifteen
+    #   times the 2022 gas crisis peak and well above any metered tariff;
+    #   fixed O&M, EUR per kW per year: a tenth of the 50,000 EUR/kW capex ceiling above, the most a year of upkeep can plausibly be of the plant
+    #   it keeps (real figures are 10-60 EUR/kW/yr for engines and storage).
+    "btm_options.fuel_price_eur_per_MWh": 5_000, "btm_options.variable_om_eur_per_MWh": 5_000, "btm_options.fixed_om_eur_per_kW_year": 5_000,
+    "economics.electricity_eur_per_MWh": 5_000,
+    "btm_options.electrical_efficiency": 1,
+}
+
+#: Plausibility FLOORS for a quantity that may legitimately be negative in its unit (a temperature in degC), by intake path. A sign slip
+#: (-26 for 26) used to pass: `site.design_drybulb_C` of -26 degC read as an easy site and a full-DLC hall went from 0 racks (the water gate
+#: binds at 26 degC dry bulb) to 13, and -1e300 was accepted. A floor names the field and the allowed range, never a product claim.
+#:   summer design dry bulb / wet bulb: the design temperature of the WARM season (ASHRAE 0.4% cooling), which is above freezing at every
+#:   inhabited site on earth: 0 degC, and below it the figure is the winter one or has lost its sign;
+#:   plant chilled-water supply / return: the model carries water properties, and a chilled-water plant is a water or glycol-water loop that
+#:   does not run below about -5 degC (the web forms refuse below -5 too, lib/qualify.ts and lib/engagement-intake.ts);
+#:   TCS target supply: the loop that feeds the cold plates is water and sits above its freezing point (and well above the hall's dew point).
+PLAUSIBLE_MIN: dict[str, float] = {
+    "site.design_drybulb_C": 0, "site.design_wetbulb_C": 0,
+    "thermal.plant.design_supply_C": -5, "thermal.plant.design_return_C": -5,
+    "thermal.tcs_target_supply_C": 0,
+    #   a generator's electrical efficiency (fuel to electricity): engines, turbines and fuel cells convert 25-60%; below 5% is a slip, and the
+    #   fuel cost per MWh generated is fuel price / efficiency, so a tiny positive fraction made the annual cost infinite.
+    "btm_options.electrical_efficiency": 0.05,
+}
+#: No temperature, anywhere, is below absolute zero: the floor for any figure in degC that has no entry above.
+ABSOLUTE_ZERO_C = -273.15
+
+#: What each floor protects, appended to the refusal.
+_FLOOR_HINT: dict[str, str] = {
+    "site.design_drybulb_C": "This is the SUMMER design dry-bulb (the warm-season design temperature, never a winter one); check the sign and that the unit is degC.",
+    "site.design_wetbulb_C": "This is the SUMMER design wet-bulb (the warm-season design temperature, never a winter one); check the sign and that the unit is degC.",
+    "thermal.plant.design_supply_C": "A chilled-water plant does not supply colder than about -5 degC; check the sign and that the unit is degC (not K or degF).",
+    "thermal.plant.design_return_C": "A chilled-water plant does not return colder than about -5 degC; check the sign and that the unit is degC (not K or degF).",
+    "btm_options.electrical_efficiency": "A fuel-fired generator converts roughly 25-60% of its fuel to electricity (engines, turbines, fuel cells); "
+                                         "send the fraction (0.4 for 40%), not a percentage, and check for a missing digit.",
+    "thermal.tcs_target_supply_C": "The coolant that feeds the cold plates is water and cannot be colder than its freezing point; operators specify 27-32 degC for "
+                                   "500-700 W parts. Check the sign and that the unit is degC.",
 }
 
 
@@ -134,6 +179,79 @@ def _ceil(num: float, key: str, what: str, unit: str = "") -> float:
             f"{what} is {num:g}{(' ' + unit) if unit else ''}, above {high:g}{(' ' + unit) if unit else ''}"
             + (f". {hint}" if hint else ", the most this tool will model for one hall. Check the unit and for a stray digit."))
     return num
+
+
+def _floor(num: float, key: str, what: str, unit: str = "") -> float:
+    """Refuse a value below its plausibility floor (or, for a temperature, below absolute zero), by name and with the allowed range. Returns the
+    value unchanged otherwise."""
+    low = PLAUSIBLE_MIN.get(key)
+    if low is not None and num < low:
+        high = PLAUSIBLE_MAX.get(key)
+        rng = f"{low:g} to {high:g}" if high is not None else f"{low:g} or more"
+        hint = _FLOOR_HINT.get(key)
+        raise IntakeError(f"{what} is {num:g}{(' ' + unit) if unit else ''}, below {low:g}{(' ' + unit) if unit else ''}. The allowed range is "
+                          f"{rng}{(' ' + unit) if unit else ''}." + (f" {hint}" if hint else ""))
+    if unit in _TEMPERATURE_UNITS and num < ABSOLUTE_ZERO_C:
+        raise IntakeError(f"{what} is {num:g} {unit}, below absolute zero ({ABSOLUTE_ZERO_C:g} {unit}), which no temperature can be. "
+                          f"Check the sign and the unit (degC, not K).")
+    return num
+
+
+#: The free qualifier derives the firm connection capacity as `contracted_MW / DERIVED_FIRM_POWER_FACTOR` (an assumption, E0) when a contract is
+#: given and the connection's own figure is not. The factor is named here so the loader and the HTTP layer share it.
+DERIVED_FIRM_POWER_FACTOR = 0.97
+FIRM_CAPACITY_PATH = "grid.firm_capacity_MVA"
+CONTRACTED_PATH = "grid.contracted_MW"
+
+
+def derived_firm_capacity_MVA(contracted_MW: float) -> float:
+    """The firm connection capacity the qualifier derives from a contract: `contracted_MW / 0.97`."""
+    return float(contracted_MW) / DERIVED_FIRM_POWER_FACTOR
+
+
+def _firm_ceiling() -> float:
+    """The firm-capacity ceiling, read where it lives (PLAUSIBLE_MAX); infinite when the ceilings are lifted (a test lifts them to reach the solver)."""
+    return PLAUSIBLE_MAX.get(FIRM_CAPACITY_PATH, math.inf)
+
+
+def max_contracted_MW_for_derived_firm() -> float:
+    """The largest contract whose derived firm capacity stays within the firm-capacity ceiling (5,000 MVA x 0.97 = 4,850 MW)."""
+    return _firm_ceiling() * DERIVED_FIRM_POWER_FACTOR
+
+
+def _derived_firm_sentence(contracted_MW: float) -> str:
+    cap = _firm_ceiling()
+    return (f"When firm_capacity_MVA is not sent the qualifier derives it as contracted_MW / {DERIVED_FIRM_POWER_FACTOR:g}, so {contracted_MW:g} MW "
+            f"becomes {derived_firm_capacity_MVA(contracted_MW):,.1f} MVA, above the {cap:g} MVA this tool will model. Send contracted_MW of at most "
+            f"{max_contracted_MW_for_derived_firm():g} MW, or send firm_capacity_MVA yourself")
+
+
+def validate_contracted_MW(value: Any, *, name: str = "contracted_MW", derives_firm: bool = True) -> float:
+    """Check a contracted capacity BY THE NAME THE CALLER SENT against the plausibility bounds the loader applies to it, and (`derives_firm`) against
+    the derivation of the firm connection capacity, so the refusal names `contracted_MW` and what to send. For the HTTP layer: the free qualifier
+    builds the firm capacity from the contract, and the loader's own refusal then named `grid.firm_capacity_MVA`, a field the caller never sent
+    ('is 12371.1 MVA, above 5000 MVA' for contracted_MW 12000, and 'is 5001.03' for 4851, which is within contracted_MW's own cap).
+
+    Returns the figure as a float, or raises `IntakeError` (a `ValueError`). Never refuses anything the loader accepted: its bounds are the loader's."""
+    v = _pos(value, name)
+    _ceil(v, CONTRACTED_PATH, name, "MW")
+    if derives_firm and derived_firm_capacity_MVA(v) > _firm_ceiling():
+        raise IntakeError(f"{name} is {v:g} MW. {_derived_firm_sentence(v)}")
+    return v
+
+
+def _refuse_derived_firm_above_ceiling(firm: float, contracted_raw: Any, what: str) -> None:
+    """A firm capacity above its ceiling that is exactly the contract over the derivation factor was DERIVED from `grid.contracted_MW`, not sent:
+    say which figure to change, instead of naming a field the caller never wrote. Anything else falls through to the ordinary ceiling refusal."""
+    if firm <= _firm_ceiling():
+        return
+    if isinstance(contracted_raw, dict):
+        contracted_raw = contracted_raw.get("value")
+    if isinstance(contracted_raw, bool) or not isinstance(contracted_raw, (int, float)) or not math.isfinite(contracted_raw) or contracted_raw < 0:
+        return
+    if abs(derived_firm_capacity_MVA(contracted_raw) - firm) <= 1e-9 * max(1.0, firm):
+        raise IntakeError(f"{what} is {firm:,.1f} MVA, which is {CONTRACTED_PATH} ({contracted_raw:g} MW) divided by {DERIVED_FIRM_POWER_FACTOR:g}: "
+                          f"the firm capacity derived from the contract. {_derived_firm_sentence(float(contracted_raw))}")
 
 
 def _int_max(raw: Any, key: str, what: str) -> int:
@@ -207,7 +325,16 @@ def _opt(o: dict, key: str, unit: str, evidence, *, band: float, high: float | N
     v = _pos(o[key], key)
     if high is not None and v > high:
         raise IntakeError(f"{key} is {v:g}; it cannot exceed {high:g}")
+    # The plausibility ceiling of the figure (PLAUSIBLE_MAX["btm_options.<key>"]), named by the option it is on: an economics input with no ceiling
+    # priced a gigawatt plant at 1e9 EUR/kW/yr of upkeep, and at 1e308 made the annual cost infinite.
+    _ceil(v, f"btm_options.{key}", f"btm_options[{o.get('id', o.get('kind', 'BTM'))}].{key}", unit.split("_")[0])
     return V(v, unit, f"{o.get('id', 'BTM')} {key}", evidence, band=band)
+
+
+def _efficiency(o: dict, v: float) -> float:
+    """A generator's electrical efficiency, within its plausibility floor. The fuel cost per MWh generated is the fuel price DIVIDED by it, so an
+    efficiency of 1e-300 (above 0, so a valid fraction) made the annual cost infinite: `Infinity` in the answer, which is not JSON."""
+    return _floor(v, "btm_options.electrical_efficiency", f"btm_options[{o.get('id', o.get('kind', 'BTM'))}].electrical_efficiency")
 
 
 def _band_containing(raw: Any, library_band: tuple[float, float], half_width: float) -> tuple[float, float]:
@@ -469,7 +596,7 @@ BLOCK_KEYS: dict[str, frozenset[str]] = {
     "thermal": frozenset({"plant", "tcs_target_supply_C", "cdu_approach_K", "residual_air_capacity_kW_per_rack", "rdhx", "cdus"}),
     "thermal.plant": frozenset({"id", "chilled_water_capacity_kW", "design_supply_C", "design_return_C", "pump_flow_capacity_l_per_min",
                                 "available_head_kPa", "free_cooling_hours_per_year", "existing_flow_l_per_min", "existing_non_it_heat_kW",
-                                "dry_cooler_capacity_kW"}),
+                                "dry_cooler_capacity_kW", "dry_cooler_approach_K"}),
     "thermal.rdhx": frozenset({"capacity_kW_per_rack"}),
     "compute": frozenset({"platform", "utilisation", "default_architecture"}),
     "economics": frozenset({"electricity_eur_per_MWh", "horizon_years", "discount_rate"}),
@@ -477,11 +604,14 @@ BLOCK_KEYS: dict[str, frozenset[str]] = {
 
 
 def _one_edit_apart(a: str, b: str) -> bool:
-    """True when `a` and `b` are equal or differ by one inserted, deleted or substituted letter."""
+    """True when `a` and `b` are equal or differ by one inserted, deleted or substituted letter, or by two adjacent letters swapped (`gird` for `grid`)."""
     if abs(len(a) - len(b)) > 1:
         return False
     if len(a) == len(b):
-        return sum(x != y for x, y in zip(a, b)) <= 1
+        wrong = [i for i, (x, y) in enumerate(zip(a, b)) if x != y]
+        if len(wrong) == 2 and wrong[1] == wrong[0] + 1 and a[wrong[0]] == b[wrong[1]] and a[wrong[1]] == b[wrong[0]]:
+            return True
+        return len(wrong) <= 1
     short, long_ = (a, b) if len(a) < len(b) else (b, a)
     i = 0
     while i < len(short) and short[i] == long_[i]:
@@ -522,6 +652,40 @@ def _refuse_unknown_block_keys(doc: dict) -> None:
                 "A key the engine does not read changes nothing, and the study runs on the library default in its place"))
 
 
+#: The top-level keys of an intake document: the sections the loader reads. `project` is free text. Every INTAKE_FIELDS path starts with one of these
+#: (tests/test_intake_audit_fixes.py).
+INTAKE_SECTIONS: tuple[str, ...] = ("project", "site", "hall", "grid", "lv", "thermal", "compute", "economics", "transformers", "ups", "btm_options",
+                                    "scenarios")
+#: The request options a route reads from a body that IS the intake (`body.get("intake") or body`): the output format and objective, the document
+#: view, and the per-route choices (`/v1/spec` takes `scenario`, `constraint` and `list`; `/v1/proposal` an `engagement`; `/v1/diff` an `attribute`;
+#: `/v1/power/assess` a `target_racks`). They sit beside the intake's sections at the top level, so they are allowed there. A route that reads a new
+#: option adds it here (tests/test_intake_audit_fixes.py fails until it does).
+REQUEST_OPTION_KEYS: frozenset[str] = frozenset({
+    "intake", "format", "objective", "bundle", "view", "engagement", "valid_days", "contact", "reference", "return_by", "scenario", "constraint",
+    "list", "target_racks", "baseline", "attribute", "grid_queue_region", "electricity_price_state", "cost_evidence", "before", "after", "previous_state",
+})
+TOP_LEVEL_KEYS: frozenset[str] = frozenset(INTAKE_SECTIONS) | REQUEST_OPTION_KEYS
+
+
+def _refuse_unknown_top_level_keys(doc: dict) -> None:
+    """A top-level key that is neither a section of the intake nor a request option is refused by name, with a did-you-mean when it is a near miss.
+    `"gird": {...}` was dropped without a word, so a whole section of figures was ignored and the study ran on library defaults, while the same typo
+    one level down (`grid.contracted_MWW`) was refused. The shipped examples and the web forms send only the sections above."""
+    unknown = [k for k in doc if isinstance(k, str) and k not in TOP_LEVEL_KEYS]
+    if unknown:
+        first = unknown[0]
+        more = f" Also unknown here: {', '.join(repr(k[:40]) for k in unknown[1:6])}." if len(unknown) > 1 else ""
+        # A body with no section of the intake at all is usually the free qualifier's short form (contracted_MW, site_name, ...) sent to a route that
+        # takes an intake document: say that, in the words the API has always used for a request that gives none of the intake's fields.
+        nothing = ", and the request contains none of the intake fields, so there is nothing to solve" if not any(k in INTAKE_SECTIONS for k in doc) else ""
+        raise IntakeError(
+            f"{first[:60]} is not a section of the intake{nothing} (the sections are: {', '.join(INTAKE_SECTIONS)}; request options: "
+            f"{', '.join(sorted(REQUEST_OPTION_KEYS - {'intake'}))}).{_did_you_mean(first, TOP_LEVEL_KEYS)}{more} A section the engine does not read "
+            f"changes nothing, and the study would run on the library defaults in its place, so it is refused rather than ignored"
+            + (". The short form of figures is for POST /v1/qualify; the other routes take an intake document (GET /v1/tools gives its schema)"
+               if nothing else ""))
+
+
 def _equipment_list(items, section: str, report: "IntakeReport | None" = None) -> list:
     """The equipment list as a list of objects, or a refusal that names the section: not a list, an element that is not an object, an item with a
     key the engine does not read, or more items than a request may ask the engine to solve."""
@@ -550,6 +714,41 @@ def _equipment_list(items, section: str, report: "IntakeReport | None" = None) -
     if report is not None:
         _warn_content_duplicates(items, section, report)
     return items
+
+
+def _drop_empty_banks(items: list, section: str, report: "IntakeReport") -> list[tuple[int, dict]]:
+    """The (position, item) pairs of an equipment list whose bank has at least one unit. A bank declared with `units` below one (a transformer bank,
+    UPS block or CDU bank of zero units) carries no load and counts for nothing; it is not refused (a schedule with a decommissioned bank still
+    on it is a plausible document) but IGNORED, with a named warning, so nothing downstream does arithmetic on it (a zero-unit bank under N+1
+    left a usable count of -1). A `units` that is not a whole number is left to the number parser, which refuses it by name. The position is the
+    item's place in the list the client wrote, so a gap or a warning names the item they will find."""
+    kept: list[tuple[int, dict]] = []
+    for n, item in enumerate(items):
+        units = None
+        if "units" in item:
+            try:
+                units = _int(item["units"], f"{section}.units")
+            except IntakeError:
+                units = None
+        if units is not None and units < 1:
+            ident = item.get("id", n)
+            report.warnings.append(
+                f"{section}[{n}] ({ident}): units is {units}, ignored. A bank with no units carries no load and counts for nothing, so the study "
+                f"runs without it; remove it from the list, or give the number of units it has.")
+            continue
+        kept.append((n, item))
+    return kept
+
+
+def _all_banks_ignored(declared: list, kept: list, section: str, report: "IntakeReport", gap_text: str) -> None:
+    """A schedule whose every bank was ignored declares nothing: it is a missing schedule, so it stops counting as supplied and is a named gap
+    (the declared list was non-empty, so the reader recorded it as supplied)."""
+    if declared and not kept:
+        report.supplied[:] = [p for p in report.supplied if p != section]
+        spec = FIELD_BY_PATH.get(section)
+        if spec is not None:
+            report.gaps.append(DataGap(path=section, label=spec.label, unit=spec.unit, required=spec.required, fallback_description=gap_text,
+                                       why_it_binds=spec.why_it_binds, how_to_get_it=spec.how_to_get_it))
 
 
 def _warn_content_duplicates(items, section: str, report: "IntakeReport") -> None:
@@ -666,7 +865,7 @@ class _Reader:
                 raise IntakeError(f"required field missing and no library default: {path}")
             self._gap(path, spec, default)
             return default
-        note, src, ev = None, None, evidence
+        note, src, ev, declared = None, None, evidence, None
         if isinstance(raw, dict):
             raw, note, src, declared = self._annotation(path, label, raw, unit)
             if declared is not None:
@@ -680,9 +879,13 @@ class _Reader:
             raise IntakeError(f"{label} ({path}) is {num:g} {unit}; it cannot be negative")
         if path in _FRACTION_PATHS and not 0 < num <= 1:
             raise IntakeError(f"{label} ({path}) is {num:g}; it must be above 0 and at most 1")
+        _floor(num, path, f"{label} ({path})", unit)
+        if path == FIRM_CAPACITY_PATH:
+            _refuse_derived_firm_above_ceiling(num, _dig(self.doc, CONTRACTED_PATH), f"{label} ({path})")
         _ceil(num, path, f"{label} ({path})", unit)
         if src or note:
             self.report.sourced.append(SuppliedSource(path, label, unit, num, src, note, ev.short))
+        self._note_declared_assumption(path, spec, f"{num:g} {unit}", declared, note)
         return V(num, unit, label, ev, band=band,
                  assumptions=[note] if note else (),
                  sources=[Source(src)] if src else ())
@@ -761,10 +964,30 @@ class _Reader:
             # The object form promises that a source and a note are recorded. The integer-typed fields read through here used to accept it and
             # drop both (and any declared evidence) without a word; now a number's provenance is shown beside it like every other figure's.
             self._record_source(path, inner, note, src, declared)
+            self._note_declared_assumption(path, spec, f"{inner}", declared, note)
             v = inner
         if spec:
             self.report.supplied.append(path)
         return v
+
+    def _note_declared_assumption(self, path: str, spec, shown: str, evidence: EvidenceClass | None, note: str | None) -> None:
+        """A REQUIRED figure that was sent and declared an assumption (evidence E0) is open: it is a template's value, not the hall's own figure, and
+        counted as complete it let `can_issue` read true and the recommendation say 'no required inputs are missing, so this supports a full Study'
+        for a hall nobody had described. It becomes a named gap row, flagged `declared_assumption`: the completeness ratio and the 'required inputs
+        missing' count are unchanged (it was sent; `IntakeReport.required_gaps` lists only what is missing), `can_issue` is false and the
+        recommendation says so. A figure whose own note says the route that built the document DERIVED it (the qualifier's firm capacity) is not
+        the caller's declaration and is left to that route, which records its own row."""
+        if evidence is not EvidenceClass.E0_ASSUMPTION or spec is None or not spec.required:
+            return
+        if isinstance(note, str) and note.startswith(DERIVED_FIGURE_NOTE_PREFIX):
+            return
+        if any(g.path == path and g.declared_assumption for g in self.report.gaps):
+            return
+        self.report.gaps.append(DataGap(
+            path=path, label=spec.label, unit=spec.unit, required=True, declared_assumption=True,
+            fallback_description=(f"{shown}, declared as an assumption (E0): it was sent but it is not measured data, so it counts as open until "
+                                  f"the hall's own figure replaces it"),
+            why_it_binds=spec.why_it_binds, how_to_get_it=spec.how_to_get_it))
 
     def _gap(self, path: str, spec, default: Quantity | None, text: str | None = None) -> None:
         if spec is None:
@@ -831,10 +1054,13 @@ def _install_cdus(c: EnvelopeContext) -> EnvelopeContext:
 
 
 def _high_temp_loop(c: EnvelopeContext) -> EnvelopeContext:
+    """The dedicated warm-water loop of the full-DLC scenarios. The facility water it can hold is the design dry bulb plus the dry coolers' approach:
+    the client's own (`thermal.plant.dry_cooler_approach_K`, kept as given) or, when they gave none, the library's assumed approach (E0)."""
     c = _install_cdus(c)
     if c.thermal.plant.dry_cooler_approach_K is None:
         c.thermal.plant.dry_cooler_approach_K = V(
-            10, "K", "assumed dry cooler approach to dry bulb", ASSUMED, band=(8, 12))
+            thermal_inputs.DEFAULT_DRY_COOLER_APPROACH_K, "K", "assumed dry cooler approach to dry bulb", ASSUMED,
+            band=thermal_inputs.DEFAULT_DRY_COOLER_APPROACH_BAND_K)
     return c
 
 
@@ -865,8 +1091,24 @@ def _scenario_set(names: list[str] | None) -> list[ScenarioSpec]:
             "scenario whose capacity is set by what can be built rather than by the queue.",
             overrides=_high_temp_loop),
     }
-    if names is not None and not names:
-        raise IntakeError("scenarios is an empty list: name at least one, or omit the field for the standard set")
+    if names is not None:
+        # A list of scenario ids, and nothing else. A bare string was read as a list of its characters ("rdhx" -> 'unknown scenario(s): r, d, h, x',
+        # "hybrid_dlc" -> 'scenarios names d twice'), a number escaped as "'int' object is not iterable": each is refused by the field's name.
+        if not isinstance(names, list):
+            kind = type(names).__name__
+            hint = ""
+            if isinstance(names, str):
+                kind = f"the text {names[:40]!r}"
+                if names in catalogue:
+                    hint = f" Did you mean [\"{names}\"]?"
+            raise IntakeError(f"scenarios must be a list of scenario ids (for example [\"retained_air\", \"full_dlc\"]), not {kind}."
+                              f"{hint} Available: {', '.join(catalogue)}. Leave the field out for the standard set")
+        if not names:
+            raise IntakeError("scenarios is an empty list: name at least one, or omit the field for the standard set")
+        for i, k in enumerate(names):
+            if not isinstance(k, str):
+                raise IntakeError(f"scenarios[{i}] must be a scenario id (text), not {'null' if k is None else type(k).__name__}. "
+                                  f"Available: {', '.join(catalogue)}")
     keys = names or list(catalogue)
     repeated = sorted({k for k in keys if keys.count(k) > 1})
     if repeated:
@@ -874,7 +1116,7 @@ def _scenario_set(names: list[str] | None) -> list[ScenarioSpec]:
                           "and would be reported twice")
     missing = [k for k in keys if k not in catalogue]
     if missing:
-        raise IntakeError(f"unknown scenario(s): {', '.join(missing)}. "
+        raise IntakeError(f"unknown scenario(s): {', '.join(m[:60] for m in missing)}.{_did_you_mean(missing[0], catalogue)} "
                           f"Available: {', '.join(catalogue)}")
     return [catalogue[k] for k in keys]
 
@@ -1024,7 +1266,12 @@ def _bess_firm_credit(opt: GenerationOption, o: dict, report: IntakeReport) -> N
 
 
 def load(path: str | Path) -> Intake:
-    doc = json.loads(Path(path).read_text())
+    """The intake in a JSON file. A key repeated within one object is refused by name, as the HTTP layer refuses it: `json.loads` alone kept the LAST
+    value and dropped the others without a word, so a file saying "contracted_MW": 3 and later "contracted_MW": 10 was read as 10 and exited 0."""
+    try:
+        doc = read_json(path)
+    except DuplicateKeyError as exc:
+        raise IntakeError(f"{path}: {exc}") from None
     return load_document(doc)
 
 
@@ -1035,6 +1282,7 @@ def load_document(doc: dict) -> Intake:
         raise IntakeError("an intake must be a JSON object")
     _refuse_non_object_blocks(doc)
     _refuse_control_characters(doc)
+    _refuse_unknown_top_level_keys(doc)
     _refuse_unknown_block_keys(doc)
     try:
         return _load_document(doc)
@@ -1177,8 +1425,11 @@ def _load_document(doc: dict) -> Intake:
 
     transformers = []
     equipment_gaps: list[DataGap] = []          # per-item gaps for what an equipment list left out; appended after the long-standing rows (below)
-    tx_items = _equipment_list(r.raw("transformers", [], gap_text=UNASSESSED_BANK_TEXT), "transformers", r.report)
-    for n, t in enumerate(tx_items):
+    tx_declared = _equipment_list(r.raw("transformers", [], gap_text=UNASSESSED_BANK_TEXT), "transformers", r.report)
+    tx_kept = _drop_empty_banks(tx_declared, "transformers", r.report)
+    _all_banks_ignored(tx_declared, tx_kept, "transformers", r.report, UNASSESSED_BANK_TEXT)
+    tx_items = [t for _, t in tx_kept]
+    for n, t in tx_kept:
         equipment_gaps.extend(_bank_gaps("transformers", n, t))
         transformers.append(TransformerBank(
             id=str(t.get("id", "TX")),
@@ -1207,8 +1458,10 @@ def _load_document(doc: dict) -> Intake:
     else:
         report.supplied.append(lead_path)
     ups = []
-    ups_items = _equipment_list(r.raw("ups", [], gap_text=UNASSESSED_BANK_TEXT), "ups", r.report)
-    for n, u in enumerate(ups_items):
+    ups_declared = _equipment_list(r.raw("ups", [], gap_text=UNASSESSED_BANK_TEXT), "ups", r.report)
+    ups_kept = _drop_empty_banks(ups_declared, "ups", r.report)
+    _all_banks_ignored(ups_declared, ups_kept, "ups", r.report, UNASSESSED_BANK_TEXT)
+    for n, u in ups_kept:
         equipment_gaps.extend(_bank_gaps("ups", n, u))
         ups.append(UPSBlock(
             id=str(u.get("id", "UPS")),
@@ -1249,7 +1502,7 @@ def _load_document(doc: dict) -> Intake:
                        if o.get("energy_MWh") is not None else None),
             annual_run_hours=_opt(o, "annual_run_hours", "h", ASSUMED, band=0.15, high=8760.0),
             fuel_price_eur_per_MWh=_opt(o, "fuel_price_eur_per_MWh", "EUR/MWh_fuel", ASSUMED, band=0.4),
-            electrical_efficiency=(V(_frac(o["electrical_efficiency"], "BTM electrical_efficiency"), "1",
+            electrical_efficiency=(V(_efficiency(o, _frac(o["electrical_efficiency"], "BTM electrical_efficiency")), "1",
                                      f"{o.get('id','BTM')} electrical efficiency", ASSUMED, band=0.1)
                                    if o.get("electrical_efficiency") is not None else None),
             variable_om_eur_per_MWh=_opt(o, "variable_om_eur_per_MWh", "EUR/MWh", ASSUMED, band=0.4),
@@ -1369,14 +1622,17 @@ def _load_document(doc: dict) -> Intake:
 
     cdus = []
     approach_omitted = flow_omitted = False
-    for c in _equipment_list(r.raw("thermal.cdus", [], gap_text=ASSUMED_CDU_KIT_TEXT), "thermal.cdus"):
+    cdu_declared = _equipment_list(r.raw("thermal.cdus", [], gap_text=ASSUMED_CDU_KIT_TEXT), "thermal.cdus")
+    cdu_kept = _drop_empty_banks(cdu_declared, "thermal.cdus", r.report)
+    _all_banks_ignored(cdu_declared, cdu_kept, "thermal.cdus", r.report, ASSUMED_CDU_KIT_TEXT)
+    for cdu_n, c in cdu_kept:
         approach_given, flow_given = "rated_approach_K" in c, "rated_flow_l_per_min" in c
         approach_omitted, flow_omitted = approach_omitted or not approach_given, flow_omitted or not flow_given
         approach = _pos_max(c.get("rated_approach_K", 5), "thermal.cdus.rated_approach_K", "rated_approach_K", "K")
         problem = thermal_inputs.approach_problem(f"thermal.cdus.rated_approach_K ({c.get('id', 'CDU')})", approach) if approach_given else None
         if problem:
             raise IntakeError(problem)
-        equipment_gaps.extend(_bank_gaps("thermal.cdus", len(cdus), c))
+        equipment_gaps.extend(_bank_gaps("thermal.cdus", cdu_n, c))
         cdus.append(CDUSpec(
             id=str(c.get("id", "CDU")),
             rated_capacity_kW=V(_pos_max(c["rated_capacity_kW"], "thermal.cdus.rated_capacity_kW", "rated_capacity_kW", "kW"), "kW",
@@ -1423,6 +1679,18 @@ def _load_document(doc: dict) -> Intake:
     dry_cooler_capacity = (r.q(dry_cooler_path, "kW", "dry-cooler heat rejection on the dedicated loop")
                            if _dig(doc, dry_cooler_path) is not None else None)
 
+    # Optional: the dry coolers' approach to the design dry bulb. A figure the client gives is read here (E3, like the dry-cooler capacity) and
+    # kept by the full-DLC scenarios; absent, those scenarios assume 10 K (E0), and the data request says so beside the dry bulb it is added to.
+    dry_cooler_approach_path = "thermal.plant.dry_cooler_approach_K"
+    dry_cooler_approach = None
+    if _dig(doc, dry_cooler_approach_path) is not None:
+        dry_cooler_approach = r.q(dry_cooler_approach_path, "K", "dry-cooler approach to the design dry bulb")
+        problem = thermal_inputs.approach_problem(dry_cooler_approach_path, dry_cooler_approach.value)
+        if problem:
+            raise IntakeError(problem)
+    else:
+        r._gap(dry_cooler_approach_path, FIELD_BY_PATH.get(dry_cooler_approach_path), None, "")      # worded from the loaded context (finish_optional_gaps)
+
     thermal = ThermalInput(
         plant=PlantSpec(
             id=str(r.raw("thermal.plant.id", "PLANT")),
@@ -1446,7 +1714,7 @@ def _load_document(doc: dict) -> Intake:
                 "thermal.plant.free_cooling_hours_per_year", "h", "free cooling hours",
                 V(2500, "h", "assumed free cooling hours", ASSUMED, band=0.3)),
             dry_cooler_capacity_kW=dry_cooler_capacity,
-            dry_cooler_approach_K=None,
+            dry_cooler_approach_K=dry_cooler_approach,
             existing_flow_l_per_min=existing_flow,
             existing_non_it_heat_kW=non_it_heat,
         ),

@@ -81,7 +81,7 @@ KNOWN_THERMAL_KEYS: dict[str, frozenset[str]] = {
     "thermal": frozenset({"plant", "tcs_target_supply_C", "cdu_approach_K", "residual_air_capacity_kW_per_rack", "cdus", "rdhx"}),
     "thermal.plant": frozenset({"id", "chilled_water_capacity_kW", "design_supply_C", "design_return_C", "pump_flow_capacity_l_per_min",
                                 "available_head_kPa", "free_cooling_hours_per_year", "existing_flow_l_per_min",
-                                "existing_non_it_heat_kW", "dry_cooler_capacity_kW"}),
+                                "existing_non_it_heat_kW", "dry_cooler_capacity_kW", "dry_cooler_approach_K"}),
     "thermal.cdus": frozenset({"id", "rated_capacity_kW", "rated_approach_K", "rated_flow_l_per_min", "units", "redundancy"}),
     "thermal.rdhx": frozenset({"capacity_kW_per_rack"}),
 }

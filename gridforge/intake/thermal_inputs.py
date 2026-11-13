@@ -14,6 +14,13 @@ from ..thermal.library import (COOLING_KEY_WORDS, KNOWN_THERMAL_KEYS, MIN_APPROA
 from .schema import DataGap, IntakeReport
 
 
+#: The dry-cooler approach to the design dry bulb that the full-DLC scenarios assume when the intake gives none (an assumption, E0, band 8-12 K).
+#: The facility water the dedicated loop can hold is the design dry bulb plus this, so it is a figure the water gate turns on; it is stated in
+#: the data request beside the dry bulb it is added to, and `thermal.plant.dry_cooler_approach_K` replaces it.
+DEFAULT_DRY_COOLER_APPROACH_K = 10
+DEFAULT_DRY_COOLER_APPROACH_BAND_K = (8, 12)
+
+
 def tcs_target_problem(tcs_C: float, platform) -> str | None:
     """Why a TCS supply target cannot be delivered to this platform's racks, or None. The bound is the platform's own maximum inlet liquid
     temperature (``max_inlet_liquid_C``): ASHRAE W45 for the NVL72 racks, an equipment SURVIVAL limit, not an operating point."""
@@ -124,6 +131,12 @@ def _text(value: str) -> str:
 
 
 OPTIONAL_ASSUMED_TEXT = {
+    "thermal.cdu_approach_K": lambda ctx: _text(f"{ctx.thermal.cdu_approach_K.value:g} K"),
+    # The full-DLC water gate's two assumed terms, said with the dry bulb they are added to: "dry bulb 26 + assumed 10 K approach (E0)".
+    "thermal.plant.dry_cooler_approach_K": lambda ctx: (
+        f"dry bulb {ctx.site.design_drybulb_C.value:g} + assumed {DEFAULT_DRY_COOLER_APPROACH_K:g} K approach (E0) = "
+        f"{ctx.site.design_drybulb_C.value + DEFAULT_DRY_COOLER_APPROACH_K:g} degC facility water, the temperature the full-DLC water gate "
+        f"compares with what the CDUs need"),
     "thermal.plant.available_head_kPa": lambda ctx: _text(f"{ctx.thermal.plant.available_head_kPa.value:g} kPa"),
     "thermal.plant.free_cooling_hours_per_year": lambda ctx: _text(f"{ctx.thermal.plant.free_cooling_hours_per_year.value:,.0f} h"),
     "hall.containment": lambda ctx: _text(str(ctx.hall.containment).replace("_", " ")),
@@ -136,7 +149,15 @@ HALL_TEXT_PATHS = ("hall.build_year", "hall.floor_type", "hall.containment")
 
 #: Optional gaps that go LAST in the ledger (after the long-standing rows, the busway-load row and the occupied-positions row): the deck's
 #: "What nobody has measured yet" slide shows the first eight gaps, and a newer optional input must not displace the long-standing ones.
-TAIL_OPTIONAL_PATHS = frozenset(OPTIONAL_ASSUMED_TEXT) | {"thermal.cdus.rated_approach_K", "thermal.cdus.rated_flow_l_per_min"}
+#: The two approach temperatures the full-DLC water gate adds to its inputs (named optional gaps since the water-gate assumptions were listed). They go
+#: after the long-standing rows and BEFORE the tail rows above, so the rows already in the ledger keep their places and the tail stays last.
+WATER_GATE_OPTIONAL_PATHS = frozenset({"thermal.plant.dry_cooler_approach_K", "thermal.cdu_approach_K"})
+TAIL_OPTIONAL_PATHS = (frozenset(OPTIONAL_ASSUMED_TEXT) - WATER_GATE_OPTIONAL_PATHS) | {"thermal.cdus.rated_approach_K", "thermal.cdus.rated_flow_l_per_min"}
+
+
+def _ledger_tier(path: str) -> int:
+    """0 for the long-standing rows, 1 for the water gate's two approaches, 2 for the tail."""
+    return 2 if path in TAIL_OPTIONAL_PATHS else 1 if path in WATER_GATE_OPTIONAL_PATHS else 0
 
 
 def finish_optional_gaps(report: IntakeReport, ctx) -> None:
@@ -148,4 +169,4 @@ def finish_optional_gaps(report: IntakeReport, ctx) -> None:
         if gap is not None:
             gap.fallback_description = text(ctx)
     ctx.hall.assumed_fields = tuple(p for p in HALL_TEXT_PATHS if p in by_path)
-    report.gaps.sort(key=lambda g: g.path in TAIL_OPTIONAL_PATHS)
+    report.gaps.sort(key=lambda g: _ledger_tier(g.path))
