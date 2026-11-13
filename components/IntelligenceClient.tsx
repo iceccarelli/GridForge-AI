@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 import Link from "next/link";
 import { PLANS, eurMonth } from "@/lib/subscriptions";
 import { DelayDemo } from "@/components/DelayDemo";
@@ -18,10 +18,25 @@ export function checkoutWasCancelled(search: string): boolean {
   }
 }
 
-export function IntelligenceClient() {
+export interface IntelligenceClientVisualSlots {
+  heroVisuals?: ReactNode;
+  basisVisuals?: ReactNode;
+  delayVisuals?: ReactNode;
+  labVisuals?: ReactNode;
+  workspaceVisuals?: ReactNode;
+  footerVisuals?: ReactNode;
+}
+
+export function IntelligenceClient({
+  heroVisuals,
+  basisVisuals,
+  delayVisuals,
+  labVisuals,
+  workspaceVisuals,
+  footerVisuals,
+}: IntelligenceClientVisualSlots = {}) {
   const [loading, setLoading] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
-  // Returning from a checkout that was not completed (the checkout's cancel address is /intelligence?sub=cancelled).
   const [cancelled, setCancelled] = useState(false);
   useEffect(() => {
     try {
@@ -72,6 +87,8 @@ export function IntelligenceClient() {
             </p>
           </div>
 
+          {heroVisuals}
+
           <TtpPhoto
             id="ttp-15"
             className="rounded-2xl overflow-hidden border border-line aspect-[16/9] mt-10 max-w-4xl"
@@ -98,10 +115,12 @@ export function IntelligenceClient() {
             <p className="mt-4 text-sm text-mute max-w-3xl">
               When a market feed does not answer, the dashboard shows Unavailable for that figure and nothing in its place.
             </p>
+            {basisVisuals}
           </section>
 
           <div className="mt-12">
             <DelayDemo />
+            {delayVisuals}
           </div>
 
           <div className="mt-14">
@@ -122,10 +141,13 @@ export function IntelligenceClient() {
                 backed by the calibration ledger, which is empty today.
               </p>
             </div>
+            {labVisuals}
             <div className="mt-6">
               <LazyIsland which="liveScenario" minHeight={640} label="The live scenario loads as you scroll to it." />
             </div>
           </div>
+
+          {workspaceVisuals}
 
           <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 mt-14">
             {PLANS.map((plan) => (
@@ -180,6 +202,8 @@ export function IntelligenceClient() {
               </div>
             ))}
           </div>
+
+          {footerVisuals}
 
           {cancelled && !error && (
             <p role="status" className="mt-6 text-sm text-mute" data-testid="checkout-cancelled">

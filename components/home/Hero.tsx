@@ -7,7 +7,6 @@ import { QUALIFY_LINK } from "@/lib/nav";
 import { calibrationLine, loadCalibration } from "@/lib/worked-result";
 import { PRODUCTS, eurFromCents } from "@/lib/products";
 import { REFERENCE_PHOTO_NOTICE } from "@/lib/ttp-images";
-import { GridForgeVisual } from "@/components/GridForgeVisual";
 
 const SCREEN = PRODUCTS.density_screen;
 
@@ -102,15 +101,6 @@ export function Hero() {
           PILOT-STAGE · FOUNDER-LED · EVIDENCE-GRADED · {REFERENCE_PHOTO_NOTICE}
         </p>
       </div>
-    
-        <div className="mt-8 lg:mt-0">
-          <GridForgeVisual
-            slug="hero-binding-constraint-ai-hall"
-            alt="Isometric cutaway of a brownfield AI data hall showing 2500 kVA transformer and chiller at partial load while 63 A tap-offs bind racks and strand floor positions."
-            priority
-            className="w-full h-auto rounded-xl border border-line"
-          />
-        </div>
-      </section>
+    </section>
   );
 }

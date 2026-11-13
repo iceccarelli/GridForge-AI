@@ -97,21 +97,7 @@ export default async function ConstraintsPage() {
         <GridForgeVisual slug="capacity-envelope-racks-vs-kw-curve" alt="High-precision engineering plot of max deployable racks versus power per rack with five constraint curves and the feasible operating envelope shaded." />
         <GridForgeVisual slug="electrical-chain-grid-to-rack-ampacity" alt="Isometric electrical chain from 11/33 kV utility intake through transformer, UPS, busway to 63 A tap-off with nameplate versus usable capacity bars." />
       </div>
-
-      <div className="mt-12">
-        <GridForgeVisual
-          slug="thirteen-constraints-matrix-map"
-          alt="Dark CAD blueprint of 13 deterministic constraints in three columns: 5 electrical, 6 thermal, 2 physical, converging to the MIN deployable-racks solver."
-          priority={false}
-        />
-      </div>
       </header>
-      <div className="mt-12">
-        <GridForgeVisual
-          slug="capacity-envelope-racks-vs-kw-curve"
-          alt="High-precision engineering plot of max deployable racks versus power per rack with five constraint curves and the feasible operating envelope shaded."
-        />
-      </div>
 
       <div className="mt-12 space-y-12">
         {byDomain.map(({ domain, items }) => {

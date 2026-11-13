@@ -28,10 +28,14 @@ const SPINE = [
 export function Problem() {
   return (
     <section id="market" className="border-y border-line bg-[#060912] py-16">
-      <div className="mt-10">
+      <div className="mx-auto mb-12 max-w-7xl space-y-8 px-6">
+        <GridForgeVisual
+          slug="hero-binding-constraint-ai-hall"
+          alt="Isometric cutaway of an existing AI data hall showing upstream transformer and chiller plant at partial load while a downstream distribution limit binds racks and strands floor positions."
+        />
         <GridForgeVisual
           slug="critical-path-time-to-power-gantt"
-          alt="Dual timeline comparing 36-60 month greenfield substation queue against weeks-scale GridForge brownfield headroom path to energized racks."
+          alt="Dual timeline comparing multi-year greenfield substation queues against brownfield constraint screening and relief paths to energized racks."
         />
       </div>
       <div className="mx-auto max-w-7xl px-6">
@@ -195,7 +199,7 @@ export function Services() {
       <div className="mt-10">
         <GridForgeVisual
           slug="density-screen-four-stage-workflow"
-          alt="Four-stage workflow pipeline: operator intake of drawings, GridForge deterministic solve, senior engineer review, and decision deliverable cards."
+          alt="Four-stage workflow pipeline: operator intake of drawings, GridForge deterministic solve, named engineer review, and decision deliverable cards."
         />
       </div>
       <div className="mb-12 flex flex-col justify-between gap-6 md:flex-row md:items-end">
@@ -262,7 +266,7 @@ export function Technology() {
       <div className="mt-10">
         <GridForgeVisual
           slug="headroom-ladder-capex-relief-steps"
-          alt="Stepped capacity staircase from 12-rack baseline bound by 63 A tap-off through successive CapEx relief rungs to the transformer hard ceiling."
+          alt="Stepped capacity staircase from 12-rack baseline bound by downstream tap-off limit through successive CapEx relief rungs to the transformer hard ceiling."
         />
       </div>
       <div className="mb-12 max-w-2xl">

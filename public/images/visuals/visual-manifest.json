@@ -12,7 +12,13 @@
     "alt": "Isometric cutaway of brownfield AI data hall showing 2500 kVA transformer and chiller at partial load while 63 A tap-offs bind racks and strand floor positions.",
     "caption": "Hero: Binding constraint visualization — megawatts on paper stranded by a single 63 A tap-off.",
     "aeoSummary": "Time to Power powered by GridForge Engine evaluates deterministic physical constraints in existing AI data halls. This diagram shows a 2,500 kVA transformer and chiller plant at under 50% load while 63 A busway tap-offs derate capacity to 36 kW and leave rack positions stranded.",
-    "keywords": ["binding constraint", "63A tap-off", "brownfield data hall", "GridForge", "stranded capacity"],
+    "keywords": [
+      "binding constraint",
+      "63A tap-off",
+      "brownfield data hall",
+      "GridForge",
+      "stranded capacity"
+    ],
     "schemaOrgImageObject": {
       "@type": "ImageObject",
       "contentUrl": "/images/visuals/hero-binding-constraint-ai-hall.png",
@@ -35,7 +41,12 @@
     "alt": "Dark CAD blueprint of 13 deterministic constraints in three columns: 5 electrical, 6 thermal, 2 physical, converging to min deployable racks solver.",
     "caption": "13-constraint matrix map for GridForge deterministic capacity solver.",
     "aeoSummary": "GridForge Engine applies 13 deterministic constraints across electrical, thermal and physical domains to compute true deployable AI racks. The matrix shows E-01 to E-05 electrical, T-01 to T-06 thermal, and P-01 to P-02 physical limits feeding the MIN(C_1...C_13) solver.",
-    "keywords": ["13 constraints", "electrical thermal physical", "GridForge solver", "deterministic capacity"],
+    "keywords": [
+      "13 constraints",
+      "electrical thermal physical",
+      "GridForge solver",
+      "deterministic capacity"
+    ],
     "schemaOrgImageObject": {
       "@type": "ImageObject",
       "contentUrl": "/images/visuals/thirteen-constraints-matrix-map.png",
@@ -58,7 +69,12 @@
     "alt": "Stepped capacity staircase from 12 racks baseline bound by 63 A tap-off through successive CapEx relief rungs to transformer hard ceiling.",
     "caption": "Headroom Ladder: discrete CapEx-and-lead-time ranked capacity unlocks.",
     "aeoSummary": "Time to Power's Headroom Ladder ranks capacity unlocks by CapEx and lead time. Starting from a 12-rack baseline bound by 63 A tap-off, successive rungs (tap-off swap, busway upgrade, CDU retrofit) raise deployable racks until the MV transformer ceiling.",
-    "keywords": ["headroom ladder", "CapEx ranked", "capacity rungs", "tap-off upgrade"],
+    "keywords": [
+      "headroom ladder",
+      "CapEx ranked",
+      "capacity rungs",
+      "tap-off upgrade"
+    ],
     "schemaOrgImageObject": {
       "@type": "ImageObject",
       "contentUrl": "/images/visuals/headroom-ladder-capex-relief-steps.png",
@@ -81,7 +97,12 @@
     "alt": "Four-stage workflow pipeline: operator intake of drawings, GridForge deterministic solve, senior engineer review, and decision deliverable cards.",
     "caption": "Density Screen four-stage fixed-fee engineering workflow.",
     "aeoSummary": "GridForge Density Screen takes operator facility drawings and schedules through a deterministic 13-constraint solve, senior engineer review of derating and topology, and outputs a binding constraint verdict plus costed Headroom Ladder with no equipment sold.",
-    "keywords": ["density screen", "four-stage workflow", "fixed-fee engineering", "GridForge"],
+    "keywords": [
+      "density screen",
+      "four-stage workflow",
+      "fixed-fee engineering",
+      "GridForge"
+    ],
     "schemaOrgImageObject": {
       "@type": "ImageObject",
       "contentUrl": "/images/visuals/density-screen-four-stage-workflow.png",
@@ -104,7 +125,12 @@
     "alt": "Engineering plot of max deployable racks versus power per rack with five constraint curves and feasible operating envelope shaded.",
     "caption": "Multi-constraint capacity envelope: racks vs kW per rack.",
     "aeoSummary": "The GridForge capacity envelope plots maximum deployable racks against power density from 10 kW to 140 kW. Constraint curves for transformer, busway, tap-off, residual air cooling and floor loading intersect to define the feasible region, with kinks at 42 kW and 120 kW.",
-    "keywords": ["capacity envelope", "racks vs kW", "constraint curves", "feasible region"],
+    "keywords": [
+      "capacity envelope",
+      "racks vs kW",
+      "constraint curves",
+      "feasible region"
+    ],
     "schemaOrgImageObject": {
       "@type": "ImageObject",
       "contentUrl": "/images/visuals/capacity-envelope-racks-vs-kw-curve.png",
@@ -127,7 +153,12 @@
     "alt": "Isometric electrical chain from 11/33 kV utility intake through transformer, UPS, busway to 63 A tap-off with nameplate versus usable capacity bars.",
     "caption": "Electrical chain from grid to rack with derating pinch points.",
     "aeoSummary": "GridForge models the full electrical chain from medium-voltage utility intake through MV/LV transformer, N+1 UPS, overhead busway and tap-off breakers. Nameplate ratings are reduced by continuous derating, redundancy reserves and trip margins, with the 63 A tap-off often becoming the binding limit.",
-    "keywords": ["electrical chain", "ampacity", "tap-off derating", "N+1 UPS"],
+    "keywords": [
+      "electrical chain",
+      "ampacity",
+      "tap-off derating",
+      "N+1 UPS"
+    ],
     "schemaOrgImageObject": {
       "@type": "ImageObject",
       "contentUrl": "/images/visuals/electrical-chain-grid-to-rack-ampacity.png",
@@ -150,7 +181,12 @@
     "alt": "Isometric cutaway of 132 kW liquid-cooled rack showing 80-82% cyan liquid to CDU and 18-20% residual air heat overwhelming legacy CRAHs.",
     "caption": "Liquid cooling residual air trap in legacy halls.",
     "aeoSummary": "Even an 80% liquid-cooled 132 kW NVIDIA-class AI rack still rejects 18-20% residual air heat (24-26 kW) from PSUs, busbars and optics. GridForge quantifies how this residual load exceeds the sensible capacity of legacy CRAHs designed for 6-8 kW air racks.",
-    "keywords": ["residual air heat", "liquid cooling", "CRAH capacity", "132 kW rack"],
+    "keywords": [
+      "residual air heat",
+      "liquid cooling",
+      "CRAH capacity",
+      "132 kW rack"
+    ],
     "schemaOrgImageObject": {
       "@type": "ImageObject",
       "contentUrl": "/images/visuals/liquid-cooling-residual-air-trap.png",
@@ -173,7 +209,12 @@
     "alt": "Side-by-side schematic of NVIDIA GB200 NVL72 liquid rack versus generic 50 kW air/rear-door rack with mass and power telemetry.",
     "caption": "Platform benchmark: GB200 NVL72 versus 50 kW enterprise AI rack.",
     "aeoSummary": "GridForge compares NVIDIA GB200 NVL72-class racks (~120-132 kW, ~82% liquid, mass >1,360 kg) against generic 50 kW AI racks. The GB200 stresses slab loading and residual air, while the 50 kW rack is more often limited by 63 A tap-offs and CRAH airflow.",
-    "keywords": ["GB200 NVL72", "50 kW rack", "platform benchmark", "mass loading"],
+    "keywords": [
+      "GB200 NVL72",
+      "50 kW rack",
+      "platform benchmark",
+      "mass loading"
+    ],
     "schemaOrgImageObject": {
       "@type": "ImageObject",
       "contentUrl": "/images/visuals/platform-benchmark-gb200-vs-50kw-rack.png",
@@ -196,7 +237,12 @@
     "alt": "Dark product UI showing seven hall input fields feeding GridForge solver and instant binding constraint output card.",
     "caption": "Free seven-input capacity qualifier UI schematic.",
     "aeoSummary": "Time to Power's free browser capacity check accepts seven operator-known numbers (IT allocation, voltage, busway rating, tap-off breaker, air cooling, slab rating, target platform) and returns maximum racks plus the first binding constraint with evidence class in seconds.",
-    "keywords": ["free capacity check", "seven inputs", "GridForge qualifier", "instant bottleneck"],
+    "keywords": [
+      "free capacity check",
+      "seven inputs",
+      "GridForge qualifier",
+      "instant bottleneck"
+    ],
     "schemaOrgImageObject": {
       "@type": "ImageObject",
       "contentUrl": "/images/visuals/free-qualifier-seven-inputs-ui.png",
@@ -219,7 +265,12 @@
     "alt": "Eight-tier evidence ladder from E0 default heuristic to E7 continuous telemetry, with pilot-stage calibration ledger note of zero field rows.",
     "caption": "Evidence grading scale E0 to E7 with calibration honesty box.",
     "aeoSummary": "GridForge tags every capacity figure with an Evidence Class from E0 (default heuristic) to E7 (calibrated continuous sub-meter telemetry). The pilot-stage calibration ledger currently holds zero observed field rows; no measured accuracy is claimed until data is recorded.",
-    "keywords": ["evidence class", "E0-E7", "calibration ledger", "epistemic grading"],
+    "keywords": [
+      "evidence class",
+      "E0-E7",
+      "calibration ledger",
+      "epistemic grading"
+    ],
     "schemaOrgImageObject": {
       "@type": "ImageObject",
       "contentUrl": "/images/visuals/evidence-grading-scale-e0-to-e7.png",
@@ -242,7 +293,12 @@
     "alt": "Three vertical cards for free capacity check, metered engine API, and fixed-fee density screen engagements.",
     "caption": "Commercial model: three transparent engagement paths.",
     "aeoSummary": "Time to Power offers three paths: a free self-serve seven-input capacity check, a usage-metered GridForge Engine API for portfolio and DCIM integration, and fixed-fee Density Screen or Envelope Study engagements with senior engineer review. Zero hardware is sold and no vendor commissions apply.",
-    "keywords": ["pricing", "free check", "metered API", "fixed-fee engagement"],
+    "keywords": [
+      "pricing",
+      "free check",
+      "metered API",
+      "fixed-fee engagement"
+    ],
     "schemaOrgImageObject": {
       "@type": "ImageObject",
       "contentUrl": "/images/visuals/commercial-model-three-paths.png",
@@ -265,7 +321,12 @@
     "alt": "Dual timeline comparing 36-60 month greenfield substation queue against weeks-scale GridForge brownfield headroom path to energized racks.",
     "caption": "Critical path comparison: greenfield versus existing-hall GridForge path.",
     "aeoSummary": "Waiting for a greenfield substation and utility interconnect typically requires 36-60 months. GridForge on an existing hall can deliver Density Screen in week 1, Envelope Study in weeks 2-3, targeted relief procurement in weeks 4-16, and energized AI racks by week 18.",
-    "keywords": ["time to power", "critical path", "greenfield vs brownfield", "lead time"],
+    "keywords": [
+      "time to power",
+      "critical path",
+      "greenfield vs brownfield",
+      "lead time"
+    ],
     "schemaOrgImageObject": {
       "@type": "ImageObject",
       "contentUrl": "/images/visuals/critical-path-time-to-power-gantt.png",
@@ -288,7 +349,12 @@
     "alt": "Isometric floorplan of synthetic 2.0 MW hall with three aisles: cyan active 120 kW, amber 36 kW capped, and dark stranded wireframes.",
     "caption": "Synthetic worked hall floorplan showing three revenue realities in one room.",
     "aeoSummary": "In a synthetic 2.0 MW colocation hall benchmark (not a customer facility), GridForge partitions the same four walls into Aisle A (250 A tap-offs + CDU at 120 kW/rack active), Aisle B (legacy 63 A tap-offs capped at 36 kW), and Aisle C (stranded by cooling ceiling).",
-    "keywords": ["synthetic hall", "worked example", "floorplan", "aisle partition"],
+    "keywords": [
+      "synthetic hall",
+      "worked example",
+      "floorplan",
+      "aisle partition"
+    ],
     "schemaOrgImageObject": {
       "@type": "ImageObject",
       "contentUrl": "/images/visuals/synthetic-hall-worked-floorplan.png",
@@ -311,7 +377,12 @@
     "alt": "Executive dashboard of six synthetic halls ranked by unlockable headroom, lead time and evidence class, highlighting fastest ROI and deferred transformer-bound halls.",
     "caption": "Portfolio multi-hall triage matrix for capital allocation.",
     "aeoSummary": "GridForge portfolio triage ranks multiple halls by dollars per kW unlocked and weeks-to-power. Synthetic halls show binding constraints such as 63 A tap-off, residual air or slab loading, with top ROI opportunities highlighted and long-lead transformer upgrades deferred.",
-    "keywords": ["portfolio triage", "multi-hall", "CapEx ranking", "ROI unlock"],
+    "keywords": [
+      "portfolio triage",
+      "multi-hall",
+      "CapEx ranking",
+      "ROI unlock"
+    ],
     "schemaOrgImageObject": {
       "@type": "ImageObject",
       "contentUrl": "/images/visuals/portfolio-multi-hall-triage-matrix.png",
@@ -334,11 +405,2188 @@
     "alt": "Layered architecture diagram from client JSON payload through schema validation, three parallel solvers, ranker and provenance tagger to REST outputs.",
     "caption": "GridForge deterministic API architecture: physics equations as clean JSON.",
     "aeoSummary": "The GridForge Engine exposes deterministic electrical, thermal psychrometric and structural load solvers as a typed JSON API. Client payloads are validated, solved in parallel sub-blocks, ranked by headroom, tagged with E0-E7 provenance, and returned as auditable REST responses with no probabilistic LLM math.",
-    "keywords": ["GridForge API", "deterministic engine", "JSON schema", "provenance tagger"],
+    "keywords": [
+      "GridForge API",
+      "deterministic engine",
+      "JSON schema",
+      "provenance tagger"
+    ],
     "schemaOrgImageObject": {
       "@type": "ImageObject",
       "contentUrl": "/images/visuals/gridforge-deterministic-api-architecture.png",
       "description": "GridForge deterministic API architecture diagram",
+      "width": 1600,
+      "height": 900,
+      "encodingFormat": "image/png"
+    }
+  },
+  {
+    "id": "16",
+    "slug": "density-screen-hero-binding-wall",
+    "targetRoute": "/products/density-screen",
+    "targetSection": "hero",
+    "pngPath": "/images/visuals/density-screen-hero-binding-wall.png",
+    "webpPath": "/images/visuals/density-screen-hero-binding-wall.webp",
+    "ogPath": "/images/og/density-screen-hero-binding-wall-og.png",
+    "width": 1600,
+    "height": 900,
+    "alt": "Isometric cutaway of an existing AI data hall with transformer and chiller in cyan while a 63 A busway tap-off glows gold as the binding constraint.",
+    "caption": "Binding constraint view: identifying the physical wall that limits deployable racks first.",
+    "aeoSummary": "Time to Power Density Screen identifies the single physical constraint that binds an existing AI data hall first, showing how a 63 A tap-off can cap racks while upstream plant remains under-utilised.",
+    "keywords": [
+      "Density Screen",
+      "63A tap-off",
+      "binding constraint",
+      "GridForge",
+      "AI data hall"
+    ],
+    "schemaOrgImageObject": {
+      "@type": "ImageObject",
+      "contentUrl": "/images/visuals/density-screen-hero-binding-wall.png",
+      "thumbnailUrl": "/images/og/density-screen-hero-binding-wall-og.png",
+      "description": "Time to Power Density Screen identifies the single physical constraint that binds an existing AI data hall first, showing how a 63 A tap-off can cap racks while upstream plant remains under-utilised.",
+      "width": 1600,
+      "height": 900,
+      "encodingFormat": "image/png"
+    }
+  },
+  {
+    "id": "17",
+    "slug": "density-screen-time-to-power-delta",
+    "targetRoute": "/products/density-screen",
+    "targetSection": "why",
+    "pngPath": "/images/visuals/density-screen-time-to-power-delta.png",
+    "webpPath": "/images/visuals/density-screen-time-to-power-delta.webp",
+    "ogPath": "/images/og/density-screen-time-to-power-delta-og.png",
+    "width": 1600,
+    "height": 900,
+    "alt": "Comparison timeline contrasting brownfield constraint screening and targeted relief against a multi-year greenfield substation queue.",
+    "caption": "Screening an existing hall versus waiting on greenfield grid reinforcement.",
+    "aeoSummary": "Compares brownfield hall screening and targeted constraint relief timelines against multi-year greenfield utility connection queues.",
+    "keywords": [
+      "time to power",
+      "Density Screen",
+      "brownfield headroom",
+      "grid queue"
+    ],
+    "schemaOrgImageObject": {
+      "@type": "ImageObject",
+      "contentUrl": "/images/visuals/density-screen-time-to-power-delta.png",
+      "thumbnailUrl": "/images/og/density-screen-time-to-power-delta-og.png",
+      "description": "Compares brownfield hall screening and targeted constraint relief timelines against multi-year greenfield utility connection queues.",
+      "width": 1600,
+      "height": 900,
+      "encodingFormat": "image/png"
+    }
+  },
+  {
+    "id": "18",
+    "slug": "density-screen-credits-against-study",
+    "targetRoute": "/products/density-screen",
+    "targetSection": "pricing",
+    "pngPath": "/images/visuals/density-screen-credits-against-study.png",
+    "webpPath": "/images/visuals/density-screen-credits-against-study.webp",
+    "ogPath": "/images/og/density-screen-credits-against-study-og.png",
+    "width": 1600,
+    "height": 900,
+    "alt": "Engagement progression diagram showing the Density Screen fee credited in full against a subsequent Envelope Study.",
+    "caption": "The Density Screen credits in full when you proceed to the Envelope Study on the same hall.",
+    "aeoSummary": "Illustrates how the fixed-fee Density Screen credits in full toward a scoped Capacity and Density Envelope Study.",
+    "keywords": [
+      "Density Screen",
+      "Envelope Study credit",
+      "engagement ladder",
+      "GridForge"
+    ],
+    "schemaOrgImageObject": {
+      "@type": "ImageObject",
+      "contentUrl": "/images/visuals/density-screen-credits-against-study.png",
+      "thumbnailUrl": "/images/og/density-screen-credits-against-study-og.png",
+      "description": "Illustrates how the fixed-fee Density Screen credits in full toward a scoped Capacity and Density Envelope Study.",
+      "width": 1600,
+      "height": 900,
+      "encodingFormat": "image/png"
+    }
+  },
+  {
+    "id": "19",
+    "slug": "density-screen-seven-inputs-card",
+    "targetRoute": "/products/density-screen",
+    "targetSection": "intake",
+    "pngPath": "/images/visuals/density-screen-seven-inputs-card.png",
+    "webpPath": "/images/visuals/density-screen-seven-inputs-card.webp",
+    "ogPath": "/images/og/density-screen-seven-inputs-card-og.png",
+    "width": 1600,
+    "height": 900,
+    "alt": "Intake interface showing seven known hall inputs feeding the deterministic Density Screen solver.",
+    "caption": "Core hall parameters: contracted MW, peak, IT load, busway, tap-off, positions and supply temperature.",
+    "aeoSummary": "Shows the core hall inputs submitted through the private intake link to run the Density Screen in screening mode.",
+    "keywords": [
+      "Density Screen intake",
+      "seven inputs",
+      "data hall screening",
+      "GridForge"
+    ],
+    "schemaOrgImageObject": {
+      "@type": "ImageObject",
+      "contentUrl": "/images/visuals/density-screen-seven-inputs-card.png",
+      "thumbnailUrl": "/images/og/density-screen-seven-inputs-card-og.png",
+      "description": "Shows the core hall inputs submitted through the private intake link to run the Density Screen in screening mode.",
+      "width": 1600,
+      "height": 900,
+      "encodingFormat": "image/png"
+    }
+  },
+  {
+    "id": "20",
+    "slug": "density-screen-hall-identity-card",
+    "targetRoute": "/products/density-screen",
+    "targetSection": "intake",
+    "pngPath": "/images/visuals/density-screen-hall-identity-card.png",
+    "webpPath": "/images/visuals/density-screen-hall-identity-card.webp",
+    "ogPath": "/images/og/density-screen-hall-identity-card-og.png",
+    "width": 1600,
+    "height": 900,
+    "alt": "Structured hall identity block recording site reference, electrical ratings, thermal supply conditions and target rack archetype.",
+    "caption": "Hall identity block recording supplied parameters alongside named library assumptions.",
+    "aeoSummary": "Documents the hall identity block that separates supplied site values from named fallback assumptions.",
+    "keywords": [
+      "hall identity",
+      "intake parameters",
+      "evidence classes",
+      "Density Screen"
+    ],
+    "schemaOrgImageObject": {
+      "@type": "ImageObject",
+      "contentUrl": "/images/visuals/density-screen-hall-identity-card.png",
+      "thumbnailUrl": "/images/og/density-screen-hall-identity-card-og.png",
+      "description": "Documents the hall identity block that separates supplied site values from named fallback assumptions.",
+      "width": 1600,
+      "height": 900,
+      "encodingFormat": "image/png"
+    }
+  },
+  {
+    "id": "21",
+    "slug": "density-screen-five-day-timeline",
+    "targetRoute": "/products/density-screen",
+    "targetSection": "workflow",
+    "pngPath": "/images/visuals/density-screen-five-day-timeline.png",
+    "webpPath": "/images/visuals/density-screen-five-day-timeline.webp",
+    "ogPath": "/images/og/density-screen-five-day-timeline-og.png",
+    "width": 1600,
+    "height": 900,
+    "alt": "Step-by-step turnaround workflow from complete intake through deterministic engine solve and named engineer review to private release.",
+    "caption": "From complete intake to engine solve, named engineer review and released screening document.",
+    "aeoSummary": "Maps the Density Screen turnaround workflow from complete intake submission through deterministic solver execution and named engineer review.",
+    "keywords": [
+      "turnaround workflow",
+      "Density Screen process",
+      "intake to release",
+      "GridForge"
+    ],
+    "schemaOrgImageObject": {
+      "@type": "ImageObject",
+      "contentUrl": "/images/visuals/density-screen-five-day-timeline.png",
+      "thumbnailUrl": "/images/og/density-screen-five-day-timeline-og.png",
+      "description": "Maps the Density Screen turnaround workflow from complete intake submission through deterministic solver execution and named engineer review.",
+      "width": 1600,
+      "height": 900,
+      "encodingFormat": "image/png"
+    }
+  },
+  {
+    "id": "22",
+    "slug": "density-screen-engineer-review-gate",
+    "targetRoute": "/products/density-screen",
+    "targetSection": "review",
+    "pngPath": "/images/visuals/density-screen-engineer-review-gate.png",
+    "webpPath": "/images/visuals/density-screen-engineer-review-gate.webp",
+    "ogPath": "/images/og/density-screen-engineer-review-gate-og.png",
+    "width": 1600,
+    "height": 900,
+    "alt": "Verification gate showing deterministic engine output checked by a named engineer before private deliverable release.",
+    "caption": "Every drafted screen passes a named engineer review gate before release in screening mode.",
+    "aeoSummary": "Shows the human review gate where a named engineer inspects screening-mode outputs and assumptions prior to release.",
+    "keywords": [
+      "engineer review",
+      "screening mode",
+      "release gate",
+      "Density Screen"
+    ],
+    "schemaOrgImageObject": {
+      "@type": "ImageObject",
+      "contentUrl": "/images/visuals/density-screen-engineer-review-gate.png",
+      "thumbnailUrl": "/images/og/density-screen-engineer-review-gate-og.png",
+      "description": "Shows the human review gate where a named engineer inspects screening-mode outputs and assumptions prior to release.",
+      "width": 1600,
+      "height": 900,
+      "encodingFormat": "image/png"
+    }
+  },
+  {
+    "id": "23",
+    "slug": "density-screen-headroom-ladder",
+    "targetRoute": "/products/density-screen",
+    "targetSection": "deliverable",
+    "pngPath": "/images/visuals/density-screen-headroom-ladder.png",
+    "webpPath": "/images/visuals/density-screen-headroom-ladder.webp",
+    "ogPath": "/images/og/density-screen-headroom-ladder-og.png",
+    "width": 1600,
+    "height": 900,
+    "alt": "Stepped headroom ladder chart showing the first six constraint relief rungs ordered by rack unlock and indicative cost.",
+    "caption": "The costed headroom ladder ranking sequential reliefs up toward the hall ceiling.",
+    "aeoSummary": "Visualizes the first six rungs of the GridForge headroom ladder with rack unlocks, indicative costs and lead-time bands.",
+    "keywords": [
+      "headroom ladder",
+      "constraint relief",
+      "rack density",
+      "Density Screen"
+    ],
+    "schemaOrgImageObject": {
+      "@type": "ImageObject",
+      "contentUrl": "/images/visuals/density-screen-headroom-ladder.png",
+      "thumbnailUrl": "/images/og/density-screen-headroom-ladder-og.png",
+      "description": "Visualizes the first six rungs of the GridForge headroom ladder with rack unlocks, indicative costs and lead-time bands.",
+      "width": 1600,
+      "height": 900,
+      "encodingFormat": "image/png"
+    }
+  },
+  {
+    "id": "24",
+    "slug": "density-screen-ladder-rung-detail",
+    "targetRoute": "/products/density-screen",
+    "targetSection": "ladder-detail",
+    "pngPath": "/images/visuals/density-screen-ladder-rung-detail.png",
+    "webpPath": "/images/visuals/density-screen-ladder-rung-detail.webp",
+    "ogPath": "/images/og/density-screen-ladder-rung-detail-og.png",
+    "width": 1600,
+    "height": 900,
+    "alt": "Detailed callout of a single headroom ladder rung showing limiting constraint, relief action, rack delta, indicative cost band and evidence tag.",
+    "caption": "Single rung anatomy: what binds, what relieves it, indicative cost and lead-time basis.",
+    "aeoSummary": "Breaks down an individual headroom ladder rung including rack delta, library placeholder cost band, lead-time basis and evidence class.",
+    "keywords": [
+      "ladder rung",
+      "relief cost band",
+      "lead time basis",
+      "evidence class"
+    ],
+    "schemaOrgImageObject": {
+      "@type": "ImageObject",
+      "contentUrl": "/images/visuals/density-screen-ladder-rung-detail.png",
+      "thumbnailUrl": "/images/og/density-screen-ladder-rung-detail-og.png",
+      "description": "Breaks down an individual headroom ladder rung including rack delta, library placeholder cost band, lead-time basis and evidence class.",
+      "width": 1600,
+      "height": 900,
+      "encodingFormat": "image/png"
+    }
+  },
+  {
+    "id": "25",
+    "slug": "density-screen-deliverable-document",
+    "targetRoute": "/products/density-screen",
+    "targetSection": "deliverable",
+    "pngPath": "/images/visuals/density-screen-deliverable-document.png",
+    "webpPath": "/images/visuals/density-screen-deliverable-document.webp",
+    "ogPath": "/images/og/density-screen-deliverable-document-og.png",
+    "width": 1600,
+    "height": 900,
+    "alt": "Preview of the Density Screen deliverable document showing executive summary, binding constraint table and provenance digest.",
+    "caption": "The released Density Screen document delivered at your private link.",
+    "aeoSummary": "Shows the structure of the Density Screen deliverable with binding constraint tables, rack counts and provenance digests.",
+    "keywords": [
+      "Density Screen deliverable",
+      "engineering report",
+      "provenance digest",
+      "GridForge"
+    ],
+    "schemaOrgImageObject": {
+      "@type": "ImageObject",
+      "contentUrl": "/images/visuals/density-screen-deliverable-document.png",
+      "thumbnailUrl": "/images/og/density-screen-deliverable-document-og.png",
+      "description": "Shows the structure of the Density Screen deliverable with binding constraint tables, rack counts and provenance digests.",
+      "width": 1600,
+      "height": 900,
+      "encodingFormat": "image/png"
+    }
+  },
+  {
+    "id": "26",
+    "slug": "density-screen-data-request-sheet",
+    "targetRoute": "/products/density-screen",
+    "targetSection": "data-request",
+    "pngPath": "/images/visuals/density-screen-data-request-sheet.png",
+    "webpPath": "/images/visuals/density-screen-data-request-sheet.webp",
+    "ogPath": "/images/og/density-screen-data-request-sheet-og.png",
+    "width": 1600,
+    "height": 900,
+    "alt": "Targeted data request checklist highlighting unmeasured electrical, thermal and structural hall inputs currently held as assumptions.",
+    "caption": "What we had to assume: the targeted data request listing the unmeasured inputs that matter.",
+    "aeoSummary": "Illustrates the Density Screen data request section that isolates which unmeasured hall parameters affect the binding answer.",
+    "keywords": [
+      "data request",
+      "unmeasured inputs",
+      "assumed parameters",
+      "Density Screen"
+    ],
+    "schemaOrgImageObject": {
+      "@type": "ImageObject",
+      "contentUrl": "/images/visuals/density-screen-data-request-sheet.png",
+      "thumbnailUrl": "/images/og/density-screen-data-request-sheet-og.png",
+      "description": "Illustrates the Density Screen data request section that isolates which unmeasured hall parameters affect the binding answer.",
+      "width": 1600,
+      "height": 900,
+      "encodingFormat": "image/png"
+    }
+  },
+  {
+    "id": "27",
+    "slug": "density-screen-evidence-class-pills",
+    "targetRoute": "/products/density-screen",
+    "targetSection": "method",
+    "pngPath": "/images/visuals/density-screen-evidence-class-pills.png",
+    "webpPath": "/images/visuals/density-screen-evidence-class-pills.webp",
+    "ogPath": "/images/og/density-screen-evidence-class-pills-og.png",
+    "width": 1600,
+    "height": 900,
+    "alt": "Evidence classification pills from E0 default heuristic to E7 continuous sub-metering with uncalibrated ledger disclosure.",
+    "caption": "Evidence classes E0–E7 attached to each input and computed screening figure.",
+    "aeoSummary": "Displays the E0–E7 evidence grading pills applied across Density Screen figures, noting zero reconciled field rows in the pilot calibration ledger.",
+    "keywords": [
+      "E0 to E7",
+      "evidence classes",
+      "epistemic honesty",
+      "calibration ledger"
+    ],
+    "schemaOrgImageObject": {
+      "@type": "ImageObject",
+      "contentUrl": "/images/visuals/density-screen-evidence-class-pills.png",
+      "thumbnailUrl": "/images/og/density-screen-evidence-class-pills-og.png",
+      "description": "Displays the E0–E7 evidence grading pills applied across Density Screen figures, noting zero reconciled field rows in the pilot calibration ledger.",
+      "width": 1600,
+      "height": 900,
+      "encodingFormat": "image/png"
+    }
+  },
+  {
+    "id": "28",
+    "slug": "density-screen-before-after-racks",
+    "targetRoute": "/products/density-screen",
+    "targetSection": "outcome",
+    "pngPath": "/images/visuals/density-screen-before-after-racks.png",
+    "webpPath": "/images/visuals/density-screen-before-after-racks.webp",
+    "ogPath": "/images/og/density-screen-before-after-racks-og.png",
+    "width": 1600,
+    "height": 900,
+    "alt": "Side-by-side hall comparison showing deployable AI rack count as found versus after targeted busway and cooling relief.",
+    "caption": "Deployable racks as found in the hall versus after ladder relief steps.",
+    "aeoSummary": "Compares baseline deployable AI racks as found against unlocked rack count after relieving the binding sub-component.",
+    "keywords": [
+      "deployable racks",
+      "before and after",
+      "rack unlock",
+      "Density Screen"
+    ],
+    "schemaOrgImageObject": {
+      "@type": "ImageObject",
+      "contentUrl": "/images/visuals/density-screen-before-after-racks.png",
+      "thumbnailUrl": "/images/og/density-screen-before-after-racks-og.png",
+      "description": "Compares baseline deployable AI racks as found against unlocked rack count after relieving the binding sub-component.",
+      "width": 1600,
+      "height": 900,
+      "encodingFormat": "image/png"
+    }
+  },
+  {
+    "id": "29",
+    "slug": "density-screen-cost-vs-unlock",
+    "targetRoute": "/products/density-screen",
+    "targetSection": "outcome",
+    "pngPath": "/images/visuals/density-screen-cost-vs-unlock.png",
+    "webpPath": "/images/visuals/density-screen-cost-vs-unlock.webp",
+    "ogPath": "/images/og/density-screen-cost-vs-unlock-og.png",
+    "width": 1600,
+    "height": 900,
+    "alt": "Plot of indicative capital expenditure against unlockable kW and rack positions across successive relief steps.",
+    "caption": "Indicative capital outlay versus unlocked compute capacity across relief steps.",
+    "aeoSummary": "Maps indicative library capital cost bands against unlocked compute capacity to show where incremental spend hits diminishing returns.",
+    "keywords": [
+      "CapEx vs kW",
+      "capacity unlock",
+      "headroom economics",
+      "GridForge"
+    ],
+    "schemaOrgImageObject": {
+      "@type": "ImageObject",
+      "contentUrl": "/images/visuals/density-screen-cost-vs-unlock.png",
+      "thumbnailUrl": "/images/og/density-screen-cost-vs-unlock-og.png",
+      "description": "Maps indicative library capital cost bands against unlocked compute capacity to show where incremental spend hits diminishing returns.",
+      "width": 1600,
+      "height": 900,
+      "encodingFormat": "image/png"
+    }
+  },
+  {
+    "id": "30",
+    "slug": "density-screen-final-cta-card",
+    "targetRoute": "/products/density-screen",
+    "targetSection": "cta",
+    "pngPath": "/images/visuals/density-screen-final-cta-card.png",
+    "webpPath": "/images/visuals/density-screen-final-cta-card.webp",
+    "ogPath": "/images/og/density-screen-final-cta-card-og.png",
+    "width": 1600,
+    "height": 900,
+    "alt": "Summary card for commissioning the Density Screen with intake, deterministic solve, named engineer review and sample link.",
+    "caption": "Commission the Density Screen on one hall or inspect the synthetic sample deliverable first.",
+    "aeoSummary": "Summarizes how to commission a Density Screen via checkout and private intake to identify what binds an existing data hall.",
+    "keywords": [
+      "commission Density Screen",
+      "data hall assessment",
+      "Time to Power"
+    ],
+    "schemaOrgImageObject": {
+      "@type": "ImageObject",
+      "contentUrl": "/images/visuals/density-screen-final-cta-card.png",
+      "thumbnailUrl": "/images/og/density-screen-final-cta-card-og.png",
+      "description": "Summarizes how to commission a Density Screen via checkout and private intake to identify what binds an existing data hall.",
+      "width": 1600,
+      "height": 900,
+      "encodingFormat": "image/png"
+    }
+  },
+  {
+    "id": "31",
+    "slug": "envelope-study-capacity-envelope",
+    "targetRoute": "/products/envelope-study",
+    "targetSection": "hero",
+    "pngPath": "/images/visuals/envelope-study-capacity-envelope.png",
+    "webpPath": "/images/visuals/envelope-study-capacity-envelope.webp",
+    "ogPath": "/images/og/envelope-study-capacity-envelope-og.png",
+    "width": 1600,
+    "height": 900,
+    "alt": "Multi-architecture capacity envelope chart plotting deployable racks across rack power densities and cooling regimes up to the hard ceiling.",
+    "caption": "Complete capacity and density envelope across candidate cooling and electrical architectures.",
+    "aeoSummary": "Time to Power Capacity and Density Envelope Study maps the complete feasible operating envelope of an existing hall across air, rear-door and direct-to-chip liquid cooling options.",
+    "keywords": [
+      "Envelope Study",
+      "capacity envelope",
+      "cooling architectures",
+      "GridForge"
+    ],
+    "schemaOrgImageObject": {
+      "@type": "ImageObject",
+      "contentUrl": "/images/visuals/envelope-study-capacity-envelope.png",
+      "thumbnailUrl": "/images/og/envelope-study-capacity-envelope-og.png",
+      "description": "Time to Power Capacity and Density Envelope Study maps the complete feasible operating envelope of an existing hall across air, rear-door and direct-to-chip liquid cooling options.",
+      "width": 1600,
+      "height": 900,
+      "encodingFormat": "image/png"
+    }
+  },
+  {
+    "id": "32",
+    "slug": "envelope-study-deposit-flow",
+    "targetRoute": "/products/envelope-study",
+    "targetSection": "pricing",
+    "pngPath": "/images/visuals/envelope-study-deposit-flow.png",
+    "webpPath": "/images/visuals/envelope-study-deposit-flow.webp",
+    "ogPath": "/images/og/envelope-study-deposit-flow-og.png",
+    "width": 1600,
+    "height": 900,
+    "alt": "Engagement flow diagram showing deposit payment, human scoping agreement within the published fee band, and full deposit credit.",
+    "caption": "Opened by a deposit that credits in full against the written scoped fee agreed before work starts.",
+    "aeoSummary": "Explains how the Envelope Study deposit opens a human-scoped engagement within the published catalogue band and credits in full.",
+    "keywords": [
+      "Envelope Study deposit",
+      "scoped engagement",
+      "deposit credit",
+      "Time to Power"
+    ],
+    "schemaOrgImageObject": {
+      "@type": "ImageObject",
+      "contentUrl": "/images/visuals/envelope-study-deposit-flow.png",
+      "thumbnailUrl": "/images/og/envelope-study-deposit-flow-og.png",
+      "description": "Explains how the Envelope Study deposit opens a human-scoped engagement within the published catalogue band and credits in full.",
+      "width": 1600,
+      "height": 900,
+      "encodingFormat": "image/png"
+    }
+  },
+  {
+    "id": "33",
+    "slug": "envelope-study-time-to-power",
+    "targetRoute": "/products/envelope-study",
+    "targetSection": "time-to-power",
+    "pngPath": "/images/visuals/envelope-study-time-to-power.png",
+    "webpPath": "/images/visuals/envelope-study-time-to-power.webp",
+    "ogPath": "/images/og/envelope-study-time-to-power-og.png",
+    "width": 1600,
+    "height": 900,
+    "alt": "Critical-path timeline comparing energization windows and lead-time bands across candidate architecture upgrades.",
+    "caption": "Time-to-power comparison with assumed lead-time bands labelled explicitly.",
+    "aeoSummary": "Compares indicative lead-time ranges across candidate electrical and thermal relief paths while keeping assumed lead times distinct from calendar promises.",
+    "keywords": [
+      "time to power",
+      "lead time bands",
+      "critical path",
+      "Envelope Study"
+    ],
+    "schemaOrgImageObject": {
+      "@type": "ImageObject",
+      "contentUrl": "/images/visuals/envelope-study-time-to-power.png",
+      "thumbnailUrl": "/images/og/envelope-study-time-to-power-og.png",
+      "description": "Compares indicative lead-time ranges across candidate electrical and thermal relief paths while keeping assumed lead times distinct from calendar promises.",
+      "width": 1600,
+      "height": 900,
+      "encodingFormat": "image/png"
+    }
+  },
+  {
+    "id": "34",
+    "slug": "envelope-study-scoping-call",
+    "targetRoute": "/products/envelope-study",
+    "targetSection": "intake",
+    "pngPath": "/images/visuals/envelope-study-scoping-call.png",
+    "webpPath": "/images/visuals/envelope-study-scoping-call.webp",
+    "ogPath": "/images/og/envelope-study-scoping-call-og.png",
+    "width": 1600,
+    "height": 900,
+    "alt": "Scoping workflow showing architecture questions, transformer and UPS schedules, plant parameters and private intake submission.",
+    "caption": "Human scoping call followed by complete electrical, thermal and structural intake.",
+    "aeoSummary": "Illustrates the post-deposit scoping call and full hall schedule intake that establish the study scope and turnaround start.",
+    "keywords": [
+      "scoping call",
+      "hall schedules",
+      "Envelope Study intake",
+      "GridForge"
+    ],
+    "schemaOrgImageObject": {
+      "@type": "ImageObject",
+      "contentUrl": "/images/visuals/envelope-study-scoping-call.png",
+      "thumbnailUrl": "/images/og/envelope-study-scoping-call-og.png",
+      "description": "Illustrates the post-deposit scoping call and full hall schedule intake that establish the study scope and turnaround start.",
+      "width": 1600,
+      "height": 900,
+      "encodingFormat": "image/png"
+    }
+  },
+  {
+    "id": "35",
+    "slug": "envelope-study-walkthrough",
+    "targetRoute": "/products/envelope-study",
+    "targetSection": "walkthrough",
+    "pngPath": "/images/visuals/envelope-study-walkthrough.png",
+    "webpPath": "/images/visuals/envelope-study-walkthrough.webp",
+    "ogPath": "/images/og/envelope-study-walkthrough-og.png",
+    "width": 1600,
+    "height": 900,
+    "alt": "Post-release engineering walkthrough view reviewing solved scenarios, constraint transitions and sensitivity drivers.",
+    "caption": "Post-release walkthrough of the released study, model pack and working files with your engineering team.",
+    "aeoSummary": "Depicts the post-release engineer walkthrough covering the solved model pack, architecture trade-offs and open assumptions.",
+    "keywords": [
+      "engineering walkthrough",
+      "Envelope Study release",
+      "model review",
+      "GridForge"
+    ],
+    "schemaOrgImageObject": {
+      "@type": "ImageObject",
+      "contentUrl": "/images/visuals/envelope-study-walkthrough.png",
+      "thumbnailUrl": "/images/og/envelope-study-walkthrough-og.png",
+      "description": "Depicts the post-release engineer walkthrough covering the solved model pack, architecture trade-offs and open assumptions.",
+      "width": 1600,
+      "height": 900,
+      "encodingFormat": "image/png"
+    }
+  },
+  {
+    "id": "36",
+    "slug": "envelope-study-board-summary",
+    "targetRoute": "/products/envelope-study",
+    "targetSection": "deliverable",
+    "pngPath": "/images/visuals/envelope-study-board-summary.png",
+    "webpPath": "/images/visuals/envelope-study-board-summary.webp",
+    "ogPath": "/images/og/envelope-study-board-summary-og.png",
+    "width": 1600,
+    "height": 900,
+    "alt": "One-page executive board summary layout presenting baseline capacity, recommended architecture, capital band and binding lead time.",
+    "caption": "One-page board summary distilling the decision, capital band and evidence basis.",
+    "aeoSummary": "Previews the one-page board summary included with the Envelope Study for investment and infrastructure committees.",
+    "keywords": [
+      "board summary",
+      "executive deliverable",
+      "Envelope Study",
+      "investment decision"
+    ],
+    "schemaOrgImageObject": {
+      "@type": "ImageObject",
+      "contentUrl": "/images/visuals/envelope-study-board-summary.png",
+      "thumbnailUrl": "/images/og/envelope-study-board-summary-og.png",
+      "description": "Previews the one-page board summary included with the Envelope Study for investment and infrastructure committees.",
+      "width": 1600,
+      "height": 900,
+      "encodingFormat": "image/png"
+    }
+  },
+  {
+    "id": "37",
+    "slug": "envelope-study-key-figures",
+    "targetRoute": "/products/envelope-study",
+    "targetSection": "board-summary",
+    "pngPath": "/images/visuals/envelope-study-key-figures.png",
+    "webpPath": "/images/visuals/envelope-study-key-figures.webp",
+    "ogPath": "/images/og/envelope-study-key-figures-og.png",
+    "width": 1600,
+    "height": 900,
+    "alt": "Key figures panel pairing deployable rack counts, MW headroom, indicative CapEx and evidence class badges.",
+    "caption": "Key decision figures paired with their evidence classes and provenance digests.",
+    "aeoSummary": "Shows how every headline figure in the Envelope Study board pack carries an explicit E0–E7 evidence class.",
+    "keywords": [
+      "key figures",
+      "evidence badges",
+      "board pack",
+      "Envelope Study"
+    ],
+    "schemaOrgImageObject": {
+      "@type": "ImageObject",
+      "contentUrl": "/images/visuals/envelope-study-key-figures.png",
+      "thumbnailUrl": "/images/og/envelope-study-key-figures-og.png",
+      "description": "Shows how every headline figure in the Envelope Study board pack carries an explicit E0–E7 evidence class.",
+      "width": 1600,
+      "height": 900,
+      "encodingFormat": "image/png"
+    }
+  },
+  {
+    "id": "38",
+    "slug": "envelope-study-model-pack",
+    "targetRoute": "/products/envelope-study",
+    "targetSection": "model-pack",
+    "pngPath": "/images/visuals/envelope-study-model-pack.png",
+    "webpPath": "/images/visuals/envelope-study-model-pack.webp",
+    "ogPath": "/images/og/envelope-study-model-pack-og.png",
+    "width": 1600,
+    "height": 900,
+    "alt": "Structured JSON tree and CSV table view of model_pack.json containing every solved scenario and constraint equation output.",
+    "caption": "Solved model_pack.json and auditable CSV working files retained by your team.",
+    "aeoSummary": "Visualizes the machine-readable model_pack.json artefact containing all solved architecture scenarios and provenance hashes.",
+    "keywords": [
+      "model_pack.json",
+      "working files",
+      "auditable scenarios",
+      "GridForge"
+    ],
+    "schemaOrgImageObject": {
+      "@type": "ImageObject",
+      "contentUrl": "/images/visuals/envelope-study-model-pack.png",
+      "thumbnailUrl": "/images/og/envelope-study-model-pack-og.png",
+      "description": "Visualizes the machine-readable model_pack.json artefact containing all solved architecture scenarios and provenance hashes.",
+      "width": 1600,
+      "height": 900,
+      "encodingFormat": "image/png"
+    }
+  },
+  {
+    "id": "39",
+    "slug": "envelope-study-constraint-ladder",
+    "targetRoute": "/products/envelope-study",
+    "targetSection": "constraints",
+    "pngPath": "/images/visuals/envelope-study-constraint-ladder.png",
+    "webpPath": "/images/visuals/envelope-study-constraint-ladder.webp",
+    "ogPath": "/images/og/envelope-study-constraint-ladder-og.png",
+    "width": 1600,
+    "height": 900,
+    "alt": "Thirteen-constraint convergence diagram feeding five electrical, six thermal and two physical limits into the hall envelope.",
+    "caption": "All thirteen electrical, thermal and physical constraints solved together.",
+    "aeoSummary": "Maps how the thirteen deterministic constraints interact to set deployable rack limits across every scenario in the study.",
+    "keywords": [
+      "thirteen constraints",
+      "deterministic solver",
+      "Envelope Study",
+      "GridForge"
+    ],
+    "schemaOrgImageObject": {
+      "@type": "ImageObject",
+      "contentUrl": "/images/visuals/envelope-study-constraint-ladder.png",
+      "thumbnailUrl": "/images/og/envelope-study-constraint-ladder-og.png",
+      "description": "Maps how the thirteen deterministic constraints interact to set deployable rack limits across every scenario in the study.",
+      "width": 1600,
+      "height": 900,
+      "encodingFormat": "image/png"
+    }
+  },
+  {
+    "id": "40",
+    "slug": "envelope-study-full-headroom-ladder",
+    "targetRoute": "/products/envelope-study",
+    "targetSection": "ladder",
+    "pngPath": "/images/visuals/envelope-study-full-headroom-ladder.png",
+    "webpPath": "/images/visuals/envelope-study-full-headroom-ladder.webp",
+    "ogPath": "/images/og/envelope-study-full-headroom-ladder-og.png",
+    "width": 1600,
+    "height": 900,
+    "alt": "Complete multi-step headroom staircase from current as-found racks to the utility and transformer hard ceiling.",
+    "caption": "Full headroom ladder mapped all the way to the hall's hard electrical or structural ceiling.",
+    "aeoSummary": "Extends the headroom ladder through every viable relief step until reaching the non-relievable site ceiling.",
+    "keywords": [
+      "full headroom ladder",
+      "hard ceiling",
+      "capacity staircase",
+      "Envelope Study"
+    ],
+    "schemaOrgImageObject": {
+      "@type": "ImageObject",
+      "contentUrl": "/images/visuals/envelope-study-full-headroom-ladder.png",
+      "thumbnailUrl": "/images/og/envelope-study-full-headroom-ladder-og.png",
+      "description": "Extends the headroom ladder through every viable relief step until reaching the non-relievable site ceiling.",
+      "width": 1600,
+      "height": 900,
+      "encodingFormat": "image/png"
+    }
+  },
+  {
+    "id": "41",
+    "slug": "envelope-study-cooling-architectures",
+    "targetRoute": "/products/envelope-study",
+    "targetSection": "architectures",
+    "pngPath": "/images/visuals/envelope-study-cooling-architectures.png",
+    "webpPath": "/images/visuals/envelope-study-cooling-architectures.webp",
+    "ogPath": "/images/og/envelope-study-cooling-architectures-og.png",
+    "width": 1600,
+    "height": 900,
+    "alt": "Four-panel schematic comparing legacy air, containment retrofit, rear-door heat exchangers and direct-to-chip liquid cooling.",
+    "caption": "Candidate cooling architectures compared on the same hall boundary conditions.",
+    "aeoSummary": "Compares four thermal architectures side by side, accounting for liquid coolant split, supply temperature and residual air heat.",
+    "keywords": [
+      "cooling architectures",
+      "direct-to-chip liquid",
+      "rear-door heat exchanger",
+      "residual air"
+    ],
+    "schemaOrgImageObject": {
+      "@type": "ImageObject",
+      "contentUrl": "/images/visuals/envelope-study-cooling-architectures.png",
+      "thumbnailUrl": "/images/og/envelope-study-cooling-architectures-og.png",
+      "description": "Compares four thermal architectures side by side, accounting for liquid coolant split, supply temperature and residual air heat.",
+      "width": 1600,
+      "height": 900,
+      "encodingFormat": "image/png"
+    }
+  },
+  {
+    "id": "42",
+    "slug": "envelope-study-architecture-matrix",
+    "targetRoute": "/products/envelope-study",
+    "targetSection": "decision",
+    "pngPath": "/images/visuals/envelope-study-architecture-matrix.png",
+    "webpPath": "/images/visuals/envelope-study-architecture-matrix.webp",
+    "ogPath": "/images/og/envelope-study-architecture-matrix-og.png",
+    "width": 1600,
+    "height": 900,
+    "alt": "Decision matrix scoring candidate architectures across deployable racks, indicative CapEx, lead-time band and residual risk.",
+    "caption": "Architecture decision matrix aligning rack count, capital band and energization timing.",
+    "aeoSummary": "Presents the multi-architecture comparison matrix used to commit to one densification path before tender.",
+    "keywords": [
+      "architecture matrix",
+      "densification decision",
+      "Envelope Study",
+      "GridForge"
+    ],
+    "schemaOrgImageObject": {
+      "@type": "ImageObject",
+      "contentUrl": "/images/visuals/envelope-study-architecture-matrix.png",
+      "thumbnailUrl": "/images/og/envelope-study-architecture-matrix-og.png",
+      "description": "Presents the multi-architecture comparison matrix used to commit to one densification path before tender.",
+      "width": 1600,
+      "height": 900,
+      "encodingFormat": "image/png"
+    }
+  },
+  {
+    "id": "43",
+    "slug": "envelope-study-sensitivity-tornado",
+    "targetRoute": "/products/envelope-study",
+    "targetSection": "sensitivity",
+    "pngPath": "/images/visuals/envelope-study-sensitivity-tornado.png",
+    "webpPath": "/images/visuals/envelope-study-sensitivity-tornado.webp",
+    "ogPath": "/images/og/envelope-study-sensitivity-tornado-og.png",
+    "width": 1600,
+    "height": 900,
+    "alt": "Horizontal sensitivity tornado chart ranking how ambient temperature, coolant inlet limit, power factor and slab rating move rack capacity.",
+    "caption": "Sensitivity tornado isolating which uncertain inputs swing deployable compute.",
+    "aeoSummary": "Ranks input parameter sensitivities so engineering teams measure the high-leverage variables before capital commitment.",
+    "keywords": [
+      "sensitivity analysis",
+      "tornado chart",
+      "parameter uncertainty",
+      "Envelope Study"
+    ],
+    "schemaOrgImageObject": {
+      "@type": "ImageObject",
+      "contentUrl": "/images/visuals/envelope-study-sensitivity-tornado.png",
+      "thumbnailUrl": "/images/og/envelope-study-sensitivity-tornado-og.png",
+      "description": "Ranks input parameter sensitivities so engineering teams measure the high-leverage variables before capital commitment.",
+      "width": 1600,
+      "height": 900,
+      "encodingFormat": "image/png"
+    }
+  },
+  {
+    "id": "44",
+    "slug": "envelope-study-economics-waterfall",
+    "targetRoute": "/products/envelope-study",
+    "targetSection": "economics",
+    "pngPath": "/images/visuals/envelope-study-economics-waterfall.png",
+    "webpPath": "/images/visuals/envelope-study-economics-waterfall.webp",
+    "ogPath": "/images/og/envelope-study-economics-waterfall-og.png",
+    "width": 1600,
+    "height": 900,
+    "alt": "Capital waterfall chart breaking down indicative electrical, thermal and structural relief spend per unlocked rack.",
+    "caption": "Indicative capital waterfall across electrical, cooling and structural relief scope.",
+    "aeoSummary": "Breaks down indicative relief capital by discipline to show cost per unlocked rack across candidate scenarios.",
+    "keywords": [
+      "economics waterfall",
+      "cost per rack",
+      "CapEx breakdown",
+      "Envelope Study"
+    ],
+    "schemaOrgImageObject": {
+      "@type": "ImageObject",
+      "contentUrl": "/images/visuals/envelope-study-economics-waterfall.png",
+      "thumbnailUrl": "/images/og/envelope-study-economics-waterfall-og.png",
+      "description": "Breaks down indicative relief capital by discipline to show cost per unlocked rack across candidate scenarios.",
+      "width": 1600,
+      "height": 900,
+      "encodingFormat": "image/png"
+    }
+  },
+  {
+    "id": "45",
+    "slug": "envelope-study-final-cta",
+    "targetRoute": "/products/envelope-study",
+    "targetSection": "cta",
+    "pngPath": "/images/visuals/envelope-study-final-cta.png",
+    "webpPath": "/images/visuals/envelope-study-final-cta.webp",
+    "ogPath": "/images/og/envelope-study-final-cta-og.png",
+    "width": 1600,
+    "height": 900,
+    "alt": "Summary card for opening a Capacity and Density Envelope Study with a deposit, scoping call and full sample preview.",
+    "caption": "Open the Envelope Study with a deposit or inspect the published synthetic study first.",
+    "aeoSummary": "Outlines how to start a Capacity and Density Envelope Study via deposit checkout followed by human scoping.",
+    "keywords": [
+      "commission Envelope Study",
+      "capacity study deposit",
+      "Time to Power"
+    ],
+    "schemaOrgImageObject": {
+      "@type": "ImageObject",
+      "contentUrl": "/images/visuals/envelope-study-final-cta.png",
+      "thumbnailUrl": "/images/og/envelope-study-final-cta-og.png",
+      "description": "Outlines how to start a Capacity and Density Envelope Study via deposit checkout followed by human scoping.",
+      "width": 1600,
+      "height": 900,
+      "encodingFormat": "image/png"
+    }
+  },
+  {
+    "id": "46",
+    "slug": "hall-watch-live-resolve",
+    "targetRoute": "/products/hall-watch",
+    "targetSection": "hero",
+    "pngPath": "/images/visuals/hall-watch-live-resolve.png",
+    "webpPath": "/images/visuals/hall-watch-live-resolve.webp",
+    "ogPath": "/images/og/hall-watch-live-resolve-og.png",
+    "width": 1600,
+    "height": 900,
+    "alt": "Persistent hall monitoring view showing updated site inputs triggering a deterministic re-solve of binding constraints and rack headroom.",
+    "caption": "Persistent hall model re-solved each quarter and whenever you update an input.",
+    "aeoSummary": "Hall Watch keeps an existing data hall's constraint model active, re-solving automatically each quarter and whenever equipment, grid or thermal inputs change.",
+    "keywords": [
+      "Hall Watch",
+      "quarterly re-solve",
+      "persistent hall model",
+      "GridForge"
+    ],
+    "schemaOrgImageObject": {
+      "@type": "ImageObject",
+      "contentUrl": "/images/visuals/hall-watch-live-resolve.png",
+      "thumbnailUrl": "/images/og/hall-watch-live-resolve-og.png",
+      "description": "Hall Watch keeps an existing data hall's constraint model active, re-solving automatically each quarter and whenever equipment, grid or thermal inputs change.",
+      "width": 1600,
+      "height": 900,
+      "encodingFormat": "image/png"
+    }
+  },
+  {
+    "id": "47",
+    "slug": "hall-watch-subscription-card",
+    "targetRoute": "/products/hall-watch",
+    "targetSection": "pricing",
+    "pngPath": "/images/visuals/hall-watch-subscription-card.png",
+    "webpPath": "/images/visuals/hall-watch-subscription-card.webp",
+    "ogPath": "/images/og/hall-watch-subscription-card-og.png",
+    "width": 1600,
+    "height": 900,
+    "alt": "Quarterly Hall Watch subscription summary showing recurring cadence, on-demand input updates, automatic change notes and no minimum term.",
+    "caption": "Billed quarterly with no minimum term; includes scheduled and input-triggered re-solves.",
+    "aeoSummary": "Summarizes the quarterly Hall Watch subscription structure with automatic change notes and cancellation flexibility.",
+    "keywords": [
+      "Hall Watch subscription",
+      "quarterly cadence",
+      "change notes",
+      "Time to Power"
+    ],
+    "schemaOrgImageObject": {
+      "@type": "ImageObject",
+      "contentUrl": "/images/visuals/hall-watch-subscription-card.png",
+      "thumbnailUrl": "/images/og/hall-watch-subscription-card-og.png",
+      "description": "Summarizes the quarterly Hall Watch subscription structure with automatic change notes and cancellation flexibility.",
+      "width": 1600,
+      "height": 900,
+      "encodingFormat": "image/png"
+    }
+  },
+  {
+    "id": "48",
+    "slug": "hall-watch-quarterly-vs-ondemand",
+    "targetRoute": "/products/hall-watch",
+    "targetSection": "flexibility",
+    "pngPath": "/images/visuals/hall-watch-quarterly-vs-ondemand.png",
+    "webpPath": "/images/visuals/hall-watch-quarterly-vs-ondemand.webp",
+    "ogPath": "/images/og/hall-watch-quarterly-vs-ondemand-og.png",
+    "width": 1600,
+    "height": 900,
+    "alt": "Dual-track diagram comparing scheduled quarterly model runs against immediate re-runs triggered by operator input updates.",
+    "caption": "Scheduled quarterly re-runs plus immediate re-solves whenever a hall number changes.",
+    "aeoSummary": "Contrasts scheduled quarterly Hall Watch runs against event-driven re-solves when a buyer updates site parameters.",
+    "keywords": [
+      "quarterly vs on-demand",
+      "input update trigger",
+      "Hall Watch",
+      "GridForge"
+    ],
+    "schemaOrgImageObject": {
+      "@type": "ImageObject",
+      "contentUrl": "/images/visuals/hall-watch-quarterly-vs-ondemand.png",
+      "thumbnailUrl": "/images/og/hall-watch-quarterly-vs-ondemand-og.png",
+      "description": "Contrasts scheduled quarterly Hall Watch runs against event-driven re-solves when a buyer updates site parameters.",
+      "width": 1600,
+      "height": 900,
+      "encodingFormat": "image/png"
+    }
+  },
+  {
+    "id": "49",
+    "slug": "hall-watch-input-update",
+    "targetRoute": "/products/hall-watch",
+    "targetSection": "intake",
+    "pngPath": "/images/visuals/hall-watch-input-update.png",
+    "webpPath": "/images/visuals/hall-watch-input-update.webp",
+    "ogPath": "/images/og/hall-watch-input-update-og.png",
+    "width": 1600,
+    "height": 900,
+    "alt": "Private Hall Watch input portal showing revised tap-off rating, chiller capacity and grid agreement values submitted for re-solve.",
+    "caption": "Update any hall parameter through your private watch link as site conditions change.",
+    "aeoSummary": "Shows the private Hall Watch intake and parameter update interface used to record new equipment ratings or revised utility limits.",
+    "keywords": [
+      "Hall Watch intake",
+      "parameter update",
+      "site changes",
+      "GridForge"
+    ],
+    "schemaOrgImageObject": {
+      "@type": "ImageObject",
+      "contentUrl": "/images/visuals/hall-watch-input-update.png",
+      "thumbnailUrl": "/images/og/hall-watch-input-update-og.png",
+      "description": "Shows the private Hall Watch intake and parameter update interface used to record new equipment ratings or revised utility limits.",
+      "width": 1600,
+      "height": 900,
+      "encodingFormat": "image/png"
+    }
+  },
+  {
+    "id": "50",
+    "slug": "hall-watch-process-steps",
+    "targetRoute": "/products/hall-watch",
+    "targetSection": "process",
+    "pngPath": "/images/visuals/hall-watch-process-steps.png",
+    "webpPath": "/images/visuals/hall-watch-process-steps.webp",
+    "ogPath": "/images/og/hall-watch-process-steps-og.png",
+    "width": 1600,
+    "height": 900,
+    "alt": "Four-step Hall Watch sequence: subscribe, submit hall numbers, automatic engine re-solve and diffed change note delivery.",
+    "caption": "Subscribe, submit baseline numbers, update inputs anytime and receive diffed change notes.",
+    "aeoSummary": "Walks through the four operational steps of Hall Watch from baseline intake to automated diff reporting.",
+    "keywords": [
+      "Hall Watch process",
+      "change note workflow",
+      "model monitoring",
+      "GridForge"
+    ],
+    "schemaOrgImageObject": {
+      "@type": "ImageObject",
+      "contentUrl": "/images/visuals/hall-watch-process-steps.png",
+      "thumbnailUrl": "/images/og/hall-watch-process-steps-og.png",
+      "description": "Walks through the four operational steps of Hall Watch from baseline intake to automated diff reporting.",
+      "width": 1600,
+      "height": 900,
+      "encodingFormat": "image/png"
+    }
+  },
+  {
+    "id": "51",
+    "slug": "hall-watch-continuous-timeline",
+    "targetRoute": "/products/hall-watch",
+    "targetSection": "cadence",
+    "pngPath": "/images/visuals/hall-watch-continuous-timeline.png",
+    "webpPath": "/images/visuals/hall-watch-continuous-timeline.webp",
+    "ogPath": "/images/og/hall-watch-continuous-timeline-og.png",
+    "width": 1600,
+    "height": 900,
+    "alt": "Multi-quarter timeline tracking baseline hall state, mid-quarter plant update, quarterly checkpoint and updated constraint state.",
+    "caption": "Multi-quarter tracking across scheduled checkpoints and mid-quarter engineering changes.",
+    "aeoSummary": "Illustrates how Hall Watch maintains a continuous audit trail of hall capacity across quarters and equipment upgrades.",
+    "keywords": [
+      "monitoring timeline",
+      "quarterly checkpoints",
+      "audit trail",
+      "Hall Watch"
+    ],
+    "schemaOrgImageObject": {
+      "@type": "ImageObject",
+      "contentUrl": "/images/visuals/hall-watch-continuous-timeline.png",
+      "thumbnailUrl": "/images/og/hall-watch-continuous-timeline-og.png",
+      "description": "Illustrates how Hall Watch maintains a continuous audit trail of hall capacity across quarters and equipment upgrades.",
+      "width": 1600,
+      "height": 900,
+      "encodingFormat": "image/png"
+    }
+  },
+  {
+    "id": "52",
+    "slug": "hall-watch-quarterly-change-note",
+    "targetRoute": "/products/hall-watch",
+    "targetSection": "deliverable",
+    "pngPath": "/images/visuals/hall-watch-quarterly-change-note.png",
+    "webpPath": "/images/visuals/hall-watch-quarterly-change-note.webp",
+    "ogPath": "/images/og/hall-watch-quarterly-change-note-og.png",
+    "width": 1600,
+    "height": 900,
+    "alt": "Quarterly change note document showing prior versus current deployable racks, binding constraint status and input diff table.",
+    "caption": "Quarterly change note comparing current deployable capacity against the prior solve.",
+    "aeoSummary": "Previews the automatic Hall Watch quarterly change note summarizing capacity deltas and binding constraint shifts.",
+    "keywords": [
+      "quarterly change note",
+      "capacity diff",
+      "Hall Watch deliverable",
+      "GridForge"
+    ],
+    "schemaOrgImageObject": {
+      "@type": "ImageObject",
+      "contentUrl": "/images/visuals/hall-watch-quarterly-change-note.png",
+      "thumbnailUrl": "/images/og/hall-watch-quarterly-change-note-og.png",
+      "description": "Previews the automatic Hall Watch quarterly change note summarizing capacity deltas and binding constraint shifts.",
+      "width": 1600,
+      "height": 900,
+      "encodingFormat": "image/png"
+    }
+  },
+  {
+    "id": "53",
+    "slug": "hall-watch-change-note-detail",
+    "targetRoute": "/products/hall-watch",
+    "targetSection": "deliverable",
+    "pngPath": "/images/visuals/hall-watch-change-note-detail.png",
+    "webpPath": "/images/visuals/hall-watch-change-note-detail.webp",
+    "ogPath": "/images/og/hall-watch-change-note-detail-og.png",
+    "width": 1600,
+    "height": 900,
+    "alt": "Close-up diff view pinpointing which updated electrical or thermal input shifted the binding constraint and rack count.",
+    "caption": "Input-level diff naming the exact parameter change that moved the answer.",
+    "aeoSummary": "Shows the granular parameter diff inside a Hall Watch change note attributing rack deltas to specific input updates.",
+    "keywords": [
+      "change note detail",
+      "input attribution",
+      "constraint shift",
+      "Hall Watch"
+    ],
+    "schemaOrgImageObject": {
+      "@type": "ImageObject",
+      "contentUrl": "/images/visuals/hall-watch-change-note-detail.png",
+      "thumbnailUrl": "/images/og/hall-watch-change-note-detail-og.png",
+      "description": "Shows the granular parameter diff inside a Hall Watch change note attributing rack deltas to specific input updates.",
+      "width": 1600,
+      "height": 900,
+      "encodingFormat": "image/png"
+    }
+  },
+  {
+    "id": "54",
+    "slug": "hall-watch-nothing-material",
+    "targetRoute": "/products/hall-watch",
+    "targetSection": "change-notes",
+    "pngPath": "/images/visuals/hall-watch-nothing-material.png",
+    "webpPath": "/images/visuals/hall-watch-nothing-material.webp",
+    "ogPath": "/images/og/hall-watch-nothing-material-og.png",
+    "width": 1600,
+    "height": 900,
+    "alt": "Change note status card explicitly reporting Nothing Material to Report when input variations leave the decision unchanged.",
+    "caption": "Nothing material to report is a first-class answer when the binding decision holds steady.",
+    "aeoSummary": "Demonstrates how Hall Watch explicitly reports when minor parameter drift does not alter deployable racks or the binding constraint.",
+    "keywords": [
+      "nothing material to report",
+      "decision stability",
+      "Hall Watch",
+      "epistemic honesty"
+    ],
+    "schemaOrgImageObject": {
+      "@type": "ImageObject",
+      "contentUrl": "/images/visuals/hall-watch-nothing-material.png",
+      "thumbnailUrl": "/images/og/hall-watch-nothing-material-og.png",
+      "description": "Demonstrates how Hall Watch explicitly reports when minor parameter drift does not alter deployable racks or the binding constraint.",
+      "width": 1600,
+      "height": 900,
+      "encodingFormat": "image/png"
+    }
+  },
+  {
+    "id": "55",
+    "slug": "hall-watch-persistent-model",
+    "targetRoute": "/products/hall-watch",
+    "targetSection": "persistence",
+    "pngPath": "/images/visuals/hall-watch-persistent-model.png",
+    "webpPath": "/images/visuals/hall-watch-persistent-model.webp",
+    "ogPath": "/images/og/hall-watch-persistent-model-og.png",
+    "width": 1600,
+    "height": 900,
+    "alt": "Architecture diagram of a versioned hall twin preserving electrical, thermal and structural state across successive solves.",
+    "caption": "Versioned hall record keeping inputs, assumptions and provenance digests aligned over time.",
+    "aeoSummary": "Shows how Hall Watch stores a persistent, versioned hall model so subsequent updates never start from a blank sheet.",
+    "keywords": [
+      "persistent model",
+      "versioned hall state",
+      "provenance history",
+      "Hall Watch"
+    ],
+    "schemaOrgImageObject": {
+      "@type": "ImageObject",
+      "contentUrl": "/images/visuals/hall-watch-persistent-model.png",
+      "thumbnailUrl": "/images/og/hall-watch-persistent-model-og.png",
+      "description": "Shows how Hall Watch stores a persistent, versioned hall model so subsequent updates never start from a blank sheet.",
+      "width": 1600,
+      "height": 900,
+      "encodingFormat": "image/png"
+    }
+  },
+  {
+    "id": "56",
+    "slug": "hall-watch-live-envelope",
+    "targetRoute": "/products/hall-watch",
+    "targetSection": "envelope",
+    "pngPath": "/images/visuals/hall-watch-live-envelope.png",
+    "webpPath": "/images/visuals/hall-watch-live-envelope.webp",
+    "ogPath": "/images/og/hall-watch-live-envelope-og.png",
+    "width": 1600,
+    "height": 900,
+    "alt": "Updated capacity envelope curve showing outward shift of feasible rack density after a cooling or tap-off upgrade.",
+    "caption": "Capacity envelope re-plotted automatically as upgraded plant or revised ratings are entered.",
+    "aeoSummary": "Visualizes how the hall's feasible rack-versus-kW envelope shifts as real upgrades or revised utility terms are recorded.",
+    "keywords": [
+      "updated capacity envelope",
+      "constraint curve shift",
+      "Hall Watch",
+      "GridForge"
+    ],
+    "schemaOrgImageObject": {
+      "@type": "ImageObject",
+      "contentUrl": "/images/visuals/hall-watch-live-envelope.png",
+      "thumbnailUrl": "/images/og/hall-watch-live-envelope-og.png",
+      "description": "Visualizes how the hall's feasible rack-versus-kW envelope shifts as real upgrades or revised utility terms are recorded.",
+      "width": 1600,
+      "height": 900,
+      "encodingFormat": "image/png"
+    }
+  },
+  {
+    "id": "57",
+    "slug": "hall-watch-evidence-update",
+    "targetRoute": "/products/hall-watch",
+    "targetSection": "evidence",
+    "pngPath": "/images/visuals/hall-watch-evidence-update.png",
+    "webpPath": "/images/visuals/hall-watch-evidence-update.webp",
+    "ogPath": "/images/og/hall-watch-evidence-update-og.png",
+    "width": 1600,
+    "height": 900,
+    "alt": "Evidence progression chart showing assumed E0 and E1 placeholders upgraded to E3 design drawings and E5 commissioning records.",
+    "caption": "Evidence class progression as assumed placeholders are replaced with site records.",
+    "aeoSummary": "Tracks how Hall Watch upgrades figure provenance from E0–E1 assumptions to stronger E3–E6 site records as documentation arrives.",
+    "keywords": [
+      "evidence upgrade",
+      "E0 to E6",
+      "provenance tracking",
+      "Hall Watch"
+    ],
+    "schemaOrgImageObject": {
+      "@type": "ImageObject",
+      "contentUrl": "/images/visuals/hall-watch-evidence-update.png",
+      "thumbnailUrl": "/images/og/hall-watch-evidence-update-og.png",
+      "description": "Tracks how Hall Watch upgrades figure provenance from E0–E1 assumptions to stronger E3–E6 site records as documentation arrives.",
+      "width": 1600,
+      "height": 900,
+      "encodingFormat": "image/png"
+    }
+  },
+  {
+    "id": "58",
+    "slug": "hall-watch-before-after-resolve",
+    "targetRoute": "/products/hall-watch",
+    "targetSection": "outcome",
+    "pngPath": "/images/visuals/hall-watch-before-after-resolve.png",
+    "webpPath": "/images/visuals/hall-watch-before-after-resolve.webp",
+    "ogPath": "/images/og/hall-watch-before-after-resolve-og.png",
+    "width": 1600,
+    "height": 900,
+    "alt": "Before-and-after constraint comparison showing binding limit migrating from busway tap-off to residual air cooling after electrical work.",
+    "caption": "Before and after re-solve showing which constraint binds next once the first wall moves.",
+    "aeoSummary": "Illustrates how relieving one bottleneck exposes the next binding constraint on the hall's updated model.",
+    "keywords": [
+      "before and after resolve",
+      "next binding constraint",
+      "Hall Watch",
+      "GridForge"
+    ],
+    "schemaOrgImageObject": {
+      "@type": "ImageObject",
+      "contentUrl": "/images/visuals/hall-watch-before-after-resolve.png",
+      "thumbnailUrl": "/images/og/hall-watch-before-after-resolve-og.png",
+      "description": "Illustrates how relieving one bottleneck exposes the next binding constraint on the hall's updated model.",
+      "width": 1600,
+      "height": 900,
+      "encodingFormat": "image/png"
+    }
+  },
+  {
+    "id": "59",
+    "slug": "hall-watch-decision-impact",
+    "targetRoute": "/products/hall-watch",
+    "targetSection": "decision",
+    "pngPath": "/images/visuals/hall-watch-decision-impact.png",
+    "webpPath": "/images/visuals/hall-watch-decision-impact.webp",
+    "ogPath": "/images/og/hall-watch-decision-impact-og.png",
+    "width": 1600,
+    "height": 900,
+    "alt": "Decision-impact indicator flagging when a revised utility, thermal or platform parameter changes the capital plan.",
+    "caption": "Decision-impact flag separating noise from changes that alter your capital plan.",
+    "aeoSummary": "Highlights whether a quarterly or input-triggered re-solve crosses a threshold that changes the hall owner's deployment decision.",
+    "keywords": [
+      "decision impact",
+      "capital plan threshold",
+      "Hall Watch",
+      "Time to Power"
+    ],
+    "schemaOrgImageObject": {
+      "@type": "ImageObject",
+      "contentUrl": "/images/visuals/hall-watch-decision-impact.png",
+      "thumbnailUrl": "/images/og/hall-watch-decision-impact-og.png",
+      "description": "Highlights whether a quarterly or input-triggered re-solve crosses a threshold that changes the hall owner's deployment decision.",
+      "width": 1600,
+      "height": 900,
+      "encodingFormat": "image/png"
+    }
+  },
+  {
+    "id": "60",
+    "slug": "hall-watch-final-cta",
+    "targetRoute": "/products/hall-watch",
+    "targetSection": "cta",
+    "pngPath": "/images/visuals/hall-watch-final-cta.png",
+    "webpPath": "/images/visuals/hall-watch-final-cta.webp",
+    "ogPath": "/images/og/hall-watch-final-cta-og.png",
+    "width": 1600,
+    "height": 900,
+    "alt": "Summary card for starting Hall Watch to keep one hall's constraint model current each quarter.",
+    "caption": "Start Hall Watch on your hall or compare all engineering engagements on pricing.",
+    "aeoSummary": "Summarizes how to subscribe to Hall Watch via checkout and submit hall numbers through the private intake link.",
+    "keywords": [
+      "start Hall Watch",
+      "quarterly hall monitoring",
+      "Time to Power"
+    ],
+    "schemaOrgImageObject": {
+      "@type": "ImageObject",
+      "contentUrl": "/images/visuals/hall-watch-final-cta.png",
+      "thumbnailUrl": "/images/og/hall-watch-final-cta-og.png",
+      "description": "Summarizes how to subscribe to Hall Watch via checkout and submit hall numbers through the private intake link.",
+      "width": 1600,
+      "height": 900,
+      "encodingFormat": "image/png"
+    }
+  },
+  {
+    "id": "61",
+    "slug": "intelligence-regional-ranking",
+    "targetRoute": "/intelligence",
+    "targetSection": "hero",
+    "pngPath": "/images/visuals/intelligence-regional-ranking.png",
+    "webpPath": "/images/visuals/intelligence-regional-ranking.webp",
+    "ogPath": "/images/og/intelligence-regional-ranking-og.png",
+    "width": 1600,
+    "height": 900,
+    "alt": "Modelled regional siting dashboard ranking power markets by composite speed, wholesale cost and queue score.",
+    "caption": "Modelled regional ranking scoring markets by assumed behind-the-meter speed, power cost and queue pressure.",
+    "aeoSummary": "GridForge Intelligence ranks regions using a transparent modelled composite score alongside measured US queue history and market context.",
+    "keywords": [
+      "GridForge Intelligence",
+      "regional siting ranking",
+      "time to energize",
+      "modelled score"
+    ],
+    "schemaOrgImageObject": {
+      "@type": "ImageObject",
+      "contentUrl": "/images/visuals/intelligence-regional-ranking.png",
+      "thumbnailUrl": "/images/og/intelligence-regional-ranking-og.png",
+      "description": "GridForge Intelligence ranks regions using a transparent modelled composite score alongside measured US queue history and market context.",
+      "width": 1600,
+      "height": 900,
+      "encodingFormat": "image/png"
+    }
+  },
+  {
+    "id": "62",
+    "slug": "intelligence-regional-map",
+    "targetRoute": "/intelligence",
+    "targetSection": "map",
+    "pngPath": "/images/visuals/intelligence-regional-map.png",
+    "webpPath": "/images/visuals/intelligence-regional-map.webp",
+    "ogPath": "/images/og/intelligence-regional-map-og.png",
+    "width": 1600,
+    "height": 900,
+    "alt": "Geographic market map comparing modelled energization timelines and grid congestion across North American and European regions.",
+    "caption": "Regional market map contrasting modelled siting scores across tracked jurisdictions.",
+    "aeoSummary": "Displays geographic variation in modelled siting scores, interconnection congestion and power cost context across tracked markets.",
+    "keywords": [
+      "regional siting map",
+      "power markets",
+      "grid congestion",
+      "GridForge Intelligence"
+    ],
+    "schemaOrgImageObject": {
+      "@type": "ImageObject",
+      "contentUrl": "/images/visuals/intelligence-regional-map.png",
+      "thumbnailUrl": "/images/og/intelligence-regional-map-og.png",
+      "description": "Displays geographic variation in modelled siting scores, interconnection congestion and power cost context across tracked markets.",
+      "width": 1600,
+      "height": 900,
+      "encodingFormat": "image/png"
+    }
+  },
+  {
+    "id": "63",
+    "slug": "intelligence-modelled-badge",
+    "targetRoute": "/intelligence",
+    "targetSection": "trust",
+    "pngPath": "/images/visuals/intelligence-modelled-badge.png",
+    "webpPath": "/images/visuals/intelligence-modelled-badge.webp",
+    "ogPath": "/images/og/intelligence-modelled-badge-og.png",
+    "width": 1600,
+    "height": 900,
+    "alt": "Epistemic disclosure badge stating Modelled Subscription, Not a Verified-Site Portfolio, with zero reconciled calibration rows.",
+    "caption": "Explicit scope disclosure: a modelled regional subscription, never a verified-site portfolio.",
+    "aeoSummary": "Reinforces epistemic honesty on GridForge Intelligence by stating that regional rankings are modelled and the field calibration ledger holds zero rows.",
+    "keywords": [
+      "modelled badge",
+      "not verified sites",
+      "epistemic disclosure",
+      "GridForge Intelligence"
+    ],
+    "schemaOrgImageObject": {
+      "@type": "ImageObject",
+      "contentUrl": "/images/visuals/intelligence-modelled-badge.png",
+      "thumbnailUrl": "/images/og/intelligence-modelled-badge-og.png",
+      "description": "Reinforces epistemic honesty on GridForge Intelligence by stating that regional rankings are modelled and the field calibration ledger holds zero rows.",
+      "width": 1600,
+      "height": 900,
+      "encodingFormat": "image/png"
+    }
+  },
+  {
+    "id": "64",
+    "slug": "intelligence-modelled-measured-assumed",
+    "targetRoute": "/intelligence",
+    "targetSection": "labels",
+    "pngPath": "/images/visuals/intelligence-modelled-measured-assumed.png",
+    "webpPath": "/images/visuals/intelligence-modelled-measured-assumed.webp",
+    "ogPath": "/images/og/intelligence-modelled-measured-assumed-og.png",
+    "width": 1600,
+    "height": 900,
+    "alt": "Three-column provenance key distinguishing Modelled scores, Measured LBNL queue records and Assumed behind-the-meter lead times.",
+    "caption": "Every figure carries its basis: Modelled, Measured or Assumed — never blended silently.",
+    "aeoSummary": "Explains the three-way provenance taxonomy separating modelled scores, measured historical queue statistics and assumed BTM timelines.",
+    "keywords": [
+      "modelled measured assumed",
+      "data provenance",
+      "signal basis",
+      "GridForge Intelligence"
+    ],
+    "schemaOrgImageObject": {
+      "@type": "ImageObject",
+      "contentUrl": "/images/visuals/intelligence-modelled-measured-assumed.png",
+      "thumbnailUrl": "/images/og/intelligence-modelled-measured-assumed-og.png",
+      "description": "Explains the three-way provenance taxonomy separating modelled scores, measured historical queue statistics and assumed BTM timelines.",
+      "width": 1600,
+      "height": 900,
+      "encodingFormat": "image/png"
+    }
+  },
+  {
+    "id": "65",
+    "slug": "intelligence-lbnl-queue-history",
+    "targetRoute": "/intelligence",
+    "targetSection": "measured-history",
+    "pngPath": "/images/visuals/intelligence-lbnl-queue-history.png",
+    "webpPath": "/images/visuals/intelligence-lbnl-queue-history.webp",
+    "ogPath": "/images/og/intelligence-lbnl-queue-history-og.png",
+    "width": 1600,
+    "height": 900,
+    "alt": "Historical interconnection queue duration chart sourced from LBNL Queued Up data for US markets with explicit non-prediction caveat.",
+    "caption": "Measured US interconnection-queue history (LBNL) — historical context, not a site connection promise.",
+    "aeoSummary": "Presents measured US generation interconnection queue durations from LBNL while noting they are not load-connection times for any specific site.",
+    "keywords": [
+      "LBNL queue history",
+      "interconnection queue",
+      "measured statistics",
+      "GridForge Intelligence"
+    ],
+    "schemaOrgImageObject": {
+      "@type": "ImageObject",
+      "contentUrl": "/images/visuals/intelligence-lbnl-queue-history.png",
+      "thumbnailUrl": "/images/og/intelligence-lbnl-queue-history-og.png",
+      "description": "Presents measured US generation interconnection queue durations from LBNL while noting they are not load-connection times for any specific site.",
+      "width": 1600,
+      "height": 900,
+      "encodingFormat": "image/png"
+    }
+  },
+  {
+    "id": "66",
+    "slug": "intelligence-price-grid-mix",
+    "targetRoute": "/intelligence",
+    "targetSection": "market-context",
+    "pngPath": "/images/visuals/intelligence-price-grid-mix.png",
+    "webpPath": "/images/visuals/intelligence-price-grid-mix.webp",
+    "ogPath": "/images/og/intelligence-price-grid-mix-og.png",
+    "width": 1600,
+    "height": 900,
+    "alt": "Market context cards displaying EPEX day-ahead auction prices and Fraunhofer ISE generation mix with source and retrieval timestamps.",
+    "caption": "Day-ahead price and generation-mix context with source timestamps, or Unavailable when a feed fails.",
+    "aeoSummary": "Shows provenance-stamped wholesale electricity price and grid generation-mix context cards that display Unavailable rather than placeholders on feed failure.",
+    "keywords": [
+      "EPEX day-ahead",
+      "generation mix",
+      "market context",
+      "provenance timestamps"
+    ],
+    "schemaOrgImageObject": {
+      "@type": "ImageObject",
+      "contentUrl": "/images/visuals/intelligence-price-grid-mix.png",
+      "thumbnailUrl": "/images/og/intelligence-price-grid-mix-og.png",
+      "description": "Shows provenance-stamped wholesale electricity price and grid generation-mix context cards that display Unavailable rather than placeholders on feed failure.",
+      "width": 1600,
+      "height": 900,
+      "encodingFormat": "image/png"
+    }
+  },
+  {
+    "id": "67",
+    "slug": "intelligence-queue-vs-btm",
+    "targetRoute": "/intelligence",
+    "targetSection": "comparison",
+    "pngPath": "/images/visuals/intelligence-queue-vs-btm.png",
+    "webpPath": "/images/visuals/intelligence-queue-vs-btm.webp",
+    "ogPath": "/images/og/intelligence-queue-vs-btm-og.png",
+    "width": 1600,
+    "height": 900,
+    "alt": "Timeline comparison contrasting historical utility queue waits against assumed behind-the-meter energization ranges.",
+    "caption": "Historical utility queue durations compared beside assumed behind-the-meter timelines.",
+    "aeoSummary": "Compares historical utility interconnection wait distributions against assumed behind-the-meter supply lead times as planning context.",
+    "keywords": [
+      "queue vs BTM",
+      "energization timeline",
+      "behind-the-meter context",
+      "GridForge Intelligence"
+    ],
+    "schemaOrgImageObject": {
+      "@type": "ImageObject",
+      "contentUrl": "/images/visuals/intelligence-queue-vs-btm.png",
+      "thumbnailUrl": "/images/og/intelligence-queue-vs-btm-og.png",
+      "description": "Compares historical utility interconnection wait distributions against assumed behind-the-meter supply lead times as planning context.",
+      "width": 1600,
+      "height": 900,
+      "encodingFormat": "image/png"
+    }
+  },
+  {
+    "id": "68",
+    "slug": "intelligence-btm-unlocks",
+    "targetRoute": "/intelligence",
+    "targetSection": "btm",
+    "pngPath": "/images/visuals/intelligence-btm-unlocks.png",
+    "webpPath": "/images/visuals/intelligence-btm-unlocks.webp",
+    "ogPath": "/images/og/intelligence-btm-unlocks-og.png",
+    "width": 1600,
+    "height": 900,
+    "alt": "Analytical breakdown scoring behind-the-meter supply as a named relief option with zero equipment brokerage or hardware margin.",
+    "caption": "Behind-the-meter supply evaluated strictly as a modelled relief option — no hardware sold.",
+    "aeoSummary": "Illustrates how behind-the-meter generation and storage options are scored analytically in regional comparisons without selling equipment.",
+    "keywords": [
+      "BTM relief option",
+      "no hardware sold",
+      "siting analysis",
+      "GridForge Intelligence"
+    ],
+    "schemaOrgImageObject": {
+      "@type": "ImageObject",
+      "contentUrl": "/images/visuals/intelligence-btm-unlocks.png",
+      "thumbnailUrl": "/images/og/intelligence-btm-unlocks-og.png",
+      "description": "Illustrates how behind-the-meter generation and storage options are scored analytically in regional comparisons without selling equipment.",
+      "width": 1600,
+      "height": 900,
+      "encodingFormat": "image/png"
+    }
+  },
+  {
+    "id": "69",
+    "slug": "intelligence-cost-of-delay",
+    "targetRoute": "/intelligence",
+    "targetSection": "scenario",
+    "pngPath": "/images/visuals/intelligence-cost-of-delay.png",
+    "webpPath": "/images/visuals/intelligence-cost-of-delay.webp",
+    "ogPath": "/images/og/intelligence-cost-of-delay-og.png",
+    "width": 1600,
+    "height": 900,
+    "alt": "Sensitivity chart illustrating opportunity cost of delayed compute energization across multi-quarter queue slippages.",
+    "caption": "Schedule-delay sensitivity showing how energization timing dominates siting trade-offs.",
+    "aeoSummary": "Models the schedule sensitivity of AI infrastructure deployments when interconnection waits slip across quarters.",
+    "keywords": [
+      "cost of delay",
+      "energization schedule",
+      "siting trade-offs",
+      "GridForge Intelligence"
+    ],
+    "schemaOrgImageObject": {
+      "@type": "ImageObject",
+      "contentUrl": "/images/visuals/intelligence-cost-of-delay.png",
+      "thumbnailUrl": "/images/og/intelligence-cost-of-delay-og.png",
+      "description": "Models the schedule sensitivity of AI infrastructure deployments when interconnection waits slip across quarters.",
+      "width": 1600,
+      "height": 900,
+      "encodingFormat": "image/png"
+    }
+  },
+  {
+    "id": "70",
+    "slug": "intelligence-live-scenario",
+    "targetRoute": "/intelligence",
+    "targetSection": "interactive",
+    "pngPath": "/images/visuals/intelligence-live-scenario.png",
+    "webpPath": "/images/visuals/intelligence-live-scenario.webp",
+    "ogPath": "/images/og/intelligence-live-scenario-og.png",
+    "width": 1600,
+    "height": 900,
+    "alt": "Interactive wholesale-price operating-cost scenario tool with user-adjustable load and storage dials over published auction curves.",
+    "caption": "Wholesale-price scenario lab combining published auction curves with parameters you dial in.",
+    "aeoSummary": "Previews the interactive operating-cost scenario calculator driven by published day-ahead auction prices and user-selected inputs.",
+    "keywords": [
+      "wholesale price scenario",
+      "operating cost lab",
+      "EPEX Spot",
+      "GridForge Intelligence"
+    ],
+    "schemaOrgImageObject": {
+      "@type": "ImageObject",
+      "contentUrl": "/images/visuals/intelligence-live-scenario.png",
+      "thumbnailUrl": "/images/og/intelligence-live-scenario-og.png",
+      "description": "Previews the interactive operating-cost scenario calculator driven by published day-ahead auction prices and user-selected inputs.",
+      "width": 1600,
+      "height": 900,
+      "encodingFormat": "image/png"
+    }
+  },
+  {
+    "id": "71",
+    "slug": "intelligence-ai-siting-analyst",
+    "targetRoute": "/intelligence",
+    "targetSection": "analyst",
+    "pngPath": "/images/visuals/intelligence-ai-siting-analyst.png",
+    "webpPath": "/images/visuals/intelligence-ai-siting-analyst.webp",
+    "ogPath": "/images/og/intelligence-ai-siting-analyst-og.png",
+    "width": 1600,
+    "height": 900,
+    "alt": "Siting analyst workspace querying the modelled regional dataset with explicit source and basis citations.",
+    "caption": "Siting analyst interface grounded in the modelled regional dataset and its stated limits.",
+    "aeoSummary": "Shows the AI siting analyst tool constrained to cite modelled, measured and assumed provenance without claiming unverified accuracy.",
+    "keywords": [
+      "AI siting analyst",
+      "regional query",
+      "grounded citations",
+      "GridForge Intelligence"
+    ],
+    "schemaOrgImageObject": {
+      "@type": "ImageObject",
+      "contentUrl": "/images/visuals/intelligence-ai-siting-analyst.png",
+      "thumbnailUrl": "/images/og/intelligence-ai-siting-analyst-og.png",
+      "description": "Shows the AI siting analyst tool constrained to cite modelled, measured and assumed provenance without claiming unverified accuracy.",
+      "width": 1600,
+      "height": 900,
+      "encodingFormat": "image/png"
+    }
+  },
+  {
+    "id": "72",
+    "slug": "intelligence-saved-scenarios",
+    "targetRoute": "/intelligence",
+    "targetSection": "scenarios",
+    "pngPath": "/images/visuals/intelligence-saved-scenarios.png",
+    "webpPath": "/images/visuals/intelligence-saved-scenarios.webp",
+    "ogPath": "/images/og/intelligence-saved-scenarios-og.png",
+    "width": 1600,
+    "height": 900,
+    "alt": "Subscriber account view listing saved regional siting scenarios and parameter sets for side-by-side comparison.",
+    "caption": "Saved regional scenarios inside the subscriber workspace for repeatable market comparisons.",
+    "aeoSummary": "Depicts the subscriber workspace where regional siting assumptions and scenario runs are stored for team comparison.",
+    "keywords": [
+      "saved scenarios",
+      "subscriber workspace",
+      "market comparison",
+      "GridForge Intelligence"
+    ],
+    "schemaOrgImageObject": {
+      "@type": "ImageObject",
+      "contentUrl": "/images/visuals/intelligence-saved-scenarios.png",
+      "thumbnailUrl": "/images/og/intelligence-saved-scenarios-og.png",
+      "description": "Depicts the subscriber workspace where regional siting assumptions and scenario runs are stored for team comparison.",
+      "width": 1600,
+      "height": 900,
+      "encodingFormat": "image/png"
+    }
+  },
+  {
+    "id": "73",
+    "slug": "intelligence-board-brief",
+    "targetRoute": "/intelligence",
+    "targetSection": "deliverable",
+    "pngPath": "/images/visuals/intelligence-board-brief.png",
+    "webpPath": "/images/visuals/intelligence-board-brief.webp",
+    "ogPath": "/images/og/intelligence-board-brief-og.png",
+    "width": 1600,
+    "height": 900,
+    "alt": "Exportable siting board brief summarizing regional rankings, queue context, methodology weights and epistemic disclosures.",
+    "caption": "Exportable board brief carrying every regional score alongside its methodology and basis notes.",
+    "aeoSummary": "Previews the downloadable regional siting brief formatted for internal infrastructure reviews with full provenance labels.",
+    "keywords": [
+      "siting board brief",
+      "PDF export",
+      "regional methodology",
+      "GridForge Intelligence"
+    ],
+    "schemaOrgImageObject": {
+      "@type": "ImageObject",
+      "contentUrl": "/images/visuals/intelligence-board-brief.png",
+      "thumbnailUrl": "/images/og/intelligence-board-brief-og.png",
+      "description": "Previews the downloadable regional siting brief formatted for internal infrastructure reviews with full provenance labels.",
+      "width": 1600,
+      "height": 900,
+      "encodingFormat": "image/png"
+    }
+  },
+  {
+    "id": "74",
+    "slug": "intelligence-solo-pricing",
+    "targetRoute": "/intelligence",
+    "targetSection": "pricing",
+    "pngPath": "/images/visuals/intelligence-solo-pricing.png",
+    "webpPath": "/images/visuals/intelligence-solo-pricing.webp",
+    "ogPath": "/images/og/intelligence-solo-pricing-og.png",
+    "width": 1600,
+    "height": 900,
+    "alt": "Monthly subscription tier card for GridForge Intelligence Solo seat access with siting ranking, queue history and scenario tools.",
+    "caption": "Monthly subscription access starting with the single-seat Solo tier.",
+    "aeoSummary": "Highlights the Solo monthly subscription tier for individual infrastructure analysts evaluating regional time-to-energize.",
+    "keywords": [
+      "Intelligence Solo",
+      "monthly subscription",
+      "siting dashboard",
+      "GridForge"
+    ],
+    "schemaOrgImageObject": {
+      "@type": "ImageObject",
+      "contentUrl": "/images/visuals/intelligence-solo-pricing.png",
+      "thumbnailUrl": "/images/og/intelligence-solo-pricing-og.png",
+      "description": "Highlights the Solo monthly subscription tier for individual infrastructure analysts evaluating regional time-to-energize.",
+      "width": 1600,
+      "height": 900,
+      "encodingFormat": "image/png"
+    }
+  },
+  {
+    "id": "75",
+    "slug": "intelligence-final-cta",
+    "targetRoute": "/intelligence",
+    "targetSection": "cta",
+    "pngPath": "/images/visuals/intelligence-final-cta.png",
+    "webpPath": "/images/visuals/intelligence-final-cta.webp",
+    "ogPath": "/images/og/intelligence-final-cta-og.png",
+    "width": 1600,
+    "height": 900,
+    "alt": "Subscription call-to-action card summarizing modelled regional ranking, measured US queue history and transparent market context.",
+    "caption": "Subscribe to GridForge Intelligence or sign in to an existing seat.",
+    "aeoSummary": "Summarizes what is included in a GridForge Intelligence subscription and how subscribers sign in via passwordless link.",
+    "keywords": [
+      "subscribe GridForge Intelligence",
+      "regional siting",
+      "Time to Power"
+    ],
+    "schemaOrgImageObject": {
+      "@type": "ImageObject",
+      "contentUrl": "/images/visuals/intelligence-final-cta.png",
+      "thumbnailUrl": "/images/og/intelligence-final-cta-og.png",
+      "description": "Summarizes what is included in a GridForge Intelligence subscription and how subscribers sign in via passwordless link.",
+      "width": 1600,
+      "height": 900,
+      "encodingFormat": "image/png"
+    }
+  },
+  {
+    "id": "76",
+    "slug": "qualify-what-stops-hall",
+    "targetRoute": "/qualify",
+    "targetSection": "hero",
+    "pngPath": "/images/visuals/qualify-what-stops-hall.png",
+    "webpPath": "/images/visuals/qualify-what-stops-hall.webp",
+    "ogPath": "/images/og/qualify-what-stops-hall-og.png",
+    "width": 1600,
+    "height": 900,
+    "alt": "Isometric data hall cutaway highlighting electrical, thermal and structural bottlenecks that cap AI rack deployment before utility MW limits.",
+    "caption": "Thirteen physical limits across electrical, thermal and structural domains — one binds first.",
+    "aeoSummary": "Illustrates how sub-system limits inside an existing data hall cap high-density AI racks well below headline utility megawatts.",
+    "keywords": [
+      "what stops your hall",
+      "free capacity check",
+      "binding limit",
+      "GridForge"
+    ],
+    "schemaOrgImageObject": {
+      "@type": "ImageObject",
+      "contentUrl": "/images/visuals/qualify-what-stops-hall.png",
+      "thumbnailUrl": "/images/og/qualify-what-stops-hall-og.png",
+      "description": "Illustrates how sub-system limits inside an existing data hall cap high-density AI racks well below headline utility megawatts.",
+      "width": 1600,
+      "height": 900,
+      "encodingFormat": "image/png"
+    }
+  },
+  {
+    "id": "77",
+    "slug": "qualify-free-directional-badge",
+    "targetRoute": "/qualify",
+    "targetSection": "trust",
+    "pngPath": "/images/visuals/qualify-free-directional-badge.png",
+    "webpPath": "/images/visuals/qualify-free-directional-badge.webp",
+    "ogPath": "/images/og/qualify-free-directional-badge-og.png",
+    "width": 1600,
+    "height": 900,
+    "alt": "Verification badge showing Free Directional Screening powered by the deterministic GridForge solver.",
+    "caption": "Free directional screening solved by the same deterministic engine used in paid studies.",
+    "aeoSummary": "Confirms that the free capacity qualifier runs the identical deterministic 13-constraint physics engine used for human-reviewed studies.",
+    "keywords": [
+      "free directional check",
+      "deterministic solver",
+      "capacity qualifier",
+      "GridForge"
+    ],
+    "schemaOrgImageObject": {
+      "@type": "ImageObject",
+      "contentUrl": "/images/visuals/qualify-free-directional-badge.png",
+      "thumbnailUrl": "/images/og/qualify-free-directional-badge-og.png",
+      "description": "Confirms that the free capacity qualifier runs the identical deterministic 13-constraint physics engine used for human-reviewed studies.",
+      "width": 1600,
+      "height": 900,
+      "encodingFormat": "image/png"
+    }
+  },
+  {
+    "id": "78",
+    "slug": "qualify-no-card-no-account",
+    "targetRoute": "/qualify",
+    "targetSection": "trust",
+    "pngPath": "/images/visuals/qualify-no-card-no-account.png",
+    "webpPath": "/images/visuals/qualify-no-card-no-account.webp",
+    "ogPath": "/images/og/qualify-no-card-no-account-og.png",
+    "width": 1600,
+    "height": 900,
+    "alt": "Zero-friction access card confirming no payment card, no account registration and no contact details required.",
+    "caption": "No card, no account and no contact details required to run a hall check.",
+    "aeoSummary": "Shows that operators can run the seven-input capacity check immediately in the browser without creating an account or entering contact details.",
+    "keywords": [
+      "no card no account",
+      "instant qualifier",
+      "zero friction",
+      "Time to Power"
+    ],
+    "schemaOrgImageObject": {
+      "@type": "ImageObject",
+      "contentUrl": "/images/visuals/qualify-no-card-no-account.png",
+      "thumbnailUrl": "/images/og/qualify-no-card-no-account-og.png",
+      "description": "Shows that operators can run the seven-input capacity check immediately in the browser without creating an account or entering contact details.",
+      "width": 1600,
+      "height": 900,
+      "encodingFormat": "image/png"
+    }
+  },
+  {
+    "id": "79",
+    "slug": "qualify-seven-input-form",
+    "targetRoute": "/qualify",
+    "targetSection": "form",
+    "pngPath": "/images/visuals/qualify-seven-input-form.png",
+    "webpPath": "/images/visuals/qualify-seven-input-form.webp",
+    "ogPath": "/images/og/qualify-seven-input-form-og.png",
+    "width": 1600,
+    "height": 900,
+    "alt": "Clean browser form displaying the seven hall inputs and target AI rack platform selector for instant qualification.",
+    "caption": "Seven hall numbers in: electrical capacity, load, busway, tap-off, positions and plant supply temperature.",
+    "aeoSummary": "Displays the seven-field browser form that accepts basic electrical, cooling and position counts to compute deployable AI racks.",
+    "keywords": [
+      "seven input form",
+      "capacity qualifier UI",
+      "hall inputs",
+      "GridForge"
+    ],
+    "schemaOrgImageObject": {
+      "@type": "ImageObject",
+      "contentUrl": "/images/visuals/qualify-seven-input-form.png",
+      "thumbnailUrl": "/images/og/qualify-seven-input-form-og.png",
+      "description": "Displays the seven-field browser form that accepts basic electrical, cooling and position counts to compute deployable AI racks.",
+      "width": 1600,
+      "height": 900,
+      "encodingFormat": "image/png"
+    }
+  },
+  {
+    "id": "80",
+    "slug": "qualify-seven-numbers",
+    "targetRoute": "/qualify",
+    "targetSection": "inputs",
+    "pngPath": "/images/visuals/qualify-seven-numbers.png",
+    "webpPath": "/images/visuals/qualify-seven-numbers.webp",
+    "ogPath": "/images/og/qualify-seven-numbers-og.png",
+    "width": 1600,
+    "height": 900,
+    "alt": "Infographic mapping each of the seven hall numbers to the physical switchgear, busway, chiller loop and floor bay it describes.",
+    "caption": "How each of the seven numbers maps to physical hall switchgear, busways and cooling plant.",
+    "aeoSummary": "Connects each of the seven qualifier inputs to its physical counterpart inside an existing colocation or enterprise data hall.",
+    "keywords": [
+      "seven numbers",
+      "switchgear and busway",
+      "plant supply temperature",
+      "qualify"
+    ],
+    "schemaOrgImageObject": {
+      "@type": "ImageObject",
+      "contentUrl": "/images/visuals/qualify-seven-numbers.png",
+      "thumbnailUrl": "/images/og/qualify-seven-numbers-og.png",
+      "description": "Connects each of the seven qualifier inputs to its physical counterpart inside an existing colocation or enterprise data hall.",
+      "width": 1600,
+      "height": 900,
+      "encodingFormat": "image/png"
+    }
+  },
+  {
+    "id": "81",
+    "slug": "qualify-synthetic-reference",
+    "targetRoute": "/qualify",
+    "targetSection": "template",
+    "pngPath": "/images/visuals/qualify-synthetic-reference.png",
+    "webpPath": "/images/visuals/qualify-synthetic-reference.webp",
+    "ogPath": "/images/og/qualify-synthetic-reference-og.png",
+    "width": 1600,
+    "height": 900,
+    "alt": "Synthetic reference hall preset card with every pre-filled parameter explicitly tagged as an assumed demonstration figure.",
+    "caption": "Synthetic reference preset: watch the solver work on labelled assumptions before entering site figures.",
+    "aeoSummary": "Shows how synthetic reference hall presets allow users to inspect solver behaviour with every fallback figure labelled as assumed.",
+    "keywords": [
+      "synthetic reference hall",
+      "preset template",
+      "assumed figures",
+      "GridForge"
+    ],
+    "schemaOrgImageObject": {
+      "@type": "ImageObject",
+      "contentUrl": "/images/visuals/qualify-synthetic-reference.png",
+      "thumbnailUrl": "/images/og/qualify-synthetic-reference-og.png",
+      "description": "Shows how synthetic reference hall presets allow users to inspect solver behaviour with every fallback figure labelled as assumed.",
+      "width": 1600,
+      "height": 900,
+      "encodingFormat": "image/png"
+    }
+  },
+  {
+    "id": "82",
+    "slug": "qualify-thirteen-constraints-map",
+    "targetRoute": "/qualify",
+    "targetSection": "constraints",
+    "pngPath": "/images/visuals/qualify-thirteen-constraints-map.png",
+    "webpPath": "/images/visuals/qualify-thirteen-constraints-map.webp",
+    "ogPath": "/images/og/qualify-thirteen-constraints-map-og.png",
+    "width": 1600,
+    "height": 900,
+    "alt": "Complete map of five electrical, six thermal and two physical constraints converging into the minimum deployable rack count.",
+    "caption": "All thirteen electrical, thermal and structural constraints checked on every run.",
+    "aeoSummary": "Maps all 13 deterministic constraints—5 electrical, 6 thermal and 2 structural—evaluated simultaneously by the free qualifier.",
+    "keywords": [
+      "thirteen constraints map",
+      "electrical thermal structural",
+      "min racks solver",
+      "GridForge"
+    ],
+    "schemaOrgImageObject": {
+      "@type": "ImageObject",
+      "contentUrl": "/images/visuals/qualify-thirteen-constraints-map.png",
+      "thumbnailUrl": "/images/og/qualify-thirteen-constraints-map-og.png",
+      "description": "Maps all 13 deterministic constraints—5 electrical, 6 thermal and 2 structural—evaluated simultaneously by the free qualifier.",
+      "width": 1600,
+      "height": 900,
+      "encodingFormat": "image/png"
+    }
+  },
+  {
+    "id": "83",
+    "slug": "qualify-binding-first",
+    "targetRoute": "/qualify",
+    "targetSection": "result",
+    "pngPath": "/images/visuals/qualify-binding-first.png",
+    "webpPath": "/images/visuals/qualify-binding-first.webp",
+    "ogPath": "/images/og/qualify-binding-first-og.png",
+    "width": 1600,
+    "height": 900,
+    "alt": "Constraint ranking bar chart isolating the lowest-headroom physical limit that stops additional racks first.",
+    "caption": "Why binding-first matters: upstream megawatts stay stranded until the tightest limit is relieved.",
+    "aeoSummary": "Demonstrates how the lowest ceiling among all thirteen constraints sets the true deployable rack count as the hall stands.",
+    "keywords": [
+      "binding first",
+      "limiting constraint",
+      "stranded capacity",
+      "qualify"
+    ],
+    "schemaOrgImageObject": {
+      "@type": "ImageObject",
+      "contentUrl": "/images/visuals/qualify-binding-first.png",
+      "thumbnailUrl": "/images/og/qualify-binding-first-og.png",
+      "description": "Demonstrates how the lowest ceiling among all thirteen constraints sets the true deployable rack count as the hall stands.",
+      "width": 1600,
+      "height": 900,
+      "encodingFormat": "image/png"
+    }
+  },
+  {
+    "id": "84",
+    "slug": "qualify-binding-constraint",
+    "targetRoute": "/qualify",
+    "targetSection": "result",
+    "pngPath": "/images/visuals/qualify-binding-constraint.png",
+    "webpPath": "/images/visuals/qualify-binding-constraint.webp",
+    "ogPath": "/images/og/qualify-binding-constraint-og.png",
+    "width": 1600,
+    "height": 900,
+    "alt": "Qualifier output card naming the binding constraint, baseline deployable racks and physical mechanism behind the cap.",
+    "caption": "Instant output card naming the binding limit and the deployable rack count as found.",
+    "aeoSummary": "Previews the qualifier output card reporting the exact constraint that binds first alongside deployable rack count and explanation.",
+    "keywords": [
+      "binding constraint result",
+      "deployable rack count",
+      "qualifier output",
+      "GridForge"
+    ],
+    "schemaOrgImageObject": {
+      "@type": "ImageObject",
+      "contentUrl": "/images/visuals/qualify-binding-constraint.png",
+      "thumbnailUrl": "/images/og/qualify-binding-constraint-og.png",
+      "description": "Previews the qualifier output card reporting the exact constraint that binds first alongside deployable rack count and explanation.",
+      "width": 1600,
+      "height": 900,
+      "encodingFormat": "image/png"
+    }
+  },
+  {
+    "id": "85",
+    "slug": "qualify-rack-count-current-vs-relief",
+    "targetRoute": "/qualify",
+    "targetSection": "outcome",
+    "pngPath": "/images/visuals/qualify-rack-count-current-vs-relief.png",
+    "webpPath": "/images/visuals/qualify-rack-count-current-vs-relief.webp",
+    "ogPath": "/images/og/qualify-rack-count-current-vs-relief-og.png",
+    "width": 1600,
+    "height": 900,
+    "alt": "Comparison bar chart showing deployable AI racks as the hall stands today versus potential racks after relieving the first bottleneck.",
+    "caption": "Deployable racks as the hall stands today versus after relieving the binding wall.",
+    "aeoSummary": "Compares as-found deployable rack capacity against post-relief rack capacity once the primary electrical or thermal pinch point is addressed.",
+    "keywords": [
+      "current vs relief racks",
+      "headroom delta",
+      "capacity check",
+      "GridForge"
+    ],
+    "schemaOrgImageObject": {
+      "@type": "ImageObject",
+      "contentUrl": "/images/visuals/qualify-rack-count-current-vs-relief.png",
+      "thumbnailUrl": "/images/og/qualify-rack-count-current-vs-relief-og.png",
+      "description": "Compares as-found deployable rack capacity against post-relief rack capacity once the primary electrical or thermal pinch point is addressed.",
+      "width": 1600,
+      "height": 900,
+      "encodingFormat": "image/png"
+    }
+  },
+  {
+    "id": "86",
+    "slug": "qualify-tenancy-relief",
+    "targetRoute": "/qualify",
+    "targetSection": "relief",
+    "pngPath": "/images/visuals/qualify-tenancy-relief.png",
+    "webpPath": "/images/visuals/qualify-tenancy-relief.webp",
+    "ogPath": "/images/og/qualify-tenancy-relief-og.png",
+    "width": 1600,
+    "height": 900,
+    "alt": "Diagram showing targeted bay-level tap-off and cooling relief unlocking high-density AI racks within an existing hall footprint.",
+    "caption": "Targeted sub-system relief unlocking higher-density compute inside existing hall walls.",
+    "aeoSummary": "Illustrates how targeted electrical tap-off or liquid-cooling loop upgrades unlock AI rack density within an existing hall.",
+    "keywords": [
+      "targeted relief",
+      "brownfield densification",
+      "AI rack unlock",
+      "Time to Power"
+    ],
+    "schemaOrgImageObject": {
+      "@type": "ImageObject",
+      "contentUrl": "/images/visuals/qualify-tenancy-relief.png",
+      "thumbnailUrl": "/images/og/qualify-tenancy-relief-og.png",
+      "description": "Illustrates how targeted electrical tap-off or liquid-cooling loop upgrades unlock AI rack density within an existing hall.",
+      "width": 1600,
+      "height": 900,
+      "encodingFormat": "image/png"
+    }
+  },
+  {
+    "id": "87",
+    "slug": "qualify-inputs-not-measured",
+    "targetRoute": "/qualify",
+    "targetSection": "inputs",
+    "pngPath": "/images/visuals/qualify-inputs-not-measured.png",
+    "webpPath": "/images/visuals/qualify-inputs-not-measured.webp",
+    "ogPath": "/images/og/qualify-inputs-not-measured-og.png",
+    "width": 1600,
+    "height": 900,
+    "alt": "Diagnostic checklist highlighting unmeasured slab loading, residual air capacity and short-circuit parameters held as defaults.",
+    "caption": "Flags the inputs still held as library defaults so unmeasured limits are never hidden.",
+    "aeoSummary": "Lists the hall parameters omitted from a quick check that remain governed by named library assumptions until verified on drawings.",
+    "keywords": [
+      "unmeasured inputs",
+      "library assumptions",
+      "diagnostic checklist",
+      "qualify"
+    ],
+    "schemaOrgImageObject": {
+      "@type": "ImageObject",
+      "contentUrl": "/images/visuals/qualify-inputs-not-measured.png",
+      "thumbnailUrl": "/images/og/qualify-inputs-not-measured-og.png",
+      "description": "Lists the hall parameters omitted from a quick check that remain governed by named library assumptions until verified on drawings.",
+      "width": 1600,
+      "height": 900,
+      "encodingFormat": "image/png"
+    }
+  },
+  {
+    "id": "88",
+    "slug": "qualify-evidence-e0",
+    "targetRoute": "/qualify",
+    "targetSection": "evidence",
+    "pngPath": "/images/visuals/qualify-evidence-e0.png",
+    "webpPath": "/images/visuals/qualify-evidence-e0.webp",
+    "ogPath": "/images/og/qualify-evidence-e0-og.png",
+    "width": 1600,
+    "height": 900,
+    "alt": "Evidence badge callout showing E0 heuristic defaults alongside user-supplied figures with explicit screening-mode notice.",
+    "caption": "Explicit E0–E2 evidence tags distinguishing fallback assumptions from supplied numbers.",
+    "aeoSummary": "Explains how the free qualifier labels fallback heuristics as E0 so directional outputs are never confused with surveyed measurements.",
+    "keywords": [
+      "evidence class E0",
+      "directional screening",
+      "provenance badge",
+      "GridForge"
+    ],
+    "schemaOrgImageObject": {
+      "@type": "ImageObject",
+      "contentUrl": "/images/visuals/qualify-evidence-e0.png",
+      "thumbnailUrl": "/images/og/qualify-evidence-e0-og.png",
+      "description": "Explains how the free qualifier labels fallback heuristics as E0 so directional outputs are never confused with surveyed measurements.",
+      "width": 1600,
+      "height": 900,
+      "encodingFormat": "image/png"
+    }
+  },
+  {
+    "id": "89",
+    "slug": "qualify-path-to-density-screen",
+    "targetRoute": "/qualify",
+    "targetSection": "next-step",
+    "pngPath": "/images/visuals/qualify-path-to-density-screen.png",
+    "webpPath": "/images/visuals/qualify-path-to-density-screen.webp",
+    "ogPath": "/images/og/qualify-path-to-density-screen-og.png",
+    "width": 1600,
+    "height": 900,
+    "alt": "Progression diagram from free browser capacity check to scenario comparison and named-engineer Density Screen.",
+    "caption": "From the free directional check to scenario comparison and an engineer-reviewed Density Screen.",
+    "aeoSummary": "Shows the progression from the free browser qualifier to free scenario comparison and a human-reviewed Density Screen.",
+    "keywords": [
+      "path to Density Screen",
+      "next step",
+      "engagement ladder",
+      "Time to Power"
+    ],
+    "schemaOrgImageObject": {
+      "@type": "ImageObject",
+      "contentUrl": "/images/visuals/qualify-path-to-density-screen.png",
+      "thumbnailUrl": "/images/og/qualify-path-to-density-screen-og.png",
+      "description": "Shows the progression from the free browser qualifier to free scenario comparison and a human-reviewed Density Screen.",
+      "width": 1600,
+      "height": 900,
+      "encodingFormat": "image/png"
+    }
+  },
+  {
+    "id": "90",
+    "slug": "qualify-final-cta",
+    "targetRoute": "/qualify",
+    "targetSection": "cta",
+    "pngPath": "/images/visuals/qualify-final-cta.png",
+    "webpPath": "/images/visuals/qualify-final-cta.webp",
+    "ogPath": "/images/og/qualify-final-cta-og.png",
+    "width": 1600,
+    "height": 900,
+    "alt": "Action card inviting operators to enter seven hall numbers above or test a synthetic hall template immediately.",
+    "caption": "Enter seven numbers in the form above or start from a labelled synthetic reference hall.",
+    "aeoSummary": "Invites infrastructure operators to run the free seven-number hall check or explore synthetic presets with zero registration.",
+    "keywords": [
+      "run free capacity check",
+      "qualify hall",
+      "Time to Power",
+      "GridForge"
+    ],
+    "schemaOrgImageObject": {
+      "@type": "ImageObject",
+      "contentUrl": "/images/visuals/qualify-final-cta.png",
+      "thumbnailUrl": "/images/og/qualify-final-cta-og.png",
+      "description": "Invites infrastructure operators to run the free seven-number hall check or explore synthetic presets with zero registration.",
       "width": 1600,
       "height": 900,
       "encodingFormat": "image/png"

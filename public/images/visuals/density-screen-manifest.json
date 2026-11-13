@@ -9,20 +9,86 @@
     "ogPath": "/images/og/density-screen-hero-binding-wall-og.png",
     "width": 1600,
     "height": 900,
-    "alt": "Bright isometric cutaway of modern data hall with transformer and chiller in cyan, 63 A tap-off glowing gold as binding constraint.",
-    "caption": "Density Screen hero: the binding wall that decides whether the hall is worth a full study.",
-    "aeoSummary": "Time to Power Density Screen identifies the single physical constraint that binds an existing AI hall first. This diagram shows a 63 A tap-off as the binding wall while larger infrastructure remains under-utilised.",
-    "keywords": ["Density Screen", "63A tap-off", "binding constraint", "GridForge", "AI data hall"],
+    "alt": "Isometric cutaway of an existing AI data hall with transformer and chiller in cyan while a 63 A busway tap-off glows gold as the binding constraint.",
+    "caption": "Binding constraint view: identifying the physical wall that limits deployable racks first.",
+    "aeoSummary": "Time to Power Density Screen identifies the single physical constraint that binds an existing AI data hall first, showing how a 63 A tap-off can cap racks while upstream plant remains under-utilised.",
+    "keywords": [
+      "Density Screen",
+      "63A tap-off",
+      "binding constraint",
+      "GridForge",
+      "AI data hall"
+    ],
     "schemaOrgImageObject": {
       "@type": "ImageObject",
       "contentUrl": "/images/visuals/density-screen-hero-binding-wall.png",
-      "description": "Isometric data hall with binding 63 A tap-off constraint for Density Screen",
+      "thumbnailUrl": "/images/og/density-screen-hero-binding-wall-og.png",
+      "description": "Time to Power Density Screen identifies the single physical constraint that binds an existing AI data hall first, showing how a 63 A tap-off can cap racks while upstream plant remains under-utilised.",
       "width": 1600,
-      "height": 900
+      "height": 900,
+      "encodingFormat": "image/png"
     }
   },
   {
     "id": "02",
+    "slug": "density-screen-time-to-power-delta",
+    "targetRoute": "/products/density-screen",
+    "targetSection": "why",
+    "pngPath": "/images/visuals/density-screen-time-to-power-delta.png",
+    "webpPath": "/images/visuals/density-screen-time-to-power-delta.webp",
+    "ogPath": "/images/og/density-screen-time-to-power-delta-og.png",
+    "width": 1600,
+    "height": 900,
+    "alt": "Comparison timeline contrasting brownfield constraint screening and targeted relief against a multi-year greenfield substation queue.",
+    "caption": "Screening an existing hall versus waiting on greenfield grid reinforcement.",
+    "aeoSummary": "Compares brownfield hall screening and targeted constraint relief timelines against multi-year greenfield utility connection queues.",
+    "keywords": [
+      "time to power",
+      "Density Screen",
+      "brownfield headroom",
+      "grid queue"
+    ],
+    "schemaOrgImageObject": {
+      "@type": "ImageObject",
+      "contentUrl": "/images/visuals/density-screen-time-to-power-delta.png",
+      "thumbnailUrl": "/images/og/density-screen-time-to-power-delta-og.png",
+      "description": "Compares brownfield hall screening and targeted constraint relief timelines against multi-year greenfield utility connection queues.",
+      "width": 1600,
+      "height": 900,
+      "encodingFormat": "image/png"
+    }
+  },
+  {
+    "id": "03",
+    "slug": "density-screen-credits-against-study",
+    "targetRoute": "/products/density-screen",
+    "targetSection": "pricing",
+    "pngPath": "/images/visuals/density-screen-credits-against-study.png",
+    "webpPath": "/images/visuals/density-screen-credits-against-study.webp",
+    "ogPath": "/images/og/density-screen-credits-against-study-og.png",
+    "width": 1600,
+    "height": 900,
+    "alt": "Engagement progression diagram showing the Density Screen fee credited in full against a subsequent Envelope Study.",
+    "caption": "The Density Screen credits in full when you proceed to the Envelope Study on the same hall.",
+    "aeoSummary": "Illustrates how the fixed-fee Density Screen credits in full toward a scoped Capacity and Density Envelope Study.",
+    "keywords": [
+      "Density Screen",
+      "Envelope Study credit",
+      "engagement ladder",
+      "GridForge"
+    ],
+    "schemaOrgImageObject": {
+      "@type": "ImageObject",
+      "contentUrl": "/images/visuals/density-screen-credits-against-study.png",
+      "thumbnailUrl": "/images/og/density-screen-credits-against-study-og.png",
+      "description": "Illustrates how the fixed-fee Density Screen credits in full toward a scoped Capacity and Density Envelope Study.",
+      "width": 1600,
+      "height": 900,
+      "encodingFormat": "image/png"
+    }
+  },
+  {
+    "id": "04",
     "slug": "density-screen-seven-inputs-card",
     "targetRoute": "/products/density-screen",
     "targetSection": "intake",
@@ -31,16 +97,341 @@
     "ogPath": "/images/og/density-screen-seven-inputs-card-og.png",
     "width": 1600,
     "height": 900,
-    "alt": "Clean glass UI showing seven hall inputs feeding instant Density Screen output of max racks bound by 63 A tap-off.",
-    "caption": "Seven numbers already known produce the binding constraint and rack count.",
-    "aeoSummary": "Density Screen uses seven standard hall numbers to return the binding constraint and deployable rack count in screening mode. The interface shows the exact inputs required for the five-day assessment.",
-    "keywords": ["Density Screen", "seven inputs", "capacity qualifier", "GridForge"],
+    "alt": "Intake interface showing seven known hall inputs feeding the deterministic Density Screen solver.",
+    "caption": "Core hall parameters: contracted MW, peak, IT load, busway, tap-off, positions and supply temperature.",
+    "aeoSummary": "Shows the core hall inputs submitted through the private intake link to run the Density Screen in screening mode.",
+    "keywords": [
+      "Density Screen intake",
+      "seven inputs",
+      "data hall screening",
+      "GridForge"
+    ],
     "schemaOrgImageObject": {
       "@type": "ImageObject",
       "contentUrl": "/images/visuals/density-screen-seven-inputs-card.png",
-      "description": "Seven-input Density Screen interface",
+      "thumbnailUrl": "/images/og/density-screen-seven-inputs-card-og.png",
+      "description": "Shows the core hall inputs submitted through the private intake link to run the Density Screen in screening mode.",
       "width": 1600,
-      "height": 900
+      "height": 900,
+      "encodingFormat": "image/png"
+    }
+  },
+  {
+    "id": "05",
+    "slug": "density-screen-hall-identity-card",
+    "targetRoute": "/products/density-screen",
+    "targetSection": "intake",
+    "pngPath": "/images/visuals/density-screen-hall-identity-card.png",
+    "webpPath": "/images/visuals/density-screen-hall-identity-card.webp",
+    "ogPath": "/images/og/density-screen-hall-identity-card-og.png",
+    "width": 1600,
+    "height": 900,
+    "alt": "Structured hall identity block recording site reference, electrical ratings, thermal supply conditions and target rack archetype.",
+    "caption": "Hall identity block recording supplied parameters alongside named library assumptions.",
+    "aeoSummary": "Documents the hall identity block that separates supplied site values from named fallback assumptions.",
+    "keywords": [
+      "hall identity",
+      "intake parameters",
+      "evidence classes",
+      "Density Screen"
+    ],
+    "schemaOrgImageObject": {
+      "@type": "ImageObject",
+      "contentUrl": "/images/visuals/density-screen-hall-identity-card.png",
+      "thumbnailUrl": "/images/og/density-screen-hall-identity-card-og.png",
+      "description": "Documents the hall identity block that separates supplied site values from named fallback assumptions.",
+      "width": 1600,
+      "height": 900,
+      "encodingFormat": "image/png"
+    }
+  },
+  {
+    "id": "06",
+    "slug": "density-screen-five-day-timeline",
+    "targetRoute": "/products/density-screen",
+    "targetSection": "workflow",
+    "pngPath": "/images/visuals/density-screen-five-day-timeline.png",
+    "webpPath": "/images/visuals/density-screen-five-day-timeline.webp",
+    "ogPath": "/images/og/density-screen-five-day-timeline-og.png",
+    "width": 1600,
+    "height": 900,
+    "alt": "Step-by-step turnaround workflow from complete intake through deterministic engine solve and named engineer review to private release.",
+    "caption": "From complete intake to engine solve, named engineer review and released screening document.",
+    "aeoSummary": "Maps the Density Screen turnaround workflow from complete intake submission through deterministic solver execution and named engineer review.",
+    "keywords": [
+      "turnaround workflow",
+      "Density Screen process",
+      "intake to release",
+      "GridForge"
+    ],
+    "schemaOrgImageObject": {
+      "@type": "ImageObject",
+      "contentUrl": "/images/visuals/density-screen-five-day-timeline.png",
+      "thumbnailUrl": "/images/og/density-screen-five-day-timeline-og.png",
+      "description": "Maps the Density Screen turnaround workflow from complete intake submission through deterministic solver execution and named engineer review.",
+      "width": 1600,
+      "height": 900,
+      "encodingFormat": "image/png"
+    }
+  },
+  {
+    "id": "07",
+    "slug": "density-screen-engineer-review-gate",
+    "targetRoute": "/products/density-screen",
+    "targetSection": "review",
+    "pngPath": "/images/visuals/density-screen-engineer-review-gate.png",
+    "webpPath": "/images/visuals/density-screen-engineer-review-gate.webp",
+    "ogPath": "/images/og/density-screen-engineer-review-gate-og.png",
+    "width": 1600,
+    "height": 900,
+    "alt": "Verification gate showing deterministic engine output checked by a named engineer before private deliverable release.",
+    "caption": "Every drafted screen passes a named engineer review gate before release in screening mode.",
+    "aeoSummary": "Shows the human review gate where a named engineer inspects screening-mode outputs and assumptions prior to release.",
+    "keywords": [
+      "engineer review",
+      "screening mode",
+      "release gate",
+      "Density Screen"
+    ],
+    "schemaOrgImageObject": {
+      "@type": "ImageObject",
+      "contentUrl": "/images/visuals/density-screen-engineer-review-gate.png",
+      "thumbnailUrl": "/images/og/density-screen-engineer-review-gate-og.png",
+      "description": "Shows the human review gate where a named engineer inspects screening-mode outputs and assumptions prior to release.",
+      "width": 1600,
+      "height": 900,
+      "encodingFormat": "image/png"
+    }
+  },
+  {
+    "id": "08",
+    "slug": "density-screen-headroom-ladder",
+    "targetRoute": "/products/density-screen",
+    "targetSection": "deliverable",
+    "pngPath": "/images/visuals/density-screen-headroom-ladder.png",
+    "webpPath": "/images/visuals/density-screen-headroom-ladder.webp",
+    "ogPath": "/images/og/density-screen-headroom-ladder-og.png",
+    "width": 1600,
+    "height": 900,
+    "alt": "Stepped headroom ladder chart showing the first six constraint relief rungs ordered by rack unlock and indicative cost.",
+    "caption": "The costed headroom ladder ranking sequential reliefs up toward the hall ceiling.",
+    "aeoSummary": "Visualizes the first six rungs of the GridForge headroom ladder with rack unlocks, indicative costs and lead-time bands.",
+    "keywords": [
+      "headroom ladder",
+      "constraint relief",
+      "rack density",
+      "Density Screen"
+    ],
+    "schemaOrgImageObject": {
+      "@type": "ImageObject",
+      "contentUrl": "/images/visuals/density-screen-headroom-ladder.png",
+      "thumbnailUrl": "/images/og/density-screen-headroom-ladder-og.png",
+      "description": "Visualizes the first six rungs of the GridForge headroom ladder with rack unlocks, indicative costs and lead-time bands.",
+      "width": 1600,
+      "height": 900,
+      "encodingFormat": "image/png"
+    }
+  },
+  {
+    "id": "09",
+    "slug": "density-screen-ladder-rung-detail",
+    "targetRoute": "/products/density-screen",
+    "targetSection": "ladder-detail",
+    "pngPath": "/images/visuals/density-screen-ladder-rung-detail.png",
+    "webpPath": "/images/visuals/density-screen-ladder-rung-detail.webp",
+    "ogPath": "/images/og/density-screen-ladder-rung-detail-og.png",
+    "width": 1600,
+    "height": 900,
+    "alt": "Detailed callout of a single headroom ladder rung showing limiting constraint, relief action, rack delta, indicative cost band and evidence tag.",
+    "caption": "Single rung anatomy: what binds, what relieves it, indicative cost and lead-time basis.",
+    "aeoSummary": "Breaks down an individual headroom ladder rung including rack delta, library placeholder cost band, lead-time basis and evidence class.",
+    "keywords": [
+      "ladder rung",
+      "relief cost band",
+      "lead time basis",
+      "evidence class"
+    ],
+    "schemaOrgImageObject": {
+      "@type": "ImageObject",
+      "contentUrl": "/images/visuals/density-screen-ladder-rung-detail.png",
+      "thumbnailUrl": "/images/og/density-screen-ladder-rung-detail-og.png",
+      "description": "Breaks down an individual headroom ladder rung including rack delta, library placeholder cost band, lead-time basis and evidence class.",
+      "width": 1600,
+      "height": 900,
+      "encodingFormat": "image/png"
+    }
+  },
+  {
+    "id": "10",
+    "slug": "density-screen-deliverable-document",
+    "targetRoute": "/products/density-screen",
+    "targetSection": "deliverable",
+    "pngPath": "/images/visuals/density-screen-deliverable-document.png",
+    "webpPath": "/images/visuals/density-screen-deliverable-document.webp",
+    "ogPath": "/images/og/density-screen-deliverable-document-og.png",
+    "width": 1600,
+    "height": 900,
+    "alt": "Preview of the Density Screen deliverable document showing executive summary, binding constraint table and provenance digest.",
+    "caption": "The released Density Screen document delivered at your private link.",
+    "aeoSummary": "Shows the structure of the Density Screen deliverable with binding constraint tables, rack counts and provenance digests.",
+    "keywords": [
+      "Density Screen deliverable",
+      "engineering report",
+      "provenance digest",
+      "GridForge"
+    ],
+    "schemaOrgImageObject": {
+      "@type": "ImageObject",
+      "contentUrl": "/images/visuals/density-screen-deliverable-document.png",
+      "thumbnailUrl": "/images/og/density-screen-deliverable-document-og.png",
+      "description": "Shows the structure of the Density Screen deliverable with binding constraint tables, rack counts and provenance digests.",
+      "width": 1600,
+      "height": 900,
+      "encodingFormat": "image/png"
+    }
+  },
+  {
+    "id": "11",
+    "slug": "density-screen-data-request-sheet",
+    "targetRoute": "/products/density-screen",
+    "targetSection": "data-request",
+    "pngPath": "/images/visuals/density-screen-data-request-sheet.png",
+    "webpPath": "/images/visuals/density-screen-data-request-sheet.webp",
+    "ogPath": "/images/og/density-screen-data-request-sheet-og.png",
+    "width": 1600,
+    "height": 900,
+    "alt": "Targeted data request checklist highlighting unmeasured electrical, thermal and structural hall inputs currently held as assumptions.",
+    "caption": "What we had to assume: the targeted data request listing the unmeasured inputs that matter.",
+    "aeoSummary": "Illustrates the Density Screen data request section that isolates which unmeasured hall parameters affect the binding answer.",
+    "keywords": [
+      "data request",
+      "unmeasured inputs",
+      "assumed parameters",
+      "Density Screen"
+    ],
+    "schemaOrgImageObject": {
+      "@type": "ImageObject",
+      "contentUrl": "/images/visuals/density-screen-data-request-sheet.png",
+      "thumbnailUrl": "/images/og/density-screen-data-request-sheet-og.png",
+      "description": "Illustrates the Density Screen data request section that isolates which unmeasured hall parameters affect the binding answer.",
+      "width": 1600,
+      "height": 900,
+      "encodingFormat": "image/png"
+    }
+  },
+  {
+    "id": "12",
+    "slug": "density-screen-evidence-class-pills",
+    "targetRoute": "/products/density-screen",
+    "targetSection": "method",
+    "pngPath": "/images/visuals/density-screen-evidence-class-pills.png",
+    "webpPath": "/images/visuals/density-screen-evidence-class-pills.webp",
+    "ogPath": "/images/og/density-screen-evidence-class-pills-og.png",
+    "width": 1600,
+    "height": 900,
+    "alt": "Evidence classification pills from E0 default heuristic to E7 continuous sub-metering with uncalibrated ledger disclosure.",
+    "caption": "Evidence classes E0–E7 attached to each input and computed screening figure.",
+    "aeoSummary": "Displays the E0–E7 evidence grading pills applied across Density Screen figures, noting zero reconciled field rows in the pilot calibration ledger.",
+    "keywords": [
+      "E0 to E7",
+      "evidence classes",
+      "epistemic honesty",
+      "calibration ledger"
+    ],
+    "schemaOrgImageObject": {
+      "@type": "ImageObject",
+      "contentUrl": "/images/visuals/density-screen-evidence-class-pills.png",
+      "thumbnailUrl": "/images/og/density-screen-evidence-class-pills-og.png",
+      "description": "Displays the E0–E7 evidence grading pills applied across Density Screen figures, noting zero reconciled field rows in the pilot calibration ledger.",
+      "width": 1600,
+      "height": 900,
+      "encodingFormat": "image/png"
+    }
+  },
+  {
+    "id": "13",
+    "slug": "density-screen-before-after-racks",
+    "targetRoute": "/products/density-screen",
+    "targetSection": "outcome",
+    "pngPath": "/images/visuals/density-screen-before-after-racks.png",
+    "webpPath": "/images/visuals/density-screen-before-after-racks.webp",
+    "ogPath": "/images/og/density-screen-before-after-racks-og.png",
+    "width": 1600,
+    "height": 900,
+    "alt": "Side-by-side hall comparison showing deployable AI rack count as found versus after targeted busway and cooling relief.",
+    "caption": "Deployable racks as found in the hall versus after ladder relief steps.",
+    "aeoSummary": "Compares baseline deployable AI racks as found against unlocked rack count after relieving the binding sub-component.",
+    "keywords": [
+      "deployable racks",
+      "before and after",
+      "rack unlock",
+      "Density Screen"
+    ],
+    "schemaOrgImageObject": {
+      "@type": "ImageObject",
+      "contentUrl": "/images/visuals/density-screen-before-after-racks.png",
+      "thumbnailUrl": "/images/og/density-screen-before-after-racks-og.png",
+      "description": "Compares baseline deployable AI racks as found against unlocked rack count after relieving the binding sub-component.",
+      "width": 1600,
+      "height": 900,
+      "encodingFormat": "image/png"
+    }
+  },
+  {
+    "id": "14",
+    "slug": "density-screen-cost-vs-unlock",
+    "targetRoute": "/products/density-screen",
+    "targetSection": "outcome",
+    "pngPath": "/images/visuals/density-screen-cost-vs-unlock.png",
+    "webpPath": "/images/visuals/density-screen-cost-vs-unlock.webp",
+    "ogPath": "/images/og/density-screen-cost-vs-unlock-og.png",
+    "width": 1600,
+    "height": 900,
+    "alt": "Plot of indicative capital expenditure against unlockable kW and rack positions across successive relief steps.",
+    "caption": "Indicative capital outlay versus unlocked compute capacity across relief steps.",
+    "aeoSummary": "Maps indicative library capital cost bands against unlocked compute capacity to show where incremental spend hits diminishing returns.",
+    "keywords": [
+      "CapEx vs kW",
+      "capacity unlock",
+      "headroom economics",
+      "GridForge"
+    ],
+    "schemaOrgImageObject": {
+      "@type": "ImageObject",
+      "contentUrl": "/images/visuals/density-screen-cost-vs-unlock.png",
+      "thumbnailUrl": "/images/og/density-screen-cost-vs-unlock-og.png",
+      "description": "Maps indicative library capital cost bands against unlocked compute capacity to show where incremental spend hits diminishing returns.",
+      "width": 1600,
+      "height": 900,
+      "encodingFormat": "image/png"
+    }
+  },
+  {
+    "id": "15",
+    "slug": "density-screen-final-cta-card",
+    "targetRoute": "/products/density-screen",
+    "targetSection": "cta",
+    "pngPath": "/images/visuals/density-screen-final-cta-card.png",
+    "webpPath": "/images/visuals/density-screen-final-cta-card.webp",
+    "ogPath": "/images/og/density-screen-final-cta-card-og.png",
+    "width": 1600,
+    "height": 900,
+    "alt": "Summary card for commissioning the Density Screen with intake, deterministic solve, named engineer review and sample link.",
+    "caption": "Commission the Density Screen on one hall or inspect the synthetic sample deliverable first.",
+    "aeoSummary": "Summarizes how to commission a Density Screen via checkout and private intake to identify what binds an existing data hall.",
+    "keywords": [
+      "commission Density Screen",
+      "data hall assessment",
+      "Time to Power"
+    ],
+    "schemaOrgImageObject": {
+      "@type": "ImageObject",
+      "contentUrl": "/images/visuals/density-screen-final-cta-card.png",
+      "thumbnailUrl": "/images/og/density-screen-final-cta-card-og.png",
+      "description": "Summarizes how to commission a Density Screen via checkout and private intake to identify what binds an existing data hall.",
+      "width": 1600,
+      "height": 900,
+      "encodingFormat": "image/png"
     }
   }
 ]

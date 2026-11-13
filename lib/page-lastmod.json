@@ -2,16 +2,16 @@
   "note": "Maintained by scripts/page-lastmod.mjs; do not edit dates by hand.",
   "pages": {
     "/": {
-      "lastmod": "2026-11-10",
-      "hash": "b01c6cef88753d53f1fd05a6a7c46e0c89ae796dfcc1ad00e1861b4fe064ae89"
+      "lastmod": "2026-11-13",
+      "hash": "07cf3401e55f34b133a65c617c3fc13c506bcf3f001b20e8fd0294e033a615a7"
     },
     "/about": {
       "lastmod": "2026-11-10",
       "hash": "4658d09ff6d5f4fc331181440c33c6e2266d151283a21df573d23ea3cbdddb3c"
     },
     "/constraints": {
-      "lastmod": "2026-11-10",
-      "hash": "aea2af07a03a1f1ab4bbf9e37b0f38db887669fb36aabcec158d26f510115a76"
+      "lastmod": "2026-11-13",
+      "hash": "860cd412a08aad566647e86917d7670699093771096f7ea70c03b8246f95e419"
     },
     "/constraints/achievable-facility-water-temperature": {
       "lastmod": "2026-11-08",
@@ -70,12 +70,12 @@
       "hash": "10f7921f758fafc8c434568fa7145dc4ba30a660296dc843a92bf55269364c27"
     },
     "/developers": {
-      "lastmod": "2026-11-10",
-      "hash": "0352b4ccb127e733e24127308f20f044b73edab429ec933a034dcbc2f9988eb1"
+      "lastmod": "2026-11-13",
+      "hash": "db53cbc82d8e356112d4edff01057c562d5a7dab5f1f07342a00d680ece6e33d"
     },
     "/evidence": {
-      "lastmod": "2026-11-10",
-      "hash": "b9a0b72e51930432117d60c0f2c5a11b6af728983281d961467d038e122bdfae"
+      "lastmod": "2026-11-13",
+      "hash": "192d75ec89382afd6c4c64ff38acd35668c7024b892c62a32fd4fcfacf1a2382"
     },
     "/for": {
       "lastmod": "2026-11-10",
@@ -114,8 +114,8 @@
       "hash": "56dfe69fc7d0e149b9b6ff354b333b27a6b31bc23e6c5c80eeaf92cdee4b4b9c"
     },
     "/intelligence": {
-      "lastmod": "2026-11-10",
-      "hash": "5214167ce6467660970eac94de37e350fa4bdef50eb15c24d0c4f821177ef81a"
+      "lastmod": "2026-11-13",
+      "hash": "88accf18aadc0f03a02a117c03915c4e7704caf603c52888ba7a332f0890c4d9"
     },
     "/lead-times": {
       "lastmod": "2026-11-10",
@@ -138,8 +138,8 @@
       "hash": "fcf69a74dca630eda0022ea4a907597296e221a0d574027e6a6b21962550a3c3"
     },
     "/platforms": {
-      "lastmod": "2026-11-08",
-      "hash": "c28b0d69afe1849f543aba0ba96c2461fd6263044451fd172bf56e7538ec41e5"
+      "lastmod": "2026-11-13",
+      "hash": "1f7fa2d65a8aff6c6023d83fd8818020be5a49afe5b1cba916ba383acb08c088"
     },
     "/platforms/gb200_nvl72": {
       "lastmod": "2026-11-08",
@@ -158,36 +158,36 @@
       "hash": "ae774d42a4757c67891d347a52fbce215afb98a19e426666c5619e64db058dd2"
     },
     "/pricing": {
-      "lastmod": "2026-11-10",
-      "hash": "1ec58c6fffc02864b72123d069eb2a77c1825e0369dd97518cc19cee9a5cd502"
+      "lastmod": "2026-11-13",
+      "hash": "08dee44e64d125308d2dd38f36471c7437af3d165de61bcce74904aa487fec15"
     },
     "/products": {
-      "lastmod": "2026-11-10",
-      "hash": "afe9d06a6cc2f374b1ce17ca69fe528e2b73b0c1083042093564e863bb296023"
+      "lastmod": "2026-11-13",
+      "hash": "d9ce88e1035b5bace80185d6e4a9d0ac83c74f1eae9f6dac427c45adeaea8b1f"
     },
     "/products/density-screen": {
-      "lastmod": "2026-11-10",
-      "hash": "5e6d2aa8167cbe2fdf5e23f460c0ddfeb590aa4758f149ec4e806f82a23724c6"
+      "lastmod": "2026-11-13",
+      "hash": "08fd3289a7810ecde0592d993128a1b6c8dde18b3dd733acd61aef0a14ff5470"
     },
     "/products/envelope-study": {
-      "lastmod": "2026-11-10",
-      "hash": "5e6d2aa8167cbe2fdf5e23f460c0ddfeb590aa4758f149ec4e806f82a23724c6"
+      "lastmod": "2026-11-13",
+      "hash": "08fd3289a7810ecde0592d993128a1b6c8dde18b3dd733acd61aef0a14ff5470"
     },
     "/products/hall-watch": {
-      "lastmod": "2026-11-10",
-      "hash": "5e6d2aa8167cbe2fdf5e23f460c0ddfeb590aa4758f149ec4e806f82a23724c6"
+      "lastmod": "2026-11-13",
+      "hash": "08fd3289a7810ecde0592d993128a1b6c8dde18b3dd733acd61aef0a14ff5470"
     },
     "/products/portfolio-screen": {
-      "lastmod": "2026-11-10",
-      "hash": "5e6d2aa8167cbe2fdf5e23f460c0ddfeb590aa4758f149ec4e806f82a23724c6"
+      "lastmod": "2026-11-13",
+      "hash": "08fd3289a7810ecde0592d993128a1b6c8dde18b3dd733acd61aef0a14ff5470"
     },
     "/products/procurement-specification": {
-      "lastmod": "2026-11-10",
-      "hash": "5e6d2aa8167cbe2fdf5e23f460c0ddfeb590aa4758f149ec4e806f82a23724c6"
+      "lastmod": "2026-11-13",
+      "hash": "08fd3289a7810ecde0592d993128a1b6c8dde18b3dd733acd61aef0a14ff5470"
     },
     "/qualify": {
-      "lastmod": "2026-11-10",
-      "hash": "ed5177c9a4dd7ee5bf5fb97e97ddfcd568dc167c9886e372ab5f2dd7b24fbacc"
+      "lastmod": "2026-11-13",
+      "hash": "d3815ca8de1af8ba3ce72fb506a01a4ba55e45ef30f632536d31a32a0a103793"
     },
     "/reference": {
       "lastmod": "2026-11-10",
