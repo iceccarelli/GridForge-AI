@@ -417,8 +417,17 @@ def test_the_exported_rows_pass_the_ledgers_own_import_policy_end_to_end(db, tmp
     out = import_export({"schema": EXPORT_SCHEMA, "rows": rows}, ledger, accept_mixed_refs=True)   # the mixed-reference decision is tested in test_site_ref_hmac.py
     assert out["imported"] == 3
     obs, head = read_chain(ledger)
-    assert {o.source_ref.split(":")[0] for o in obs} == set(ids) and head
-    assert all(o.model_digest == DIGEST and o.reviewed_by == "J. Ortiz" for o in obs)
+    # The published row carries a HASH of the observation id, not the database id itself (review D6: a published row must not carry the join key to
+    # the private record). The hash is reproducible from the id, which is what lets an operator find the row for a given observation, for
+    # instance to honour a withdrawal of consent, and what makes a second import of the same observation refuse.
+    from gridforge.calibration.ledger import published_source_ref
+    heads = {o.source_ref.split(":")[0] for o in obs}
+    assert heads == {published_source_ref(i, "").split(":")[0] for i in ids} and head
+    assert not heads & set(ids), "the database id of an observation must not appear in the published row"
+    # and the reviewer is a ROLE in a published row, not the person (D6); the model digest is unchanged
+    from gridforge.calibration.ledger import PUBLISHED_REVIEWER_ROLE
+    assert all(o.model_digest == DIGEST and o.reviewed_by == PUBLISHED_REVIEWER_ROLE for o in obs)
+    assert not any("Ortiz" in o.reviewed_by for o in obs)
 
 
 # ---------------------------------------------------------------------------------------------- supplier actuals
