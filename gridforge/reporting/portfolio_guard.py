@@ -46,12 +46,17 @@ def site_key(doc) -> str | None:
     return hall_key(doc["site"]["id"], "")[0]
 
 
+#: The grid figures that describe the site as it is today rather than the contract it holds: unrelated sites rarely agree on them.
+_MEASURED_SITE_FIGURES = frozenset({"current_site_peak_MW", "current_it_load_MW"})
+
+
 def grid_fingerprint(doc) -> str | None:
     """The document's grid block as canonical JSON, or None when it has fewer than three figures. Notes, evidence labels and the
     {value: ...} wrapping are not part of it, and 12 equals 12.0: two grid blocks with the same fingerprint declare the same figures for
     the connection. Used to say that halls under DIFFERENT site ids most likely draw on one connection; it never merges them. One or two
-    round numbers in common (12 MW contracted at two sites) are a coincidence and not evidence, so a block needs at least three figures
-    (the reference grid block has four; the qualifier form's has three to four) before its identity is read as a shared connection."""
+    round numbers in common (12 MW contracted at two sites) are a coincidence and not evidence, so a block needs at least three figures,
+    one of them a measured site-level figure (`_MEASURED_SITE_FIGURES`), before its identity is read as a shared connection. Only numbers
+    count: a string (operator name, queue note) is a label, not a figure."""
     import json
     grid = doc.get("grid") if isinstance(doc, dict) else None
     if not isinstance(grid, dict) or not grid:
@@ -68,11 +73,16 @@ def grid_fingerprint(doc) -> str | None:
         elif isinstance(v, list):
             for i, x in enumerate(v):
                 walk(x, f"{path}[{i}]")
-        elif v is not None:
-            leaves[path] = float(v) if isinstance(v, (int, float)) and not isinstance(v, bool) else v
+        elif isinstance(v, (int, float)) and not isinstance(v, bool):
+            # Only FIGURES identify a connection. A string in the grid block (the operator's name, a free-text queue note) is a label whose
+            # spelling differs between two documents about the same connection, and the docstring says notes are not part of the identity.
+            leaves[path] = float(v)
 
     walk(grid, "")
-    if len(leaves) < 3:
+    # Three round numbers in common (10 / 8 / 5 MW) are a coincidence between unrelated sites. A shared connection is also one SITE, so the
+    # measured site-level figures (the peak the site drew, the IT load already on it) are the same: require at least one of them to be among
+    # the figures that agree before the identity is read as a shared connection.
+    if len(leaves) < 3 or not any(path.rsplit(".", 1)[-1] in _MEASURED_SITE_FIGURES for path in leaves):
         return None
     try:
         return json.dumps(sorted(leaves.items()), default=str)

@@ -1194,8 +1194,9 @@ def cmd_portfolio(args) -> int:
         w.paths.append(out / f"model_pack_{stem}.json")
     # The headline is the COMPARABLE total, never a bare sum: a hall with a required input missing or an equipment bank undeclared is
     # ranked on assumptions, and a hall on a connection another hall shares is counted once per hall (reporting/portfolio.py).
-    from .reporting.portfolio import portfolio_summary, portfolio_warnings
+    from .reporting.portfolio import portfolio_summary, portfolio_warnings, rank, sharing_statements
     summary = portfolio_summary(entries, objective)
+    shares_a_connection = bool(sharing_statements(rank(entries, objective)))
     left_out = len(summary["incomparable_halls"])
     if summary["comparable_total_racks"] is None:
         headline = (f"Portfolio Screen — {len(entries)} halls; none can be compared yet (a required input or an equipment bank is "
@@ -1204,6 +1205,9 @@ def cmd_portfolio(args) -> int:
         headline = (f"Portfolio Screen — {len(entries)} halls, {summary['comparable_total_racks']} deployable racks across the "
                     f"{len(entries) - left_out} comparable"
                     + (f"; {left_out} not comparable and left out of that total." if left_out else "."))
+    if shares_a_connection:
+        headline += (" That is an upper bound: halls on one grid connection are counted once each, and the engine does not model the shared "
+                     "connection (see the warnings below).")
     print(headline)
     for message in portfolio_warnings(entries, objective):
         print("warning: " + message, file=sys.stderr)
