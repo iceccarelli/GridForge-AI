@@ -287,12 +287,14 @@ def test_a_figure_that_is_not_sent_cannot_be_declared_assumed(base):
     assert status == 422 and "does not give" in out["error"]
 
 
-def test_the_schema_does_not_describe_how_a_derived_firm_capacity_is_classed():
-    """How a firm capacity the engine derives from contracted_MW is classed is the result's to state (and is being changed): no class token
-    appears in the property that describes it."""
+def test_the_schema_describes_the_derived_firm_capacity_as_a_separate_assumed_list():
+    """A firm capacity the qualifier derives from contracted_MW is reported under inputs_derived_assumed (class E0, with a required gap row),
+    apart from inputs_declared_assumed, which holds only what the caller declared. The property and the tool's `returns` say so;
+    tests/test_published_additive_keys.py checks the behaviour against any engine that has it."""
     description = PROPS["firm_capacity_MVA"]["description"]
-    assert not re.search(r"\bE[0-7]\b", description)
-    assert "stated in the result" in description
+    assert "inputs_derived_assumed" in description and "separate from inputs_declared_assumed" in description
+    assert "grid.firm_capacity_MVA" in description and "cannot be named in assumed_fields" in description
+    assert "inputs_derived_assumed" in QUALIFY_TOOL["returns"] and "inputs_declared_assumed" in QUALIFY_TOOL["returns"]
 
 
 def test_published_tools_json_carries_the_same_qualify_schema_as_the_engine():

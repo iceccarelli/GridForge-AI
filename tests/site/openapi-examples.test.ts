@@ -144,11 +144,11 @@ describe("every engine operation names the top-level keys of its answer", () => 
   });
 
   it.each(enginePaths)("%s: the 200 description and schema carry the keys lib/openapi-honesty.json lists, plus schema_version", (path) => {
-    const spec = (honesty.responses as Record<string, { top_level: string[]; when?: string }>)[path];
+    const spec = (honesty.responses as Record<string, { top_level: string[]; additive_top_level?: string[]; when?: string }>)[path];
     expect(spec, path).toBeTruthy();
     const ok = postOf(path).responses["200"];
     const schema = ok.content["application/json"].schema;
-    for (const key of spec.top_level) {
+    for (const key of [...spec.top_level, ...(spec.additive_top_level ?? [])]) {
       expect(ok.description, `${path}: ${key} in the description`).toContain(key);
       expect(Object.keys(schema.properties), `${path}: ${key} in the schema`).toContain(key);
     }
@@ -160,7 +160,7 @@ describe("every engine operation names the top-level keys of its answer", () => 
 
   it("the deck's hand-built schema has exactly the keys the engine's list gives", () => {
     const schema = postOf("/v1/deck").responses["200"].content["application/json"].schema;
-    expect(Object.keys(schema.properties).sort()).toEqual([...honesty.responses["/v1/deck"].top_level, "schema_version"].sort());
+    expect(Object.keys(schema.properties).sort()).toEqual([...honesty.responses["/v1/deck"].top_level, ...honesty.responses["/v1/deck"].additive_top_level, "schema_version"].sort());
   });
 
   it("each operation's description carries its evidence boundary, and the deck's carries its own", () => {

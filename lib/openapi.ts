@@ -639,6 +639,8 @@ function operationFor(route: ExtraRoute, units: number | null): Record<string, u
 /** Where, in a tool's 200 response, the engine puts its honesty fields (lib/openapi-honesty.json). */
 interface ResponseSpec {
   top_level: string[];
+  /** Keys that arrive with later engine changes; documented with the rest (tests/test_published_additive_keys.py: all present or none). */
+  additive_top_level?: string[];
   after_relief?: string[];
   intake_gaps?: boolean;
   intake_fields?: string[];
@@ -651,11 +653,16 @@ export function responseSpecFor(endpoint: string): ResponseSpec | undefined {
   return (honesty.responses as Record<string, ResponseSpec>)[endpoint];
 }
 
+/** Every top-level key the route is documented to return, in the order given. */
+export function responseKeys(spec: ResponseSpec): string[] {
+  return [...spec.top_level, ...(spec.additive_top_level ?? [])];
+}
+
 /** One sentence naming the keys a route answers with, for the 200 response's description. */
 export function responseKeysSentence(endpoint: string): string {
   const spec = responseSpecFor(endpoint);
   if (!spec) return "";
-  return `Top-level keys of the answer${spec.when ? ` (${spec.when})` : ""}: ${spec.top_level.join(", ")}. The body also carries ${honesty.schema_version.body_field}.`;
+  return `Top-level keys of the answer${spec.when ? ` (${spec.when})` : ""}: ${responseKeys(spec).join(", ")}. The body also carries ${honesty.schema_version.body_field}.`;
 }
 
 function responseSchemaFor(endpoint: string): Record<string, unknown> {
@@ -664,8 +671,15 @@ function responseSchemaFor(endpoint: string): Record<string, unknown> {
   const properties: Record<string, unknown> = {
     [honesty.schema_version.body_field]: { type: "string", const: honesty.schema_version.value, description: "Which response schema the body follows; also the X-GridForge-Schema header." },
   };
-  for (const f of spec.top_level) {
+  for (const f of responseKeys(spec)) {
     if (f === "calibration") properties[f] = CALIBRATION_REF;
+    else if (f === "inputs_derived_assumed")
+      properties[f] = {
+        type: "array",
+        description:
+          "Figures the qualifier derived because you did not send them (today the firm connection capacity, from contracted_MW), each with path, input, unit, value, evidence \"E0\" and a note saying how it was derived. Separate from inputs_declared_assumed, which lists only what you declared.",
+        items: { type: "object", properties: { path: str(), input: str(), unit: str(), value: { type: "number" }, evidence: { type: "string", const: "E0" }, note: str() } },
+      };
     else if (f === "notice") properties[f] = str("The engine's standing notice: directional, modelled output, not an issued engineering opinion.");
     else if (f === "grade") properties[f] = str("How far the comparison can be relied on: screening or indicative. Never stronger than its weakest input.");
     else if (f === "caveats") properties[f] = { type: "array", items: str(), description: "Plain-language limits on the answer, including what the context blocks are and are not." };
@@ -693,6 +707,14 @@ function responseSchemaFor(endpoint: string): Record<string, unknown> {
         date_label: str("The date, or the reason there is none, in words."),
       });
     } else properties[f] = {};
+  }
+  if (endpoint === "/v1/qualify") {
+    // Present only when assumed_fields is sent (see that property of the request).
+    properties.inputs_declared_assumed = {
+      type: "array",
+      description: "Only with assumed_fields: the figures you declared assumed, each with path, input, unit, value, evidence \"E0\" and note. Lists only what you declared.",
+      items: { type: "object", properties: { path: str(), input: str(), unit: str(), value: { type: "number" }, evidence: { type: "string", const: "E0" }, note: str() } },
+    };
   }
   return { type: "object", description: responseKeysSentence(endpoint), properties, additionalProperties: true };
 }
@@ -804,7 +826,7 @@ export function buildOpenApi(file: ToolsFile, serverUrl: string, siteOrigin: str
           "It is a REST route only: there is no MCP tool for it, because it is a document for a human session, not an agent step. Screening-mode output, not an issued engineering opinion.\n\n" +
           `Evidence boundary: ${DECK_EVIDENCE_BOUNDARY}\n\n` + file.evidence_note,
         response: {
-          ...obj({ [honesty.schema_version.body_field]: { type: "string", const: honesty.schema_version.value, description: `Which response schema the body follows; also the ${honesty.schema_version.header} header.` }, format: str(), title: str(), slides: int(), document: str(), document_full: str() }),
+          ...obj({ [honesty.schema_version.body_field]: { type: "string", const: honesty.schema_version.value, description: `Which response schema the body follows; also the ${honesty.schema_version.header} header.` }, format: str(), title: str(), slides: int(), document: str(), document_full: str(), calibration: CALIBRATION_REF }),
           description: responseKeysSentence("/v1/deck"),
         },
       },

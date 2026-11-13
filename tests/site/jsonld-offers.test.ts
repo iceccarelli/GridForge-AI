@@ -9,10 +9,12 @@
  */
 import React from "react";
 import { renderToStaticMarkup } from "react-dom/server";
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { JsonLd } from "@/components/JsonLd";
-import { engagementCatalogJsonLd, engagementOfferJsonLd, isDepositProduct } from "@/lib/jsonld";
-import { LADDER_PRODUCTS, PRODUCTS, eurFromCents } from "@/lib/products";
+import { apiServiceJsonLd, engagementCatalogJsonLd, engagementOfferJsonLd, isDepositProduct } from "@/lib/jsonld";
+import { eurExact } from "@/lib/payg-pricing";
+import { API_PRODUCTS, LADDER_PRODUCTS, PAYG, PRODUCTS, eurFromCents } from "@/lib/products";
+import { FULL_ENGINE, stubEngine } from "./engine-stub";
 
 function blocks(): any[] {
   const html = renderToStaticMarkup(React.createElement(JsonLd));
@@ -114,5 +116,105 @@ describe("the homepage JSON-LD", () => {
 
   it("is built from the same function the page uses", () => {
     expect(catalogs[0]).toEqual(engagementCatalogJsonLd());
+  });
+});
+
+// ---------------------------------------------------------------------------------------------------------------------------------
+// The metered API: the free allowance, pay-as-you-go and the monthly plans, as schema.org Offers on a WebAPI.
+// ---------------------------------------------------------------------------------------------------------------------------------
+async function pageBlocks(load: () => Promise<{ default: () => unknown }>): Promise<any[]> {
+  const stop = stubEngine(FULL_ENGINE);
+  try {
+    const html = renderToStaticMarkup(await ((await load()).default as () => Promise<React.ReactElement>)());
+    return [...html.matchAll(/<script type="application\/ld\+json">([\s\S]*?)<\/script>/g)].map((m) => JSON.parse(m[1].replace(/\\u003c/g, "<")));
+  } finally {
+    stop();
+  }
+}
+
+describe("/developers structured data: the API, its free allowance, pay-as-you-go and plans", () => {
+  it("is WebPage + WebAPI + BreadcrumbList, every block parses, and the offers are the catalogue's", async () => {
+    const blocks = await pageBlocks(() => import("@/app/developers/page"));
+    expect(blocks.map((b) => b["@type"]).sort()).toEqual(["BreadcrumbList", "WebAPI", "WebPage"]);
+    const api = blocks.find((b) => b["@type"] === "WebAPI");
+    expect(api).toEqual(JSON.parse(JSON.stringify(apiServiceJsonLd({ plans: true }))));
+    const [free, payg, ...plans] = api.offers;
+    expect(api.offers).toHaveLength(2 + API_PRODUCTS.length);
+
+    // the free allowance: nothing to pay, for the quantity the catalogue states
+    expect(free).toMatchObject({ "@type": "Offer", name: "Free allowance", price: "0", priceCurrency: "EUR" });
+    expect(free.eligibleQuantity).toMatchObject({ value: PAYG.freeAllowanceUnits, unitText: "units per month" });
+    expect(free.description).toContain(`${PAYG.freeAllowanceUnits} units a month`);
+
+    // pay-as-you-go: the unit price, in the catalogue's currency, per unit; the minimum invoice and the carry-forward are in the sentence
+    expect(cents(payg.priceSpecification.price)).toBe(PAYG.unitPriceCents);
+    expect(payg.priceSpecification).toMatchObject({
+      "@type": "UnitPriceSpecification",
+      priceCurrency: PAYG.currency.toUpperCase(),
+      unitText: "per unit",
+      referenceQuantity: { value: 1, unitText: "unit" },
+    });
+    expect(payg.description).toContain("minimum invoice");
+    expect(payg.description).toContain(eurExact(PAYG.minInvoiceCents));
+    expect(payg.description).toContain("carried forward");
+
+    // the plans: price per month and the included units, per product
+    plans.forEach((offer: any, i: number) => {
+      const p = API_PRODUCTS[i];
+      expect(offer.name).toBe(p.name);
+      expect(cents(offer.priceSpecification.price), p.id).toBe(p.amountCents);
+      expect(offer.priceSpecification).toMatchObject({ billingDuration: "P1M", unitText: "per month", referenceQuantity: { value: 1, unitCode: "MON" } });
+      expect(offer.description, p.id).toContain(`${p.apiUnits} metered units a month`);
+    });
+  });
+
+  it("every price in it is a catalogue amount, and it claims no availability, rating, review or count", async () => {
+    const blocks = await pageBlocks(() => import("@/app/developers/page"));
+    const catalogue = new Set<number>([PAYG.unitPriceCents, ...API_PRODUCTS.map((p) => p.amountCents)]);
+    const found = pricesIn(blocks);
+    // the free allowance has price "0" on the Offer itself; the others are inside priceSpecification
+    expect(found).toHaveLength(2 + API_PRODUCTS.length);
+    for (const price of found) expect(price === "0" || catalogue.has(cents(price)), `price ${price} is not a catalogue amount`).toBe(true);
+    const flat = JSON.stringify(blocks);
+    expect(flat).not.toMatch(/availability|InStock|PreOrder|OnlineOnly|aggregateRating|reviewRating|ratingValue|reviewCount|"review"|bestRating|userCount/);
+  });
+
+  it("/pricing carries the free allowance and pay-as-you-go it shows, and not the plans it points to /developers for", async () => {
+    const blocks = await pageBlocks(() => import("@/app/pricing/page"));
+    const api = blocks.find((b) => b["@type"] === "WebAPI");
+    expect(api.offers.map((o: any) => o.name)).toEqual(["Free allowance", "Pay-as-you-go"]);
+    expect(blocks.map((b) => b["@type"]).sort()).toEqual(["BreadcrumbList", "OfferCatalog", "WebAPI", "WebPage"]);
+  });
+
+  describe("follows the catalogue", () => {
+    afterEach(() => {
+      vi.doUnmock("@/lib/products");
+      vi.resetModules();
+    });
+
+    it("change the unit price, the free allowance, the minimum invoice or a plan and the markup changes with it", async () => {
+      vi.resetModules();
+      vi.doMock("@/lib/products", async (orig) => {
+        const real = await orig<typeof import("@/lib/products")>();
+        const products = { ...real.PRODUCTS, api_scale: { ...real.PRODUCTS.api_scale, amountCents: 333_300, apiUnits: 3_333 } };
+        return {
+          ...real,
+          PRODUCTS: products,
+          API_PRODUCTS: Object.values(products).filter((p) => p.surface === "developers"),
+          PAYG: { ...real.PAYG, unitPriceCents: 275, minInvoiceCents: 725, freeAllowanceUnits: 31 },
+        };
+      });
+      const { apiServiceJsonLd: moved } = await import("@/lib/jsonld");
+      const api = JSON.parse(JSON.stringify(moved({ plans: true })));
+      const [free, payg, ...plans] = api.offers;
+      expect(free.eligibleQuantity.value).toBe(31);
+      expect(free.description).toContain("31 units a month");
+      expect(payg.priceSpecification.price).toBe("2.75");
+      expect(payg.description).toContain("7.25");
+      const scale = plans.find((o: any) => o.name === "API — Scale");
+      expect(scale.priceSpecification.price).toBe("3333");
+      expect(scale.description).toContain("3333 metered units a month");
+      expect(JSON.stringify(api)).not.toContain("25 units a month");
+    });
   });
 });

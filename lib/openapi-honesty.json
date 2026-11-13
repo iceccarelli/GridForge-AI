@@ -1,5 +1,5 @@
 {
-  "note": "The honesty fields the engine puts in its own responses, listed by the OpenAPI document (lib/openapi.ts) so a machine reading the contract knows where the evidence class, the calibration record and the assumption disclosure are. This is a description of what the engine returns, not a second source of it: tests/test_openapi_parity.py and tests/test_api_published_contract.py run the real handlers and the real server in gridforge/api/server.py and fail if a field named here is missing from the response, or if the engine's constants named here differ.",
+  "note": "The honesty fields the engine puts in its own responses, listed by the OpenAPI document (lib/openapi.ts) so a machine reading the contract knows where the evidence class, the calibration record and the assumption disclosure are. This is a description of what the engine returns, not a second source of it: tests/test_openapi_parity.py and tests/test_api_published_contract.py run the real handlers and the real server in gridforge/api/server.py and fail if a field named here is missing from the response, or if the engine's constants named here differ. additive_top_level lists keys that arrive with the engine changes merged after the keys in top_level: tests/test_published_additive_keys.py requires an engine to return all of them or none, so documentation and engine cannot be half-way apart.",
   "engine_constants": {
     "idempotency_key_max_chars": 150,
     "idempotency_window_hours": 24,
@@ -10,7 +10,7 @@
     "ledger_unavailable_retry_after_seconds": 30
   },
   "schema_version": {
-    "note": "Read off gridforge/api/server.py (API_SCHEMA, Handler._send). A statement of what the engine sends, not a promise about how the value changes or for how long it is served: nothing here says when it will or will not change.",
+    "note": "Read off gridforge/api/server.py (API_SCHEMA, Handler._send) and proved against the real server by tests/test_api_published_contract.py.",
     "value": "gridforge/api/1",
     "body_field": "schema_version",
     "header": "X-GridForge-Schema"
@@ -36,31 +36,64 @@
       "cause": "busy",
       "meaning": "every solve slot the engine allows is taken (all callers together, or the share a keyless caller may hold): the request was refused at once, never queued, and nothing was charged",
       "retry_after_constant": "solve_shed_retry_after_seconds",
-      "body_fields": ["error", "retryable", "retry_after_seconds", "fix"],
+      "body_fields": [
+        "error",
+        "retryable",
+        "retry_after_seconds",
+        "fix"
+      ],
       "routes": "solving"
     },
     {
       "cause": "usage_not_recorded",
       "meaning": "a metered key's charge could not be written to the usage ledger, so the call was refused rather than served unrecorded: nothing was charged and no work was done",
       "retry_after_constant": "ledger_unavailable_retry_after_seconds",
-      "body_fields": ["error", "retryable", "units_required", "fix"],
+      "body_fields": [
+        "error",
+        "retryable",
+        "units_required",
+        "fix"
+      ],
       "routes": "keyed"
     },
     {
       "cause": "paid_endpoints_not_configured",
       "meaning": "the deployment holds no API keys and cannot verify signed ones, so a metered route is refused",
       "retry_after_constant": null,
-      "body_fields": ["error", "fix"],
+      "body_fields": [
+        "error",
+        "fix"
+      ],
       "routes": "keyed"
     }
   ],
   "cors": {
     "note": "Read off gridforge/api/server.py (Handler._cors, DEFAULT_ALLOWED_ORIGINS, PUBLIC_CORS_PATHS). The origin list and the public routes are the engine's defaults; an operator can change them with GRIDFORGE_ALLOWED_ORIGINS and GRIDFORGE_PUBLIC_CORS. tests/test_api_published_contract.py runs the real server and fails if any of it is not what it sends.",
-    "default_allowed_origins": ["https://timetopower.ai", "https://www.timetopower.ai"],
-    "public_paths": ["/health", "/v1/version", "/v1/qualify", "/v1/estimate"],
-    "allow_methods": ["GET", "POST", "OPTIONS"],
-    "allow_headers_allowed_origin": ["Content-Type", "X-API-Key", "Authorization", "Idempotency-Key", "X-GridForge-Project"],
-    "allow_headers_public_path": ["Content-Type"],
+    "default_allowed_origins": [
+      "https://timetopower.ai",
+      "https://www.timetopower.ai"
+    ],
+    "public_paths": [
+      "/health",
+      "/v1/version",
+      "/v1/qualify",
+      "/v1/estimate"
+    ],
+    "allow_methods": [
+      "GET",
+      "POST",
+      "OPTIONS"
+    ],
+    "allow_headers_allowed_origin": [
+      "Content-Type",
+      "X-API-Key",
+      "Authorization",
+      "Idempotency-Key",
+      "X-GridForge-Project"
+    ],
+    "allow_headers_public_path": [
+      "Content-Type"
+    ],
     "expose_headers": [
       "X-GridForge-Units",
       "X-GridForge-Units-Month",
@@ -153,7 +186,7 @@
   ],
   "responses": {
     "/v1/qualify": {
-      "when": "the plain request; with assumed_fields the answer also carries inputs_declared_assumed, and intake gains assumed_count and assumed_count_note",
+      "when": "the plain request; with assumed_fields the answer also carries inputs_declared_assumed (only what you declared), and intake gains assumed_count and assumed_count_note. inputs_derived_assumed lists the firm connection capacity the qualifier derived from contracted_MW when you sent contracted_MW and no firm_capacity_MVA (class E0; a separate list from the declared one)",
       "top_level": [
         "platform",
         "as_found",
@@ -176,6 +209,9 @@
         "gaps",
         "warnings",
         "recommended_engagement"
+      ],
+      "additive_top_level": [
+        "inputs_derived_assumed"
       ]
     },
     "/v1/estimate": {
@@ -227,6 +263,9 @@
         "grid_queue_context",
         "retail_price_context",
         "provenance"
+      ],
+      "additive_top_level": [
+        "calibration"
       ]
     },
     "/v1/study": {
@@ -240,7 +279,10 @@
         "sensitivity",
         "disclaimer"
       ],
-      "when": "format json, the default; md and html return format, title and the rendered document (html adds document_full), and csv returns format and files"
+      "when": "format json, the default; md and html return format, title and the rendered document (html adds document_full), and csv returns format and files",
+      "additive_top_level": [
+        "calibration"
+      ]
     },
     "/v1/portfolio": {
       "top_level": [
@@ -249,7 +291,18 @@
         "total_racks",
         "total_racks_evidence"
       ],
-      "when": "format json, the default; md and html add document and model_packs (one model pack per hall)"
+      "when": "format json, the default; md and html add document and model_packs (one model pack per hall). warnings is present only when there is something to warn about",
+      "additive_top_level": [
+        "calibration",
+        "total_racks_upper_bound",
+        "total_racks_by_site_max",
+        "comparable_total_racks",
+        "comparable_total_racks_by_site_max",
+        "comparable_total_racks_evidence",
+        "incomparable_halls",
+        "constraint_rollup",
+        "totals_note"
+      ]
     },
     "/v1/diff": {
       "top_level": [
@@ -275,7 +328,12 @@
         "unprobed_inputs",
         "unprobeable_inputs"
       ],
-      "when": "format json, the default; md and html add format, title and document to the same keys"
+      "when": "format json, the default; md and html add format, title and document to the same keys",
+      "additive_top_level": [
+        "material_reasons",
+        "not_compared",
+        "calibration"
+      ]
     },
     "/v1/spec": {
       "top_level": [
@@ -286,7 +344,10 @@
         "specification",
         "response_template"
       ],
-      "when": "format html, the default; md leaves out document_full; list=true returns the reliefs that can be tendered instead"
+      "when": "format html, the default; md leaves out document_full; list=true returns the reliefs that can be tendered instead",
+      "additive_top_level": [
+        "calibration"
+      ]
     },
     "/v1/bids": {
       "top_level": [
@@ -297,7 +358,10 @@
         "leading",
         "note"
       ],
-      "when": "the default ranking; evidence_only=true returns the validated quote lines instead, and ingest=true adds cost_library_entries"
+      "when": "the default ranking; evidence_only=true returns the validated quote lines instead, and ingest=true adds cost_library_entries",
+      "additive_top_level": [
+        "calibration"
+      ]
     },
     "/v1/proposal": {
       "top_level": [
@@ -307,7 +371,10 @@
         "document_full",
         "engagement"
       ],
-      "when": "format html, the default; md leaves out document_full"
+      "when": "format html, the default; md leaves out document_full",
+      "additive_top_level": [
+        "calibration"
+      ]
     },
     "/v1/deck": {
       "top_level": [
@@ -316,6 +383,9 @@
         "slides",
         "document",
         "document_full"
+      ],
+      "additive_top_level": [
+        "calibration"
       ]
     },
     "/v1/power/assess": {
@@ -338,6 +408,9 @@
         "capacity",
         "architectures",
         "next_action"
+      ],
+      "additive_top_level": [
+        "calibration"
       ]
     },
     "/v1/power/deploy/spec": {
@@ -345,7 +418,10 @@
         "specification",
         "response_template"
       ],
-      "when": "format json; html (the default) and md add format, title and the rendered document (html also document_full and document_md)"
+      "when": "format json; html (the default) and md add format, title and the rendered document (html also document_full and document_md)",
+      "additive_top_level": [
+        "calibration"
+      ]
     },
     "/v1/power/deploy/bids": {
       "top_level": [
@@ -354,6 +430,9 @@
         "ranked",
         "leading",
         "note"
+      ],
+      "additive_top_level": [
+        "calibration"
       ]
     }
   }

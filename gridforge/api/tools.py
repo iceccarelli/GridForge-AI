@@ -96,9 +96,11 @@ def _qualify_schema() -> dict:
             "firm_capacity_MVA": {"type": "number",
                                   "description": ("Optional. Firm capacity of the grid connection, MVA, sent as a plain number. It is a "
                                                   "real input: a value below the connection the engine would otherwise derive lowers the "
-                                                  "firm-supply headroom. Omit it and the engine derives one from contracted_MW; how that "
-                                                  "derived figure is classed is stated in the result, not here. It cannot be named in "
-                                                  "assumed_fields.")},
+                                                  "firm-supply headroom. Omit it (and send contracted_MW) and the engine derives one from "
+                                                  "contracted_MW, lists it as an assumption (E0) under inputs_derived_assumed in the result, "
+                                                  "and adds a required grid.firm_capacity_MVA row to intake.gaps. That list is separate "
+                                                  "from inputs_declared_assumed, which holds only what you declared. firm_capacity_MVA "
+                                                  "cannot be named in assumed_fields.")},
             "platform": {"type": "string", "enum": list(PLATFORMS), "default": "gb300_nvl72",
                          "description": ("Optional. The rack platform the hall is tested against (GET /v1/platforms lists them). It sets "
                                          "the per-rack electrical and thermal load, so it changes the result. An id the library does not "
@@ -178,7 +180,9 @@ TOOLS: list[dict] = [
         _qualify_schema(),
         tier=Tier.PUBLIC,
         returns=("binding constraint, racks as found and after relief, the item that sets the "
-                 "date, and the inputs nobody has measured (and, when you send assumed_fields, inputs_declared_assumed). No capital cost or "
+                 "date, and the inputs nobody has measured (when you send assumed_fields, also inputs_declared_assumed, which lists only what you "
+                 "declared; when you send contracted_MW and no firm_capacity_MVA, inputs_derived_assumed, the firm capacity the qualifier "
+                 "derived, as an assumption). No capital cost or "
                  "dated lead times in this free read: the metered /v1/compare (it needs an API key) returns indicative capital and weeks "
                  "with evidence classes, and the paid documents add the full costed ladder."),
         boundary=("Directional only: a figure you send is treated as yours (E5) unless you name it in assumed_fields (E0), what you leave "
