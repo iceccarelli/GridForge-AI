@@ -205,7 +205,8 @@ describe.skipIf(!enabled)("Verified Power Record — real PostgreSQL via PostgRE
 
     const { POST: respond } = await import("@/app/api/projects/[token]/packages/[package]/responses/route");
     const resp = (supplier: string, v: Record<string, number>) => ({
-      supplier, received_on: "2026-10-01", values: { ...pkgRow.response_template.values, ...v },
+      // The response template carries a `currency` slot, and a priced bid without one is disqualified: a buyer filling in the template fills it.
+      supplier, received_on: "2026-10-01", currency: "EUR", values: { ...pkgRow.response_template.values, ...v },
       compliance: Object.fromEntries(Object.keys(pkgRow.response_template.compliance).map((k) => [k, "C"])),
     });
     const pctx = ctx({ token: pt, package: pkg });
@@ -528,7 +529,12 @@ describe.skipIf(!enabled)("observed outcome against a real prediction, on real P
     expect(imp.stdout).toMatch(/imported 1 verified/);
     const chain = JSON.parse(fs.readFileSync(path.join(tmp, "ledger.json"), "utf8")).observations;
     expect(chain).toHaveLength(1);
-    expect(chain[0]).toMatchObject({ source: "import", source_ref: `${row.id}:${mine[0].evidence_sha256}`, model_digest: live.provenance.digest, kind: "measured" });
+    // The ledger row carries a HASH of the observation id (gridforge/calibration/ledger.py published_source_ref), not the database id itself: a
+    // published row must not carry the join key to the private record. The hash is reproducible from the id, so an operator can still find the row
+    // for an observation (to honour a withdrawal of consent, say), and a second import of the same observation refuses (below).
+    const publishedHead = crypto.createHash("sha256").update(`gridforge.calibration.observation:${row.id}`).digest("hex").slice(0, 32);
+    expect(chain[0]).toMatchObject({ source: "import", source_ref: `${publishedHead}:${mine[0].evidence_sha256}`, model_digest: live.provenance.digest, kind: "measured" });
+    expect(JSON.stringify(chain[0])).not.toContain(String(row.id));          // the database id is nowhere in the published row
     expect(chain[0].prev_hash).toBe("0".repeat(64));
     const again = spawnSync("python3", ["-m", "gridforge", "calibrate", "import", path.join(tmp, "export.json"), "--ledger", path.join(tmp, "ledger.json"), "--accept-mixed-refs"],
       { encoding: "utf8", cwd: process.cwd() });
@@ -571,7 +577,7 @@ describe.skipIf(!enabled)("supplier reality against a real selected quote, on re
 
     const { POST: respond } = await import("@/app/api/projects/[token]/packages/[package]/responses/route");
     const resp = {
-      supplier: "Supplier B", received_on: "2026-10-01",
+      supplier: "Supplier B", received_on: "2026-10-01", currency: "EUR",
       values: { ...pkgRow.response_template.values, capex_eur: 36.5e6, lead_time_weeks: 52, install_weeks: 10 },
       compliance: Object.fromEntries(Object.keys(pkgRow.response_template.compliance).map((k) => [k, "C"])),
     };
