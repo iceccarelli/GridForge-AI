@@ -19,6 +19,8 @@ import { renderToStaticMarkup } from "react-dom/server";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { IntelligenceClient } from "@/components/IntelligenceClient";
 import { IntelligenceManage, SuspendedAccessNote, requestIntelligencePortal } from "@/components/IntelligenceManage";
+import { EngagementLadder } from "@/components/EngagementLadder";
+import { PRODUCT_PAGES } from "@/lib/product-pages";
 import Terms from "@/app/legal/terms/page";
 import { SITE } from "@/lib/site";
 import { lookupEntitlement } from "@/lib/subscribers";
@@ -28,7 +30,9 @@ import { installTeamRpcs } from "./team-rpc-fake";
 import type { PostgrestFake } from "./postgrest-fake";
 import { openIntelligencePortal } from "@/lib/payg-client";
 import {
+  CANCEL_TIMING_NOTE,
   HALL_WATCH_CANCEL_NOTE,
+  INTELLIGENCE_PORTAL_EXPLANATION,
   INTELLIGENCE_CANCEL_TERMS,
   INTELLIGENCE_PORTAL_REQUEST,
   MANAGE_SUBSCRIPTION_LABEL,
@@ -205,6 +209,20 @@ describe("/account, for a visitor it shows no subscription for", () => {
 describe("the account page gives the BILLING OWNER the control", () => {
   const owner = () => renderToStaticMarkup(React.createElement(IntelligenceManage, { role: "owner", ownerEmail: null, authHeaders: noHeaders }));
 
+  it("says only what is true of the portal: it opens Stripe's billing page, what that page lets you change is set in Stripe, and cancelling there is what ends the subscription", () => {
+    const t = text(owner());
+    expect(t).toContain("This opens Stripe's billing page.");
+    expect(t).toContain("What it lets you change is set in Stripe");
+    expect(t).toContain("cancelling there is what ends the subscription");
+    // The portal's configuration lives in the Stripe dashboard and no code here can see it: the card and invoices are not promised.
+    expect(t).not.toMatch(/update the card|see invoices|invoices|replace (?:the|your) card/i);
+    // ...and the sentence is the constant's, typed nowhere else.
+    expect(INTELLIGENCE_PORTAL_EXPLANATION).toBe(
+      "This opens Stripe's billing page. What it lets you change is set in Stripe, and cancelling there is what ends the subscription. Nothing is cancelled by opening it."
+    );
+    expect(t).toContain(INTELLIGENCE_PORTAL_EXPLANATION);
+  });
+
   it("renders the one label as heading and as a button", () => {
     const html = owner();
     expect(html).toMatch(new RegExp(`<button[^>]*>${MANAGE_SUBSCRIPTION_LABEL}</button>`));
@@ -321,9 +339,10 @@ describe("guard: a cancellation promise is typed nowhere but in the shared const
   });
 
   it("'Cancel anytime' / 'cancel any time' is not typed in any page, component, library text or route", () => {
-    // lib/subscription-manage.ts DEFINES Hall Watch's own note; the price ladder and the upsell read it from there.
+    // lib/subscription-manage.ts DEFINES Hall Watch's own note (its first sentence is typed there; the timing sentence is CANCEL_TIMING_NOTE);
+    // the price ladder and the upsell read it from there.
     const allowed = new Map<string, string>([
-      ["lib/subscription-manage.ts", HALL_WATCH_CANCEL_NOTE],
+      ["lib/subscription-manage.ts", "Cancel any time; no minimum term."],
     ]);
     const offenders: string[] = [];
     for (const f of files) {
@@ -338,12 +357,39 @@ describe("guard: a cancellation promise is typed nowhere but in the shared const
   });
 
   it("the allowed literal is Hall Watch's own, and WatchUpsell reads it from the constant", () => {
-    expect(HALL_WATCH_CANCEL_NOTE).toBe("Cancel any time; no minimum term.");
+    expect(HALL_WATCH_CANCEL_NOTE).toBe("Cancel any time; no minimum term. When a cancellation takes effect is set in Stripe's billing page.");
+    expect(HALL_WATCH_CANCEL_NOTE).toBe(`Cancel any time; no minimum term. ${CANCEL_TIMING_NOTE}`);
     const upsell = strip(read("components/WatchUpsell.tsx"));
     expect(upsell).toContain("HALL_WATCH_CANCEL_NOTE");
     expect(upsell).not.toMatch(CANCEL_ANYTIME);
     // Hall Watch's promise is backed by a control: the same label, on its own page, through the same route.
     expect(read("components/WatchManage.tsx")).toContain("/api/billing/portal");
+  });
+
+  it("Hall Watch's note says when a cancellation takes effect is set in Stripe's billing page, from the shared constant, wherever the note is printed", () => {
+    expect(CANCEL_TIMING_NOTE).toBe("When a cancellation takes effect is set in Stripe's billing page.");
+    const rendered = text(renderToStaticMarkup(React.createElement(EngagementLadder)));
+    expect(rendered).toContain(HALL_WATCH_CANCEL_NOTE);
+    // The product page's limits line reads the constant for the timing sentence; it does not type its own.
+    const pageSrc = strip(read("lib/product-pages.ts"));
+    expect(pageSrc).toContain("CANCEL_TIMING_NOTE");
+    expect(pageSrc).not.toContain("takes effect is set in Stripe");
+    const limits = PRODUCT_PAGES.find((p) => p.productId === "hall_watch")!.limits.join(" ");
+    expect(limits).toContain(CANCEL_TIMING_NOTE);
+    expect(limits).toContain("There is no minimum term.");
+  });
+
+  it("'no minimum term' is backed by the code: no checkout, webhook or product setting imposes one (no cancel_at, schedule, iterations, trial or commitment)", () => {
+    const TERM = /cancel_at\b|cancel_at_period_end|subscription_schedule|\biterations\b|trial_period|trial_end|\bminimum[_ -]?(?:term|commit\w*|duration)\b|\bcommitment\b/i;
+    for (const f of ["app/api/checkout/route.ts", "app/api/stripe/webhook/route.ts", "lib/products.ts"]) {
+      const src = strip(read(f));
+      expect(src, `${f}: a term the site imposes would make "no minimum term" untrue`).not.toMatch(TERM);
+    }
+    // The only thing a subscription-mode checkout sets on the subscription is metadata.
+    const checkout = strip(read("app/api/checkout/route.ts"));
+    const block = /subscription_data:\s*\{([\s\S]*?)\n\s{12}\},/.exec(checkout)?.[1] ?? "";
+    expect(block.length, "found the subscription_data block").toBeGreaterThan(0);
+    expect(block.replace(/metadata:\s*\{[\s\S]*?\n\s{14}\},?/, "").trim(), "subscription_data holds metadata and nothing else").toBe("");
   });
 
   it("the Intelligence plans are not described as cancellable 'anytime' anywhere a plan is sold (pricing, products, llms.txt, FAQ)", () => {

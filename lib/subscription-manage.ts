@@ -89,5 +89,23 @@ export function portalUnavailableMessage(email: string = SITE.email): string {
   return `Managing billing here is not available right now: write to ${email} from the address you signed in with. Nothing was changed.`;
 }
 
-/** Hall Watch's own, shorter promise, backed by WatchManage (components/WatchManage.tsx) through the same portal route. Read by WatchUpsell. */
-export const HALL_WATCH_CANCEL_NOTE = "Cancel any time; no minimum term.";
+/**
+ * What the control opens, said only as far as the code can see. The Billing Portal is Stripe's page: which of its functions are on (cancelling,
+ * the card, invoices) is its configuration in the Stripe dashboard (docs/EXECUTION_STATE.md, issue #4; lib/stripe-health.ts checkBillingPortal
+ * reports whether cancellation is enabled), which no code here can read at request time. So the account page promises none of them but the one
+ * it relies on: that a cancellation made there is what ends the subscription (the signed webhook applies it).
+ */
+export const INTELLIGENCE_PORTAL_EXPLANATION =
+  "This opens Stripe's billing page. What it lets you change is set in Stripe, and cancelling there is what ends the subscription. Nothing is cancelled by opening it.";
+
+/** When a cancellation made in Stripe's billing page takes effect: Stripe's setting, not the site's. One sentence, read by every plan that is cancelled there. */
+export const CANCEL_TIMING_NOTE = "When a cancellation takes effect is set in Stripe's billing page.";
+
+/**
+ * Hall Watch's own, shorter promise, backed by WatchManage (components/WatchManage.tsx) through the same portal route. Read by WatchUpsell and the
+ * price ladder. "No minimum term" is a thing the code does not impose: the subscription-mode checkout sets only metadata on the subscription (no
+ * cancel_at, schedule, iterations or trial: app/api/checkout/route.ts), the webhook schedules none, and the product's `recurring` is an interval and
+ * nothing else (lib/products.ts); tests/site/intelligence-cancel.test.ts fails if any of them gains one. When the cancellation takes effect is Stripe's
+ * setting (CANCEL_TIMING_NOTE), which is why the note says so rather than "ends at once" or "at the end of the quarter".
+ */
+export const HALL_WATCH_CANCEL_NOTE = "Cancel any time; no minimum term. " + CANCEL_TIMING_NOTE;
