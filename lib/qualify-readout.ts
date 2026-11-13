@@ -60,6 +60,23 @@ export function rackCountIsUpperBound(r: { intake?: Partial<Intake> | null }): b
   return upperBoundInputs(r).length > 0;
 }
 
+/**
+ * The fixed note on a page that prints a FREE read's rack counts without the engine's own answer beside them (the shared link, /q/[token]).
+ * The free qualifier sends no transformer or UPS figures, so the engine treats both banks as "no limit" (gridforge/intake/loader.py
+ * UNASSESSED_BANK_TEXT) on every free read: each count is an upper bound whatever else the answer says. The live page derives "at most" from the
+ * engine's own gap text; a stored read keeps no gaps, so this page says it for all of them.
+ */
+export const FREE_READ_UPPER_BOUND_NOTE = "A free read treats transformers and UPS as no limit, so each rack count is an upper bound.";
+
+/**
+ * What the shared page says beside a count of ZERO. The engine answers "0 racks" for a hall whose figures are in the wrong unit or disagree (a
+ * MW/kW slip, a peak below the IT load) and says so in a warning; the stored row keeps no warnings (no column for the answer exists), so the page
+ * cannot tell that read from a hall that is really stopped, and does not claim to: it names the cause it cannot rule out and the way to check.
+ */
+export const SHARED_ZERO_RACKS_NOTE =
+  "Zero racks can mean a real limit, or figures in the wrong unit or that disagree with each other (MW typed as kW, a peak below the IT load). " +
+  "Check your inputs first: this link does not keep the engine's warnings, so run the read again at /qualify and read the warning shown there before relying on it.";
+
 /** The rows of the assumed-inputs table that are shown without a click: every required one, then optional ones up to this many rows in all. */
 export const VISIBLE_GAP_ROWS = 8;
 
