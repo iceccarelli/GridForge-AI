@@ -1255,26 +1255,49 @@ def handle_power_deploy_bids(body: dict, tier: Tier) -> dict:
     }
 
 
+def _mcp_id_is_valid(rid) -> bool:
+    """The ONE check of a JSON-RPC request id: a string, a number (an integer or a fraction: 1.5 is a number) or null. An object, an array or a
+    boolean is not an id. A float that is not finite cannot be written back as JSON, so it is not one either. The valid path and the invalid-request
+    path both ask this, so an id is echoed exactly or not at all (it used to be echoed unchecked when the request was valid and nulled, a float
+    included, when it was not)."""
+    if rid is None or isinstance(rid, str):
+        return True
+    if isinstance(rid, bool):
+        return False
+    return isinstance(rid, int) or (isinstance(rid, float) and math.isfinite(rid))
+
+
 def _mcp_message_is_valid(message) -> bool:
-    """The least JSON-RPC 2.0 asks of a request or notification: an object declaring `"jsonrpc": "2.0"` with a string method. Anything else
-    is an Invalid Request: a message that says it is another version (`"1.0"`) or none at all is not one this endpoint is entitled to read as 2.0."""
+    """The least JSON-RPC 2.0 asks of a request or notification: an object declaring `"jsonrpc": "2.0"` with a string method, and an `id`, when there
+    is one, that is a string, a number or null. Anything else is an Invalid Request: a message that says it is another version (`"1.0"`) or none at all
+    is not one this endpoint is entitled to read as 2.0, and an object or a list as an id could not be echoed as one."""
     return (isinstance(message, dict) and message.get("jsonrpc") == "2.0"
-            and isinstance(message.get("method"), str) and bool(message["method"]))
+            and isinstance(message.get("method"), str) and bool(message["method"])
+            and ("id" not in message or _mcp_id_is_valid(message["id"])))
 
 
 def _invalid_rpc_request(message) -> dict:
     """-32600, answered whether or not the message had an id: a malformed message is an error to report, never a notification to ignore.
-    The id is echoed only when it is one JSON-RPC allows (a string or an integer), else null."""
+    The id is echoed exactly when it is one JSON-RPC allows (a string, a number or null), else null."""
     rid = message.get("id") if isinstance(message, dict) else None
-    if isinstance(rid, bool) or not isinstance(rid, (str, int)):
+    bad_id = not _mcp_id_is_valid(rid)
+    if bad_id:
         rid = None
     if isinstance(message, dict) and message.get("jsonrpc") != "2.0":
         got = message.get("jsonrpc")
         shown = ("missing" if "jsonrpc" not in message else repr(got) if isinstance(got, str) and len(got) <= 20 else f"a {type(got).__name__}")
         what = f'invalid request: "jsonrpc" must be the string "2.0" (it is {shown})'
+    elif bad_id and isinstance(message.get("method"), str) and message["method"]:
+        what = f'invalid request: "id" must be a string, a number or null (it is {_json_type_name(message.get("id"))})'
     else:
         what = 'invalid request: expected a JSON-RPC object with a string "method"'
     return {"jsonrpc": "2.0", "id": rid, "error": {"code": -32600, "message": what}}
+
+
+def _json_type_name(value) -> str:
+    """The JSON name of a value's type, for a refusal ("an object", "an array", "a boolean")."""
+    return ("a boolean" if isinstance(value, bool) else "an object" if isinstance(value, dict) else "an array" if isinstance(value, list)
+            else "a number" if isinstance(value, (int, float)) else "a string" if isinstance(value, str) else "null" if value is None else type(value).__name__)
 
 
 def handle_revoke(body: dict, tier: Tier) -> dict:
