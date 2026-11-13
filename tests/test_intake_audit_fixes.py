@@ -399,12 +399,16 @@ def test_n2_a_transformer_bank_and_a_cdu_bank_of_zero_units_are_ignored_the_same
     assert [t.id for t in it.context.power.transformers] == ["TX-A/B"] and [c.id for c in it.context.thermal.cdus] == ["CDU-2"]
 
 
-def test_n2_a_schedule_whose_every_bank_is_ignored_is_a_missing_schedule_not_a_supplied_one():
+def test_n2_a_schedule_whose_every_bank_declares_zero_units_is_kept_as_declared_not_a_missing_schedule():
+    """Review E3: ignoring empty banks only holds BESIDE a bank with units. A schedule of nothing but empty banks is a declaration of zero capacity: it
+    is kept (supplied, zero usable, binding at zero) with a warning that says every bank declared 0 units, never read as 'no limit'
+    (tests/test_empty_bank_schedules.py pins the whole behaviour through the handler)."""
     d = doc(**{"ups.0.units": 0})
     it = load_document(d)
-    assert it.context.power.ups == [] and "ups" not in it.report.supplied
-    assert "ups" in [g.path for g in it.report.required_gaps] and not it.report.can_issue
-    assert "No UPS schedule supplied" in " | ".join(it.report.warnings)
+    assert [(u.id, u.units) for u in it.context.power.ups] == [("UPS-1", 0)] and "ups" in it.report.supplied
+    assert "ups" not in [g.path for g in it.report.required_gaps]
+    warnings = " | ".join(it.report.warnings)
+    assert "ups: every bank declared 0 units" in warnings and "No UPS schedule supplied" not in warnings
 
 
 @pytest.mark.parametrize("units", [-1, 1.5, "2", None])
@@ -527,16 +531,23 @@ def test_j24_the_free_qualifier_builds_a_document_the_loader_accepts():
     S.handle_qualify({"contracted_MW": 12, "current_site_peak_MW": 7.4, "busway_ampacity_A": 400, "tapoff_max_A": 63}, Tier.PUBLIC)
 
 
-def test_j24_a_section_the_engine_does_not_read_is_named_and_the_request_options_are_allowed():
-    assert refusal({**DUBLIN, "notes": "x"}).startswith("notes is not a section of the intake")
+def test_j24_a_key_the_engine_does_not_read_is_named_in_a_warning_a_near_miss_of_a_section_is_refused_and_the_request_options_are_allowed():
+    """The policy for an unknown top-level key (review E1; tests/test_template_roundtrip.py pins each branch): a metadata key such as `notes` is ignored
+    with a named warning (it used to be refused, which also refused the template the engine itself sends), a misspelt section is still refused."""
+    assert any(w.startswith("notes is not read by the engine") for w in load_document({**DUBLIN, "notes": "x"}).report.warnings)
+    assert refusal({**DUBLIN, "halls": {}}).startswith("halls is not a section of the intake")               # a near miss of `hall`: refused, not ignored
     load_document({**DUBLIN, "format": "md", "objective": "max_compute", "return_by": "2027-01-31", "scenario": "full_dlc", "constraint": "x"})
 
 
 def test_j24_the_qualifiers_short_form_sent_to_an_intake_route_is_told_so_in_the_apis_own_words():
-    """A body with no section of the intake in it was refused as 'none of the intake fields' (tests/test_api_contract.py); it still is, now naming the keys."""
-    text = refusal({"contracted_MW": 12, "site_name": "x"})
-    assert text.startswith("contracted_MW is not a section of the intake, and the request contains none of the intake fields, so there is nothing to solve")
-    assert "POST /v1/qualify" in text
+    """A body with no section of the intake in it was refused as 'none of the intake fields' (tests/test_api_contract.py); it still is. The loader no longer
+    refuses the keys (they are far from every section: ignored, with a named warning), so the refusal is the route's, and it names the keys sent."""
+    short = {"contracted_MW": 12, "site_name": "x"}
+    assert any(w.startswith("contracted_MW is not read by the engine") for w in load_document(short).report.warnings)
+    with pytest.raises(S.ApiError) as e:
+        S._run(short)
+    assert e.value.status == 422 and "none of the intake fields, so there is nothing to solve" in e.value.message
+    assert "contracted_MW" in e.value.message and "POST /v1/qualify" in e.value.message
     assert "none of the intake fields" not in refusal({**DUBLIN, "gird": {}})                    # a typo beside real sections is just a typo
 
 

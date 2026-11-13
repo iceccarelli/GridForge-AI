@@ -302,7 +302,12 @@ def test_the_unbounded_intake_is_refused_at_the_door_by_name_and_refunded(rig):
 def test_ladder_non_convergence_is_a_422_and_refunded_over_rest(rig, ceilings_lifted):
     key = rig.key("payg", quota=50)
     s, b, h = rig.post("/v1/screen", _unbounded_intake(), key=key)
-    assert s == 422 and b["error"] == "the request could not be processed as given"
+    # A NAMED 422 (review E4), not 'the request could not be processed as given': what was taken, the limit, the cap, the size to ask for
+    from gridforge.envelope.solver import LADDER_STEP_CAP, supported_scale_MW
+    assert s == 422 and b["error"] != "the request could not be processed as given"
+    assert b["error"].startswith(f"the headroom ladder was still finding reliefs after {LADDER_STEP_CAP} steps")
+    assert "Supported scale" in b["error"] and "hall.positions_available" in b["error"]
+    assert b["rungs_taken"] == b["step_limit"] == b["step_cap"] == LADDER_STEP_CAP and b["supported_MW"] == supported_scale_MW()
     assert h["X-GridForge-Charge-Cents"] == "0" and rig.meter.current("acme").units == 0
     assert [e["kind"] for e in rig.events()] == ["charge", "refund"]
 
@@ -312,7 +317,10 @@ def test_ladder_non_convergence_is_invalid_arguments_and_refunded_over_mcp(rig, 
     call = {"jsonrpc": "2.0", "id": 1, "method": "tools/call",
             "params": {"name": "gridforge_screen", "arguments": {"intake": _unbounded_intake()}}}
     s, b, h = rig.post("/mcp", call, key=key)
-    assert s == 200 and b["error"]["code"] == -32602 and "LadderDidNotConverge" in b["error"]["message"]
+    from gridforge.envelope.solver import LADDER_STEP_CAP
+    assert s == 200 and b["error"]["code"] == -32602
+    assert b["error"]["message"].startswith(f"the headroom ladder was still finding reliefs after {LADDER_STEP_CAP} steps") and "Supported scale" in b["error"]["message"]
+    assert b["error"]["data"]["step_cap"] == LADDER_STEP_CAP          # the same named refusal as over REST, not a message cut at 160 characters
     assert h["X-GridForge-Charge-Cents"] == "0" and rig.meter.current("acme").units == 0
 
 

@@ -47,9 +47,13 @@ def _cdu_host(ctx: EnvelopeContext):
     """The CDU bank that receives a relief's unit(s), or None when no bank has a unit.
 
     THE RULE: a relief buys ONE further usable unit in total (a matched pair under 2N, where a single added unit buys nothing) and puts it in ONE
-    bank, the fewest banks that can host it. The bank is fixed by the plant, never by how it was listed: the one whose added unit(s) carry the most
-    heat at the water temperature the site can supply (rating x derate x usable units gained), then the most declared flow, then the larger rating,
-    then the id. The price follows the units actually added.
+    bank, the fewest banks that can host it. The bank is fixed by the plant, never by how it was listed: the one whose added unit(s) cost the LEAST PER
+    kW OF USABLE HEAT GAINED at the water temperature the site can supply (the price of the units bought over rating x derate x usable units gained: a
+    2N bank buys two units to gain one), then the larger heat gain, then the most declared flow, then the id. The price follows the units actually
+    added.
+
+    Ranking by heat alone took the larger unit whatever it cost to install: dublin_hall with C0 (1000 kW, 2 units N) and C99 (1500 kW, 2 units 2N)
+    chose C99, two units bought for one usable, so the second bank made the same 22 racks dearer (3.72 MEUR with C0, 3.90 MEUR with both).
 
     The old relief added one unit to EVERY bank, priced on the sum, so the same CDUs listed as one bank or as several were priced differently, and an
     empty bank doubled the step (audit N2). Banks with no units are not hosts."""
@@ -57,14 +61,26 @@ def _cdu_host(ctx: EnvelopeContext):
     if not live:
         return None
     avail = (ctx.thermal.tcs_target_supply_C.value - facility_water_supply(ctx).temperature.value)
+    prices: dict[int, float] = {}                 # EUR of buying n units (the one price the step quotes: ``cdu_cost``), once per n
 
     def gain(c) -> int:
         return _effective_units(c.units + _units_per_relief_step(c.redundancy), c.redundancy) - _effective_units(c.units, c.redundancy)
 
+    def heat(c) -> float:
+        return c.rated_capacity_kW.value * _cdu_derate_ratio(c, avail) * gain(c)
+
+    def eur_per_kW(c) -> float:
+        h = heat(c)
+        if not h > 0:
+            return math.inf                       # nothing gained at this water temperature: last, never preferred for its price
+        n = _units_per_relief_step(c.redundancy)
+        if n not in prices:
+            prices[n] = cdu_cost(n, "additional CDU")[0].value
+        return round(prices[n] / h, 6)            # micro-euro: equal prices per kW up to float noise tie, and the rule below settles the tie
+
     def key(c):
         flow = c.rated_flow_l_per_min.value * gain(c) if c.rated_flow_declared else 0.0
-        return (-(c.rated_capacity_kW.value * _cdu_derate_ratio(c, avail) * gain(c)), -flow, -c.rated_capacity_kW.value,
-                c.id, c.units, c.redundancy, c.rated_approach_K.value)
+        return (eur_per_kW(c), -heat(c), -flow, c.id, c.units, c.redundancy, c.rated_approach_K.value)
     return min(live, key=key)
 
 
@@ -254,9 +270,14 @@ def cdu_capacity(ctx: EnvelopeContext) -> ConstraintResult:
     added_units = _units_per_relief_step(host.redundancy)
     cdu_capex, cdu_kind, cdu_scope, cdu_unpriced, cdu_extra, cdu_limited, cdu_note = cdu_cost(
         added_units, "additional CDU")
+    heat_gained = (host.rated_capacity_kW.value * _cdu_derate_ratio(host, available_approach.value)
+                   * (_effective_units(host.units + added_units, host.redundancy) - _effective_units(host.units, host.redundancy)))
+    per_heat = (f"{cdu_capex.value / heat_gained:,.1f} EUR per kW of usable heat ({heat_gained:,.0f} kW gained)" if heat_gained > 0
+                else "no usable heat gained in any bank at this water temperature")
     rule = (f"Each step buys {added_units} CDU unit(s) in total ({'a matched pair under 2N' if added_units == 2 else 'one further usable unit'}), "
-            f"put in one bank ({host.id}): the fewest banks that can host it, chosen as the bank whose added unit carries the most heat at the site's "
-            f"water temperature (then the most declared flow, the larger rating, the id). The price follows the units added, so the same CDUs listed as "
+            f"put in one bank ({host.id}): the fewest banks that can host it, chosen as the bank whose added unit costs least per kW of usable heat "
+            f"gained at the site's water temperature ({per_heat}; a 2N bank buys two units to gain one), then the larger heat gain, the most "
+            f"declared flow, the id. The price follows the units added, so the same CDUs listed as "
             f"one bank or as several are priced the same; a bank declared with no units is ignored.")
     relief = ReliefOption(
         description="Add CDU capacity (one further usable unit, in one bank)",
@@ -293,7 +314,7 @@ def cdu_capacity(ctx: EnvelopeContext) -> ConstraintResult:
         floor_racks(racks),
         basis=(f"{total.render()} usable against {plat.liquid_kW().render()} of liquid load "
                f"per rack; {available_approach.render()} approach available" + flow_text),
-        relief=relief, notes=notes,
+        relief=relief, notes=notes, margin_racks=racks.value,
     )
 
 
@@ -307,13 +328,16 @@ def plant_capacity(ctx: EnvelopeContext) -> ConstraintResult:
     if other_heat is None:
         headroom = (t.plant.chilled_water_capacity_kW - existing).relabel(
             "chilled-water plant headroom", "thermal.plant_headroom", step_evidence=ESTIMATED)
+        raw_headroom_kW = headroom.value
     else:
         # Plant capacity less the IT load less the other heat the existing hall already puts on the plant, never below zero.
         net = (t.plant.chilled_water_capacity_kW - existing - other_heat).relabel(
             "chilled-water plant headroom", "thermal.plant_headroom", step_evidence=ESTIMATED)
         lo, hi = net.band
         headroom = Quantity(max(net.value, 0.0), net.unit, net.prov, max(lo, 0.0), max(hi, 0.0))
+        raw_headroom_kW = net.value            # the figure before the clamp: how far short, for ConstraintResult.margin_racks
     racks = headroom / per_rack
+    margin_racks = raw_headroom_kW / per_rack.value if per_rack.value > 0 else None
 
     # Heat rejection of the DEDICATED high-temperature loop (full DLC), when the client declared its dry-cooler capacity. Read as a
     # nameplate: the conditions it is rated at (water and ambient temperature) are not known, so NO derating for the site's design dry
@@ -328,6 +352,8 @@ def plant_capacity(ctx: EnvelopeContext) -> ConstraintResult:
         dry_binds = _floor(heat_rejection.value) < _floor(racks.value)       # a tie keeps the chilled-water relief, as before
         racks = _lesser("racks permitted by chilled-water headroom and dry-cooler heat rejection", "thermal.plant_limit",
                         racks, heat_rejection)
+        if margin_racks is not None:
+            margin_racks = min(margin_racks, heat_rejection.value)
 
     def _apply(c: EnvelopeContext) -> EnvelopeContext:
         c = c.copy()
@@ -399,6 +425,7 @@ def plant_capacity(ctx: EnvelopeContext) -> ConstraintResult:
         basis=basis,
         relief=relief,
         notes=notes,
+        margin_racks=margin_racks,
     )
 
 
@@ -459,6 +486,9 @@ def hydraulic_flow(ctx: EnvelopeContext) -> ConstraintResult:
 
     racks = (_available(pump) / ctx.cluster.platform.flow_l_per_min_per_rack).relabel(
         "racks permitted by available pumped flow", "thermal.flow_limit", step_evidence=SIMULATED)
+    flow_per_rack = ctx.cluster.platform.flow_l_per_min_per_rack.value
+    # The same figure before the clamp at zero (how far short the pumps are), for ConstraintResult.margin_racks.
+    margin_racks = ((pump.value - (existing.value if existing is not None else 0.0)) / flow_per_rack) if flow_per_rack > 0 else None
 
     def _apply(c: EnvelopeContext) -> EnvelopeContext:
         # The uprate scales the PUMP capacity. What the existing hall draws does not change, so it is subtracted after the uprate.
@@ -504,6 +534,7 @@ def hydraulic_flow(ctx: EnvelopeContext) -> ConstraintResult:
         ),
         notes=("Pressure drop budget and pipe DN are not modelled at screening level; "
                "a hydraulic model is required before design.",),
+        margin_racks=margin_racks,
     )
 
 

@@ -101,7 +101,7 @@ from ..calibration.ledger import LedgerIntegrityError
 from ..calibration.residuals import public_report as public_residual_report
 from ..calibration.store import approved_records as approved_observation_records
 from ..compute.library import PLATFORMS, UNPUBLISHED_PLATFORMS
-from ..intake.loader import PLAUSIBLE_MAX, IntakeError, blank_intake, load_document
+from ..intake.loader import PLAUSIBLE_MAX, IntakeError, blank_intake, ignored_top_level_keys, load_document, plausible_floor
 from ..intake.schema import FIELD_BY_PATH as _INTAKE_FIELD_BY_PATH
 from ..reporting import to_html, to_markdown
 from ..reporting.gates import ReportMode, run_all_gates
@@ -114,6 +114,7 @@ from ..reporting.deck import build as build_deck_report
 from ..reporting.deck import to_html as deck_to_html
 from ..reporting.proposal import build as build_proposal_report
 from ..reporting.screen import build as build_screen_report
+from ..envelope.solver import LadderDidNotConverge
 from ..envelope.time_to_power import date_record as _date_record
 from ..reporting.study import build as build_study_report, watermark_for
 from ..reporting.study import collect_claims
@@ -322,6 +323,12 @@ def _qualify_number(name: str, raw) -> float:
             raise ApiError(422, f"{name} is {raw!r}; it must be a whole number, zero or more")
     elif num < 0 and unit != "degC":
         raise ApiError(422, f"{name} is {shown}; it cannot be negative")
+    # The loader's floors (a chilled-water supply below -5 degC, a temperature below absolute zero), applied by the caller's own name: the loader's
+    # refusal would name `thermal.plant.design_supply_C`, an intake path the caller never sent, and carry no `field`.
+    floor, floor_hint = plausible_floor(path, unit) if path else (None, "")
+    if floor is not None and num < floor:
+        raise ApiError(422, f"{name} is {shown}, below {floor:g}{(' ' + unit) if unit else ''}, the lowest this tool will model for one hall. "
+                            + (floor_hint or "Check the unit and the sign."), field=name, limit=floor)
     ceiling = PLAUSIBLE_MAX.get(path) if path else None
     if ceiling is not None and num > ceiling:
         raise ApiError(422, f"{name} is {shown}, above {ceiling:g}{(' ' + unit) if unit else ''}, the most this tool will model for one hall. "
@@ -669,10 +676,14 @@ def _run(doc: dict):
     intake = load_document(doc)
     if not intake.report.supplied:
         # Every number would be a library default: a study of a hall nobody described. The free
-        # /v1/qualify route is the place to start from a handful of figures.
+        # /v1/qualify route is the place to start from a handful of figures. The keys the engine did not read are named: they are what the caller sent.
+        unread = ignored_top_level_keys(doc)
+        named = (f" The key{'s' if len(unread) > 1 else ''} you sent ({', '.join(repr(k[:40]) for k in unread[:6])}) "
+                 f"{'are' if len(unread) > 1 else 'is'} not read by this route: figures like these go to POST /v1/qualify, and an intake document "
+                 f"carries them under its sections (grid, hall, ups, ...)." if unread else "")
         raise ApiError(422, "the request contains none of the intake fields, so there is nothing to "
                             "solve. Send an intake document (see GET /v1/tools for the schema) or use "
-                            "/v1/qualify.", missing_required=[g.path for g in intake.report.required_gaps])
+                            "/v1/qualify." + named, missing_required=[g.path for g in intake.report.required_gaps])
     return intake, run_all(intake.context, intake.scenarios)
 
 
@@ -1245,26 +1256,49 @@ def handle_power_deploy_bids(body: dict, tier: Tier) -> dict:
     }
 
 
+def _mcp_id_is_valid(rid) -> bool:
+    """The ONE check of a JSON-RPC request id: a string, a number (an integer or a fraction: 1.5 is a number) or null. An object, an array or a
+    boolean is not an id. A float that is not finite cannot be written back as JSON, so it is not one either. The valid path and the invalid-request
+    path both ask this, so an id is echoed exactly or not at all (it used to be echoed unchecked when the request was valid and nulled, a float
+    included, when it was not)."""
+    if rid is None or isinstance(rid, str):
+        return True
+    if isinstance(rid, bool):
+        return False
+    return isinstance(rid, int) or (isinstance(rid, float) and math.isfinite(rid))
+
+
 def _mcp_message_is_valid(message) -> bool:
-    """The least JSON-RPC 2.0 asks of a request or notification: an object declaring `"jsonrpc": "2.0"` with a string method. Anything else
-    is an Invalid Request: a message that says it is another version (`"1.0"`) or none at all is not one this endpoint is entitled to read as 2.0."""
+    """The least JSON-RPC 2.0 asks of a request or notification: an object declaring `"jsonrpc": "2.0"` with a string method, and an `id`, when there
+    is one, that is a string, a number or null. Anything else is an Invalid Request: a message that says it is another version (`"1.0"`) or none at all
+    is not one this endpoint is entitled to read as 2.0, and an object or a list as an id could not be echoed as one."""
     return (isinstance(message, dict) and message.get("jsonrpc") == "2.0"
-            and isinstance(message.get("method"), str) and bool(message["method"]))
+            and isinstance(message.get("method"), str) and bool(message["method"])
+            and ("id" not in message or _mcp_id_is_valid(message["id"])))
 
 
 def _invalid_rpc_request(message) -> dict:
     """-32600, answered whether or not the message had an id: a malformed message is an error to report, never a notification to ignore.
-    The id is echoed only when it is one JSON-RPC allows (a string or an integer), else null."""
+    The id is echoed exactly when it is one JSON-RPC allows (a string, a number or null), else null."""
     rid = message.get("id") if isinstance(message, dict) else None
-    if isinstance(rid, bool) or not isinstance(rid, (str, int)):
+    bad_id = not _mcp_id_is_valid(rid)
+    if bad_id:
         rid = None
     if isinstance(message, dict) and message.get("jsonrpc") != "2.0":
         got = message.get("jsonrpc")
         shown = ("missing" if "jsonrpc" not in message else repr(got) if isinstance(got, str) and len(got) <= 20 else f"a {type(got).__name__}")
         what = f'invalid request: "jsonrpc" must be the string "2.0" (it is {shown})'
+    elif bad_id and isinstance(message.get("method"), str) and message["method"]:
+        what = f'invalid request: "id" must be a string, a number or null (it is {_json_type_name(message.get("id"))})'
     else:
         what = 'invalid request: expected a JSON-RPC object with a string "method"'
     return {"jsonrpc": "2.0", "id": rid, "error": {"code": -32600, "message": what}}
+
+
+def _json_type_name(value) -> str:
+    """The JSON name of a value's type, for a refusal ("an object", "an array", "a boolean")."""
+    return ("a boolean" if isinstance(value, bool) else "an object" if isinstance(value, dict) else "an array" if isinstance(value, list)
+            else "a number" if isinstance(value, (int, float)) else "a string" if isinstance(value, str) else "null" if value is None else type(value).__name__)
 
 
 def handle_revoke(body: dict, tier: Tier) -> dict:
@@ -1786,7 +1820,19 @@ def _invoke(endpoint: str, handler, body, tier):
     """Run `handler` for `endpoint` inside the engine-wide concurrency cap (SOLVE_GATE) when the endpoint solves; see `_invoke_inner`.
 
     The ONE place a solve starts, for REST and MCP alike. When every slot is taken this raises ApiError 503 (with retry_after_seconds in its
-    detail) at once: it never waits for a slot, so a flood is shed, not queued."""
+    detail) at once: it never waits for a slot, so a flood is shed, not queued.
+
+    A hall too large for the ladder to finish inside the work one request may ask for (``LadderDidNotConverge``) is a NAMED 422 on both
+    transports, refunded as any 422 is: the message says how many rungs were taken, the limit, the hard cap and about how many the hall needs, and
+    the figures ride as keys (``rungs_taken``, ``step_limit``, ``step_cap``, ``rungs_needed_estimate``, ``supported_MW``). It used to fall into the
+    generic ValueError branch: 'the request could not be processed as given', and over MCP a message cut at 160 characters."""
+    try:
+        return _invoke_gated(endpoint, handler, body, tier)
+    except LadderDidNotConverge as exc:
+        raise ApiError(422, str(exc), **exc.detail()) from None
+
+
+def _invoke_gated(endpoint: str, handler, body, tier):
     if endpoint not in SOLVING_ROUTES:
         return _invoke_inner(endpoint, handler, body, tier)
     caller, public = getattr(_CTX, "caller", ""), tier is Tier.PUBLIC

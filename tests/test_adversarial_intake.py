@@ -265,25 +265,11 @@ def test_every_ranking_surface_discloses_a_missing_transformer_schedule(route):
     assert status == "ok" and "not evaluated" in text_of(out)
 
 
-def test_a_zero_rating_transformer_bank_makes_the_transformer_the_binding_constraint_not_a_silent_zero():
+@pytest.mark.parametrize("edit", [{"transformers.0.unit_rating_MVA": 0}, {"transformers.0.units": 0}], ids=["rating-0", "units-0"])
+def test_a_zero_transformer_bank_makes_the_transformer_the_binding_constraint_not_a_silent_zero(edit):
     """DEGRADE WITH DISCLOSURE: a zero-capacity bank is not ignored; every scenario reports transformer_capacity as the binding constraint."""
-    status, out = call("/v1/compare", {"intake": doc(**{"transformers.0.unit_rating_MVA": 0})})
+    status, out = call("/v1/compare", {"intake": doc(**edit)})
     assert status == "ok" and {s["as_found"]["binding"] for s in out["scenarios"]} == {"transformer_capacity"}
-
-
-def test_a_transformer_bank_of_zero_units_is_ignored_with_a_named_warning_and_the_schedule_is_said_to_be_missing():
-    """DEGRADE WITH DISCLOSURE: a bank of zero UNITS is not refused and not computed with: it is left out, by name, and a schedule whose only bank was
-    left out is a missing schedule (transformer capacity not evaluated, a required gap), never a silent zero and never a bank of capacity zero."""
-    d = doc(**{"transformers.0.units": 0})
-    status, out = call("/v1/screen", {"intake": d})
-    ident = d["transformers"][0].get("id", 0)
-    assert status == "ok" and any(w.startswith(f"transformers[0] ({ident}): units is 0, ignored") for w in out["intake"]["warnings"])
-    assert any("transformer capacity is not evaluated" in w for w in out["intake"]["warnings"])
-    status, out = call("/v1/compare", {"intake": d})
-    assert status == "ok" and "transformer_capacity" not in {s["as_found"]["binding"] for s in out["scenarios"]}        # nothing computed on the empty bank
-    intake = load_document(d)
-    assert intake.context.power.transformers == [] and not intake.report.can_issue
-    assert "transformers" in [g.path for g in intake.report.required_gaps] and "transformers" not in intake.report.supplied
 
 
 # ===================================================================================================================================

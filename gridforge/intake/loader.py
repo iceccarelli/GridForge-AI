@@ -6,6 +6,7 @@ with the question that would close it.
 """
 from __future__ import annotations
 
+import difflib
 import math
 from dataclasses import dataclass
 from pathlib import Path
@@ -179,6 +180,18 @@ def _ceil(num: float, key: str, what: str, unit: str = "") -> float:
             f"{what} is {num:g}{(' ' + unit) if unit else ''}, above {high:g}{(' ' + unit) if unit else ''}"
             + (f". {hint}" if hint else ", the most this tool will model for one hall. Check the unit and for a stray digit."))
     return num
+
+
+def plausible_floor(key: str, unit: str = "") -> tuple[float | None, str]:
+    """The lowest figure the loader accepts for the intake path `key` and the hint that goes with its refusal: (None, "") when the figure has no floor.
+    A temperature with no floor of its own is bounded by absolute zero. For the free route, which refuses a figure by the name the caller sent it
+    under and not by the intake path (`/v1/qualify` with `plant_supply_C: -6`), from the same table the loader refuses from."""
+    low = PLAUSIBLE_MIN.get(key)
+    if low is not None:
+        return low, _FLOOR_HINT.get(key, "")
+    if unit in _TEMPERATURE_UNITS:
+        return ABSOLUTE_ZERO_C, "No temperature can be below absolute zero; check the sign and the unit (degC, not K)."
+    return None, ""
 
 
 def _floor(num: float, key: str, what: str, unit: str = "") -> float:
@@ -667,21 +680,76 @@ REQUEST_OPTION_KEYS: frozenset[str] = frozenset({
 TOP_LEVEL_KEYS: frozenset[str] = frozenset(INTAKE_SECTIONS) | REQUEST_OPTION_KEYS
 
 
+#: The document's own envelope, not content. The API adds `schema_version` to every JSON object it sends, the blank template (`GET /v1/intake/template`)
+#: included, so a template saved from the API and filled in carries it; `$schema` is the usual pointer from a JSON-Schema-aware editor. Both are
+#: accepted and ignored without a word.
+ENVELOPE_KEYS: frozenset[str] = frozenset({"schema_version", "$schema"})
+#: Metadata that people and tools write beside the sections of a document (a note to the next reader, a title, a comment). The engine reads none of it,
+#: so it is ignored, and the warning says so by name: the caller can see it was not used. A key that starts with `_` or `$` is the same kind of thing
+#: (a convention for "not data").
+BENIGN_METADATA_KEYS: frozenset[str] = frozenset({"notes", "note", "comment", "comments", "metadata", "meta", "title", "description", "name"})
+#: How close (difflib ratio) an unknown top-level key must be to a section or request option to be read as a misspelling of it, beside the one-letter
+#: slip (`_one_edit_apart`: a letter inserted, dropped or changed, two adjacent letters swapped, or only the case). 0.8 reads `gird`, `Grid`, `halls` and
+#: `thermals` as the section they nearly are, and leaves `contracted_MW` and `site_name` (the qualifier's short form) alone.
+TOP_LEVEL_NEAR_MISS_RATIO = 0.8
+
+
+def _near_misses(key: str, allowed) -> list[str]:
+    """The allowed names `key` is a misspelling of: one letter off (`_one_edit_apart`, which includes a case slip and a swap of two adjacent letters)
+    or a close match by difflib. Sorted, so the answer never depends on set order."""
+    low = key.lower()
+    close = {a for a in allowed if _one_edit_apart(low, a.lower())}
+    close.update(a for a in allowed if difflib.SequenceMatcher(None, low, a.lower()).ratio() >= TOP_LEVEL_NEAR_MISS_RATIO)
+    return sorted(close)
+
+
+def _top_level_key_class(key) -> str:
+    """How the loader treats a top-level key: "section" (read), "envelope" (accepted, silently ignored), "metadata" (ignored, with a named warning),
+    "misspelt" (a near miss of a section or request option: REFUSED, with the did-you-mean) or "unread" (far from every section: ignored, with a named
+    warning).
+
+    The order matters. A misspelt section is the defect this guards (`"gird": {...}` was dropped without a word, a whole section of figures ignored
+    and the study run on library defaults). A refusal of every key that is not a section would refuse a document that was fine before (a template with
+    a title, a note, the id of the tool that wrote it), so only what is nearly a section is refused."""
+    if not isinstance(key, str) or key in TOP_LEVEL_KEYS:
+        return "section"
+    if key in ENVELOPE_KEYS:
+        return "envelope"
+    if key.startswith(("_", "$")) or key in BENIGN_METADATA_KEYS:
+        return "metadata"
+    return "misspelt" if _near_misses(key, TOP_LEVEL_KEYS) else "unread"
+
+
+def ignored_top_level_keys(doc: dict) -> list[str]:
+    """The top-level keys the engine does not read and says so for (metadata and unread keys; the silent envelope keys are not listed)."""
+    return [k for k in doc if _top_level_key_class(k) in ("metadata", "unread")]
+
+
+def _ignored_key_warnings(doc: dict) -> list[str]:
+    return [f"{k[:60]} is not read by the engine: it is not one of the intake's sections ({', '.join(INTAKE_SECTIONS)}) or request options, so it was "
+            f"ignored and changes no result. If it was meant as one of them, send it under that name." for k in ignored_top_level_keys(doc)]
+
+
 def _refuse_unknown_top_level_keys(doc: dict) -> None:
-    """A top-level key that is neither a section of the intake nor a request option is refused by name, with a did-you-mean when it is a near miss.
-    `"gird": {...}` was dropped without a word, so a whole section of figures was ignored and the study ran on library defaults, while the same typo
-    one level down (`grid.contracted_MWW`) was refused. The shipped examples and the web forms send only the sections above."""
-    unknown = [k for k in doc if isinstance(k, str) and k not in TOP_LEVEL_KEYS]
-    if unknown:
-        first = unknown[0]
-        more = f" Also unknown here: {', '.join(repr(k[:40]) for k in unknown[1:6])}." if len(unknown) > 1 else ""
+    """A top-level key that is nearly a section of the intake or a request option (a misspelling: `gird`, `Grid`, `halls`) is refused by name, with the
+    did-you-mean. `"gird": {...}` was dropped without a word, so a whole section of figures was ignored and the study ran on library defaults, while the
+    same typo one level down (`grid.contracted_MWW`) was refused. Every other key the engine does not read is IGNORED, with a named warning
+    (`_ignored_key_warnings`), or silently when it is the document's own envelope (`schema_version`, `$schema`): refusing those would refuse the very
+    template the engine sent, and a caller whose document was fine before."""
+    misspelt = [k for k in doc if _top_level_key_class(k) == "misspelt"]
+    if misspelt:
+        first = misspelt[0]
+        more = f" Also unknown here: {', '.join(repr(k[:40]) for k in misspelt[1:6])}." if len(misspelt) > 1 else ""
+        # The one-letter slip is the long-standing did-you-mean; a looser difflib match is named only when there is no such slip.
+        close = _near_misses(first, TOP_LEVEL_KEYS)
+        best = next((a for a in close if _one_edit_apart(first.lower(), a.lower())), close[0])
         # A body with no section of the intake at all is usually the free qualifier's short form (contracted_MW, site_name, ...) sent to a route that
         # takes an intake document: say that, in the words the API has always used for a request that gives none of the intake's fields.
         nothing = ", and the request contains none of the intake fields, so there is nothing to solve" if not any(k in INTAKE_SECTIONS for k in doc) else ""
         raise IntakeError(
             f"{first[:60]} is not a section of the intake{nothing} (the sections are: {', '.join(INTAKE_SECTIONS)}; request options: "
-            f"{', '.join(sorted(REQUEST_OPTION_KEYS - {'intake'}))}).{_did_you_mean(first, TOP_LEVEL_KEYS)}{more} A section the engine does not read "
-            f"changes nothing, and the study would run on the library defaults in its place, so it is refused rather than ignored"
+            f"{', '.join(sorted(REQUEST_OPTION_KEYS - {'intake'}))}). Did you mean `{best}`?{more} A section the engine does not read "
+            f"changes nothing, and the study would run on the library defaults in its place, so a misspelt one is refused rather than ignored"
             + (". The short form of figures is for POST /v1/qualify; the other routes take an intake document (GET /v1/tools gives its schema)"
                if nothing else ""))
 
@@ -718,18 +786,35 @@ def _equipment_list(items, section: str, report: "IntakeReport | None" = None) -
 
 def _drop_empty_banks(items: list, section: str, report: "IntakeReport") -> list[tuple[int, dict]]:
     """The (position, item) pairs of an equipment list whose bank has at least one unit. A bank declared with `units` below one (a transformer bank,
-    UPS block or CDU bank of zero units) carries no load and counts for nothing; it is not refused (a schedule with a decommissioned bank still
-    on it is a plausible document) but IGNORED, with a named warning, so nothing downstream does arithmetic on it (a zero-unit bank under N+1
-    left a usable count of -1). A `units` that is not a whole number is left to the number parser, which refuses it by name. The position is the
-    item's place in the list the client wrote, so a gap or a warning names the item they will find."""
+    UPS block or CDU bank of zero units) that stands BESIDE a bank with units carries no load and counts for nothing; it is not refused (a schedule
+    with a decommissioned bank still on it is a plausible document) but IGNORED, with a named warning, so nothing downstream does arithmetic on it
+    (a zero-unit bank under N+1 left a usable count of -1). A `units` that is not a whole number is left to the number parser, which refuses it by name. The position is the
+    item's place in the list the client wrote, so a gap or a warning names the item they will find.
+
+    The one exception is a list in which NO bank has a unit. That is not a schedule with a decommissioned bank left on it, it is a declaration of
+    zero capacity, and it is KEPT AS DECLARED: the constraint binds at zero racks and the relief buys the first units, exactly as before the empty
+    banks were ignored. Ignoring every bank would read "the client declared nothing but empty banks" as "nothing to limit" (the 'no limit' reading of a
+    missing schedule: an unlimited answer from a hall whose declared equipment is nothing, 28 racks where 0 were declared). The warning says every
+    bank declared 0 units, so the reader sees the schedule was taken at its word."""
+    def units_of(item: dict) -> int | None:
+        if "units" not in item:
+            return None
+        try:
+            return _int(item["units"], f"{section}.units")
+        except IntakeError:
+            return None          # not a whole number: the number parser refuses it by name where the bank is read
+
+    counts = [units_of(item) for item in items]
+    if items and all(u is not None and u < 1 for u in counts):
+        names = ", ".join(f"{section}[{n}] ({item.get('id', n)})" for n, item in enumerate(items[:6])) + (" ..." if len(items) > 6 else "")
+        report.warnings.append(
+            f"{section}: every bank declared 0 units ({names}), so the schedule is kept as declared: it has no capacity, and the study treats {section} as a "
+            f"limit of zero (it binds at zero racks until units are added), not as 'no limit'. If the hall does have this equipment, give the number of "
+            f"units each bank has; if the schedule is not known, leave {section} out and it is reported as not supplied.")
+        return list(enumerate(items))
     kept: list[tuple[int, dict]] = []
     for n, item in enumerate(items):
-        units = None
-        if "units" in item:
-            try:
-                units = _int(item["units"], f"{section}.units")
-            except IntakeError:
-                units = None
+        units = counts[n]
         if units is not None and units < 1:
             ident = item.get("id", n)
             report.warnings.append(
@@ -738,17 +823,6 @@ def _drop_empty_banks(items: list, section: str, report: "IntakeReport") -> list
             continue
         kept.append((n, item))
     return kept
-
-
-def _all_banks_ignored(declared: list, kept: list, section: str, report: "IntakeReport", gap_text: str) -> None:
-    """A schedule whose every bank was ignored declares nothing: it is a missing schedule, so it stops counting as supplied and is a named gap
-    (the declared list was non-empty, so the reader recorded it as supplied)."""
-    if declared and not kept:
-        report.supplied[:] = [p for p in report.supplied if p != section]
-        spec = FIELD_BY_PATH.get(section)
-        if spec is not None:
-            report.gaps.append(DataGap(path=section, label=spec.label, unit=spec.unit, required=spec.required, fallback_description=gap_text,
-                                       why_it_binds=spec.why_it_binds, how_to_get_it=spec.how_to_get_it))
 
 
 def _warn_content_duplicates(items, section: str, report: "IntakeReport") -> None:
@@ -1427,7 +1501,6 @@ def _load_document(doc: dict) -> Intake:
     equipment_gaps: list[DataGap] = []          # per-item gaps for what an equipment list left out; appended after the long-standing rows (below)
     tx_declared = _equipment_list(r.raw("transformers", [], gap_text=UNASSESSED_BANK_TEXT), "transformers", r.report)
     tx_kept = _drop_empty_banks(tx_declared, "transformers", r.report)
-    _all_banks_ignored(tx_declared, tx_kept, "transformers", r.report, UNASSESSED_BANK_TEXT)
     tx_items = [t for _, t in tx_kept]
     for n, t in tx_kept:
         equipment_gaps.extend(_bank_gaps("transformers", n, t))
@@ -1460,7 +1533,6 @@ def _load_document(doc: dict) -> Intake:
     ups = []
     ups_declared = _equipment_list(r.raw("ups", [], gap_text=UNASSESSED_BANK_TEXT), "ups", r.report)
     ups_kept = _drop_empty_banks(ups_declared, "ups", r.report)
-    _all_banks_ignored(ups_declared, ups_kept, "ups", r.report, UNASSESSED_BANK_TEXT)
     for n, u in ups_kept:
         equipment_gaps.extend(_bank_gaps("ups", n, u))
         ups.append(UPSBlock(
@@ -1624,7 +1696,6 @@ def _load_document(doc: dict) -> Intake:
     approach_omitted = flow_omitted = False
     cdu_declared = _equipment_list(r.raw("thermal.cdus", [], gap_text=ASSUMED_CDU_KIT_TEXT), "thermal.cdus")
     cdu_kept = _drop_empty_banks(cdu_declared, "thermal.cdus", r.report)
-    _all_banks_ignored(cdu_declared, cdu_kept, "thermal.cdus", r.report, ASSUMED_CDU_KIT_TEXT)
     for cdu_n, c in cdu_kept:
         approach_given, flow_given = "rated_approach_K" in c, "rated_flow_l_per_min" in c
         approach_omitted, flow_omitted = approach_omitted or not approach_given, flow_omitted or not flow_given
@@ -1852,6 +1923,7 @@ def _load_document(doc: dict) -> Intake:
     _redundancy_leaves_nothing(ctx, report)
     # Thermal inputs nothing reads, keys that are not inputs at all, and a pump flow that cannot carry the existing hall (warnings only).
     report.warnings.extend(thermal_inputs.unread_input_warnings(doc))
+    report.warnings.extend(_ignored_key_warnings(doc))          # top-level keys the engine does not read, by name (envelope keys are silent)
     if {"thermal.plant.pump_flow_capacity_l_per_min", "thermal.plant.design_supply_C", "thermal.plant.design_return_C",
             "grid.current_it_load_MW"} <= set(report.supplied):
         balance = thermal_inputs.heat_balance_warning(

@@ -153,10 +153,33 @@ class TestTheSamePhysicalPlantListedAsOneOrManyBanks:
                 assert _fingerprint(_ups_doc(base, units, parts)) == ref, (hall, units, parts)
         assert on_plan
 
-    def test_a_ups_block_under_n_plus_one_is_a_different_plant_when_split(self, hall):
-        """The spare is per block: 12 modules under N+1 in one block is 11 usable, in two blocks it is 10. Only the listing of ONE plant is stable."""
+    def test_control_a_ups_block_under_n_plus_one_is_a_different_plant_when_split(self, hall):
+        """The spare is per block: 12 modules under N+1 in one block is 11 usable, in two blocks 10, in three 9. Only the listing of ONE plant is stable;
+        splitting a block is a different plant, not a different listing.
+
+        A CONTROL, as its name says (it holds before and after the relief rule changed). It used to compare ``_fingerprint(x) == _fingerprint(x)``, which
+        is true of any engine. It now splits the block for real and pins the difference at the constraint (the usable kW, and the UPS margin in racks,
+        which unlike ``max_racks`` is not floored or clamped, so it moves for every hall whatever else binds), so it fails a change that 'makes listing
+        never matter' by merging equal blocks before the spares are counted: that would erase this real difference."""
+        from gridforge.power.redundancy import usable_units
         base = _doc(hall)
-        assert _fingerprint(_ups_doc(base, 12, 1, redundancy="N+1")) == _fingerprint(_ups_doc(base, 12, 1, redundancy="N+1"))
+        usable, margin = {}, {}
+        for parts in (1, 2, 3, 4, 6):
+            ctx = _ctx(_ups_doc(base, 12, parts, redundancy="N+1"))
+            usable[parts] = sum(u.unit_rating_kW.value * usable_units(u.units, u.redundancy) for u in ctx.power.ups)
+            margin[parts] = ups_capacity(ctx).margin_racks
+        assert usable == {1: 11 * 1200.0, 2: 10 * 1200.0, 3: 9 * 1200.0, 4: 8 * 1200.0, 6: 6 * 1200.0}, usable
+        assert margin[1] > margin[2] > margin[3] > margin[4] > margin[6], margin               # each split costs a spare module of capacity
+        assert margin[1] - margin[2] == pytest.approx(1200.0 / ctx.cluster.platform.rack_kW.value)          # exactly one module's kW in racks
+        # ... and the listing of each of these plants is itself stable: shuffling the blocks of one split plant changes nothing
+        rng = random.Random(3)
+        for parts in (2, 3):
+            d = _ups_doc(base, 12, parts, redundancy="N+1")
+            ref = _fingerprint(d)
+            for _ in range(3):
+                shuffled = copy.deepcopy(d)
+                rng.shuffle(shuffled["ups"])
+                assert _fingerprint(shuffled) == ref, (hall, parts)
 
     def test_transformers(self, hall):
         base = _doc(hall)
@@ -236,14 +259,17 @@ class TestTheHostRule:
         cnote = cdu_capacity(cctx).relief.basis_note
         assert "in total" in cnote and "one bank" in cnote and "same CDUs listed as one bank or as several are priced the same" in cnote
 
-    def test_redundancy_decides_which_block_gains_most(self):
-        """Two modules under 2N make one usable, under N two: the N block gains more kW per rung even though its module is smaller."""
+    def test_redundancy_decides_which_block_is_cheapest_per_usable_kW(self):
+        """Two modules under 2N make one usable, under N two: the N block gains more kW per rung even though its module is smaller, and a 2N block
+        installs two kW for each usable one, so it costs twice as much per usable kW. (Review E5: the host is the cheapest per usable kW gained, no
+        longer the one with the most usable kW; the larger gain only breaks a tie in price per kW. The second half of this test used to say the 1800 kW
+        2N block beats 2 x 800 kW under N because it gains more kW (1800 against 1600): at 640 EUR per usable kW against 320 it is the dearer host.)"""
         d = _doc("dublin_hall")
         d["ups"] = [{"id": "U-2N", "unit_rating_kW": 1800, "units": 4, "redundancy": "2N", "step_load_capability": 0.5},
                     {"id": "U-N", "unit_rating_kW": 1200, "units": 4, "redundancy": "N", "step_load_capability": 0.5}]
         assert _ups_host(_ctx(d).power.ups).id == "U-N"
         d["ups"][1]["unit_rating_kW"] = 800
-        assert _ups_host(_ctx(d).power.ups).id == "U-2N"          # 1 x 1800 kW now beats 2 x 800 kW
+        assert _ups_host(_ctx(d).power.ups).id == "U-N"           # 1 x 1800 usable kW for 3600 kW installed (640/kW) loses to 2 x 800 for 1600 (320/kW)
 
     def test_identical_blocks_choose_by_id_not_by_position(self):
         d = _ups_doc(_doc("dublin_hall"), 6, 3)
@@ -253,13 +279,20 @@ class TestTheHostRule:
             assert _ups_host(_ctx(dd).power.ups).id == "UPS-1"
 
     def test_an_empty_block_is_never_the_host_and_is_not_touched(self):
-        # The LOADER ignores a bank with units < 1 (named warning, tests/test_intake_audit_fixes.py), so an empty bank never reaches the solver
-        # through an intake document. The solver must still be safe when handed one (a programmatic context, an older stored state): the
-        # bank is loaded with one unit and emptied on the context, which is exactly what the solver would be handed.
         d = _ups_doc(_doc("dublin_hall"), 6, 1)
-        d["ups"].insert(0, {"id": "AAA-EMPTY", "unit_rating_kW": 20000, "units": 1, "redundancy": "N", "step_load_capability": 0.5})
+        d["ups"].insert(0, {"id": "AAA-EMPTY", "unit_rating_kW": 20000, "units": 0, "redundancy": "N", "step_load_capability": 0.5})
         ctx = _ctx(d)
-        ctx.power.ups[0].units = 0
+        # Through the loader (one live block beside an empty one) the empty block is ignored with a named warning, so it never reaches the solver...
+        assert [u.id for u in ctx.power.ups] == ["UPS-1"]
+        assert [u.id for u in active_banks(ctx.power.ups)] == ["UPS-1"]
+        assert _ups_host(ctx.power.ups).id == "UPS-1"
+        after = ups_capacity(ctx).relief.apply(ctx)
+        assert [(u.id, u.units) for u in after.power.ups] == [("UPS-1", 8)]
+        # ...and the solver, handed an empty block directly (a programmatic context, a stored state), still never hosts it and never touches it.
+        from gridforge.common import CUSTOMER, V
+        empty = copy.deepcopy(ctx.power.ups[0])
+        empty.id, empty.units, empty.unit_rating_kW = "AAA-EMPTY", 0, V(20000, "kW", "AAA-EMPTY module rating", CUSTOMER)
+        ctx.power.ups.insert(0, empty)
         assert [u.id for u in active_banks(ctx.power.ups)] == ["UPS-1"]
         assert _ups_host(ctx.power.ups).id == "UPS-1"
         after = ups_capacity(ctx).relief.apply(ctx)
@@ -270,12 +303,10 @@ class TestTheHostRule:
         unit the list is kept as declared: the constraint binds at zero (as test_adversarial_intake pins for a transformer bank of 0 units) and the
         relief buys the first modules of the block that gains most. An empty LIST is a different thing: undeclared."""
         d = _doc("dublin_hall")
-        d["ups"] = [{"id": "U0", "unit_rating_kW": 1200, "units": 1, "redundancy": "N", "step_load_capability": 0.5},
-                    {"id": "U1", "unit_rating_kW": 1800, "units": 1, "redundancy": "N", "step_load_capability": 0.5}]
-        d["transformers"] = [{"id": "T0", "unit_rating_MVA": 5.0, "units": 1, "redundancy": "N"}]
+        d["ups"] = [{"id": "U0", "unit_rating_kW": 1200, "units": 0, "redundancy": "N", "step_load_capability": 0.5},
+                    {"id": "U1", "unit_rating_kW": 1800, "units": 0, "redundancy": "N", "step_load_capability": 0.5}]
+        d["transformers"] = [{"id": "T0", "unit_rating_MVA": 5.0, "units": 0, "redundancy": "N"}]
         ctx = _ctx(d)
-        for bank in (*ctx.power.ups, *ctx.power.transformers):        # the loader ignores empty banks; the solver is handed them directly here
-            bank.units = 0
         assert [u.id for u in active_banks(ctx.power.ups)] == ["U0", "U1"]          # nothing live: both stand as declared
         assert ups_capacity(ctx).max_racks.value == 0 and transformer_capacity(ctx).max_racks.value == 0
         host = _ups_host(ctx.power.ups)
@@ -311,13 +342,28 @@ class TestTheHostRule:
         assert {c.id: c.units for c in relief.apply(ctx).thermal.cdus} == {"C-2N": 6}
 
     def test_the_ladder_takes_the_same_rungs_whatever_the_listing_order(self):
-        base = _ups_doc(_doc("nordic_hall"), 12, 4)
+        """UNEQUAL blocks: different modules, unit counts and schemes, so which block hosts a rung changes the capacity bought and its price, and a host
+        chosen by position ('the first block listed') gives a different plan for every order. (It used to shuffle four IDENTICAL blocks, which are
+        interchangeable: a host chosen by position passed it.) The plant is sized so that its UPS relief is on the plan, which is asserted."""
+        base = _doc("nordic_hall")
+        base["ups"] = [
+            {"id": "UPS-A", "unit_rating_kW": 1200, "units": 3, "redundancy": "N+1", "step_load_capability": 0.5},
+            {"id": "UPS-B", "unit_rating_kW": 1600, "units": 2, "redundancy": "N", "step_load_capability": 0.5},
+            {"id": "UPS-C", "unit_rating_kW": 800, "units": 4, "redundancy": "N", "step_load_capability": 0.5},
+            {"id": "UPS-D", "unit_rating_kW": 2400, "units": 2, "redundancy": "2N", "step_load_capability": 0.5},
+            {"id": "UPS-E", "unit_rating_kW": 1200, "units": 2, "redundancy": "N+1", "step_load_capability": 0.5}]
         ref = _fingerprint(base)
+        assert _relief_on_plan(ref, "ups_capacity"), "premise: the UPS relief must fire for the order not to matter vacuously"
         rng = random.Random(7)
-        for _ in range(8):
+        for _ in range(12):
             d = copy.deepcopy(base)
             rng.shuffle(d["ups"])
             assert _fingerprint(d) == ref
+        # the host is chosen by the plant, not by the position: the same block hosts in every order
+        for perm in itertools.permutations(base["ups"][:4]):
+            dd = copy.deepcopy(base)
+            dd["ups"] = list(perm) + [base["ups"][4]]
+            assert _ups_host(_ctx(dd).power.ups).id == _ups_host(_ctx(base).power.ups).id
 
 
 # ============================================================================================================================

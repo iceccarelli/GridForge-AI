@@ -107,6 +107,38 @@ def test_inputs_that_were_accepted_before_are_still_accepted():
         assert handle_qualify({**HALL, **ok}, Tier.PUBLIC)["as_found"], ok
 
 
+# --- review E7: a floor is applied by the caller's own name too ------------------------------------------------------------------------
+@pytest.mark.parametrize("value", [-5.01, -6, -30, -273.16, -1e9])
+def test_a_plant_supply_below_the_floor_is_refused_by_its_own_name_with_a_field(value):
+    """plant_supply_C = -6 was answered 'plant chilled-water supply temperature (thermal.plant.design_supply_C) is -6 degC...': the intake path the
+    caller never sent, and no `field` key, where the ceilings (and positions) name the figure and carry `field`."""
+    err = refusal({**HALL, "plant_supply_C": value})
+    assert err.message.startswith(f"plant_supply_C is {value:g} degC, below -5 degC, the lowest this tool will model"), err.message
+    assert "thermal.plant" not in err.message and "design_supply_C" not in err.message
+    assert err.extra["field"] == "plant_supply_C" and err.extra["limit"] == -5
+    assert "chilled-water plant does not supply colder than about -5 degC" in err.message          # the loader's own reason travels with it
+
+
+def test_the_floor_message_is_in_the_style_of_the_ceiling_message():
+    ceiling = refusal({**HALL, "plant_supply_C": 41}).message
+    floor = refusal({**HALL, "plant_supply_C": -6}).message
+    assert ceiling.startswith("plant_supply_C is 41 degC, above 40 degC, the most this tool will model for one hall.")
+    assert floor.startswith("plant_supply_C is -6 degC, below -5 degC, the lowest this tool will model for one hall.")
+
+
+def test_the_floor_is_inclusive_and_the_http_answer_carries_the_field(base):
+    assert handle_qualify({**HALL, "plant_supply_C": -5}, Tier.PUBLIC)["as_found"]
+    status, out = post(base, {**HALL, "plant_supply_C": -6})
+    assert status == 422 and out["field"] == "plant_supply_C" and out["limit"] == -5 and out["error"].startswith("plant_supply_C is -6 degC")
+
+
+def test_the_floor_is_the_loaders_own_so_the_two_cannot_disagree():
+    from gridforge.intake.loader import PLAUSIBLE_MIN, plausible_floor
+    assert plausible_floor("thermal.plant.design_supply_C", "degC")[0] == PLAUSIBLE_MIN["thermal.plant.design_supply_C"] == -5
+    assert plausible_floor("grid.contracted_MW", "MW") == (None, "")                      # a figure with no floor has none
+    assert plausible_floor("anything.else", "degC")[0] == -273.15                          # a temperature is never below absolute zero
+
+
 @pytest.mark.parametrize("name", list(S.QUALIFY_FIGURE_PATHS))
 def test_a_400_digit_integer_is_a_named_422_not_an_overflow(base, name):
     huge = int("9" * 400)

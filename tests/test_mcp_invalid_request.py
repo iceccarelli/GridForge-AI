@@ -58,8 +58,9 @@ def test_an_object_without_a_string_method_is_an_invalid_request_not_a_silent_no
     assert out["error"]["code"] == -32600 and INVALID in out["error"]["message"]
 
 
-@pytest.mark.parametrize("rid,echoed", [(1, 1), ("abc", "abc"), (0, 0), (None, None), (True, None), (1.5, None), ([1], None), ({"a": 1}, None)])
+@pytest.mark.parametrize("rid,echoed", [(1, 1), ("abc", "abc"), (0, 0), (None, None), (True, None), (1.5, 1.5), ([1], None), ({"a": 1}, None)])
 def test_the_id_is_echoed_only_when_json_rpc_allows_it(port, rid, echoed):
+    """A number is an id (1.5 is echoed: it was nulled before review E8, while the valid path echoed it); a boolean, an object and an array are not."""
     status, out = post(port, {"jsonrpc": "2.0", "id": rid, "params": {}})
     assert status == 400 and out["id"] == echoed
 

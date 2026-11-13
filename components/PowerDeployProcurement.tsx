@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { CircleAlert, Loader2 } from "lucide-react";
 import type { ProjectState, PackageState } from "@/lib/project-state";
+import { rankLabel } from "@/lib/rank-label";
 
 /**
  * The workflow continuation on a BTM case: attach it to a project, generate the RFQ
@@ -304,7 +305,7 @@ export function PowerDeployProcurement({
                     <tbody className="text-mute">
                       {p.comparison.ranked.map((r: any) => (
                         <tr key={r.supplier} className="border-t border-line">
-                          <td className="py-1 pr-3 font-mono text-xs">{r.rank}</td>
+                          <td className="py-1 pr-3 font-mono text-xs">{rankLabel(r.rank)}</td>
                           <td className="py-1 pr-3 text-ghost">{r.headline ?? r.supplier}</td>
                           <td className="py-1 pr-3">{r.disqualified ? "disqualified" : r.compliant ? "yes" : "no"}</td>
                           <td className="py-1 pr-3">

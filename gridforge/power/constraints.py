@@ -51,13 +51,39 @@ def _ups_usable_gain_kW(u) -> float:
     return u.unit_rating_kW.value * (_effective_units(u.units + UPS_MODULES_PER_RELIEF, u.redundancy) - _effective_units(u.units, u.redundancy))
 
 
+def _ups_modules_price(module_rating_kW: float):
+    """The price (a ``costs.ScaledPrice``) of one relief's modules (``UPS_MODULES_PER_RELIEF`` of this rating, installed): the ONE place it is formed,
+    read by the step's price and by the host ranking, so the price that is quoted is the price the ranking compared."""
+    return scaled_cost("ups.per_kW", 320, "EUR/kW", UPS_MODULES_PER_RELIEF * module_rating_kW, "kW", "UPS module addition, installed",
+                       note="Placeholder per nameplate kW of UPS added.")
+
+
+def _ups_eur_per_usable_kW(u, prices: dict) -> float:
+    """EUR the relief costs per USABLE kW it would gain if its modules went into block ``u``: the price of the two modules over the kW that count
+    after the block's own redundancy (two modules are two usable under N or N+1, one under 2N, which therefore costs twice as much per usable kW).
+    Infinite when the modules would add no usable kW (nothing is gained). Rounded to the micro-euro so that blocks that are the same price per kW up to
+    float noise (800, 1000 and 1200 kW modules at 320 EUR/kW) tie, and the tie is then settled by the rule below, not by the noise."""
+    gain = _ups_usable_gain_kW(u)
+    if not gain > 0:
+        return math.inf
+    rating = u.unit_rating_kW.value
+    if rating not in prices:
+        prices[rating] = _ups_modules_price(rating).capex.value
+    return round(prices[rating] / gain, 6)
+
+
 def _ups_host(blocks):
     """The block that receives a UPS relief's modules, or None when no block has a module.
 
     THE RULE: a relief buys ``UPS_MODULES_PER_RELIEF`` (two) modules in total and puts them all in ONE block, the fewest blocks that can host them
     (nothing in the library caps the modules in a block). Which block is fixed by the plant and never by how it was listed: the block whose added
-    modules carry the most usable kW (so a rung unlocks as much as the plant allows), then the larger module, then the smaller id, then the rest of
-    the block's own figures. The price follows the kW actually added (two modules of that block's rating).
+    modules cost the LEAST PER USABLE kW GAINED (the price of the two modules over the kW that count after the block's own redundancy), then the
+    larger gain (so a rung unlocks as much as the plant allows at that price), then the smaller id, then the rest of the block's own figures. The price
+    follows the kW actually added (two modules of that block's rating).
+
+    Ranking by usable kW alone chose the larger module among blocks that gain the same: dublin_hall with A = 6 x 1200 kW under N and B = 2 x 2400 kW
+    under 2N, both of which gain 2,400 usable kW, took B, a step of 1,536,000 EUR against 768,000 EUR for A alone (B installs 4,800 kW to make 2,400
+    usable), so adding a bank to the plant made the same racks dearer. Per usable kW A costs 320 EUR and B 640.
 
     The old relief added two modules to EVERY listed block, priced on the sum, so the same 6 x 1200 kW plant listed as 1, 2 or 6 blocks cost
     5.86, 6.63 and 9.70 MEUR for the same racks (audit N2, hybrid DLC on the reference hall with the UPS under N). Banks with no units are not hosts
@@ -65,7 +91,8 @@ def _ups_host(blocks):
     live = active_banks(blocks)
     if not live:
         return None
-    return min(live, key=lambda u: (-_ups_usable_gain_kW(u), -u.unit_rating_kW.value, u.id, u.units, u.redundancy, u.step_load_capability.value))
+    prices: dict = {}
+    return min(live, key=lambda u: (_ups_eur_per_usable_kW(u, prices), -_ups_usable_gain_kW(u), u.id, u.units, u.redundancy, u.step_load_capability.value))
 
 
 def _lead_key(t_or_q) -> tuple:
@@ -173,6 +200,7 @@ def grid_firm_capacity(ctx: EnvelopeContext) -> ConstraintResult:
         basis=basis,
         relief=relief,
         notes=(g.queue_note,) if g.queue_note else (),
+        margin_racks=racks.value,
     )
 
 
@@ -227,6 +255,7 @@ def transformer_capacity(ctx: EnvelopeContext) -> ConstraintResult:
         floor_racks(racks),
         basis=f"{headroom.render()} usable after redundancy and derating (sized on sustained rack power; transients above it are not added, so headroom may be overstated)",
         relief=relief,
+        margin_racks=racks.value,
     )
 
 
@@ -252,15 +281,18 @@ def ups_capacity(ctx: EnvelopeContext) -> ConstraintResult:
             host.units += UPS_MODULES_PER_RELIEF
         return c
 
-    # The relief buys two modules in total, in the one block that gains most (``_ups_host``); the price follows the nameplate kW actually added.
-    # The same plant listed as one block or as several therefore gets the same step, the same price and the same date.
+    # The relief buys two modules in total, in the one block whose modules cost least per usable kW gained (``_ups_host``); the price follows the
+    # nameplate kW actually added. The same plant listed as one block or as several therefore gets the same step, the same price and the same date.
     host = _ups_host(ctx.power.ups)
     added_kW = UPS_MODULES_PER_RELIEF * host.unit_rating_kW.value
-    price = scaled_cost("ups.per_kW", 320, "EUR/kW", added_kW, "kW", "UPS module addition, installed",
-                        note="Placeholder per nameplate kW of UPS added.")
+    price = _ups_modules_price(host.unit_rating_kW.value)
+    gain_kW = _ups_usable_gain_kW(host)
+    per_usable = (f"{price.capex.value / gain_kW:,.0f} EUR per usable kW ({gain_kW:g} usable kW gained)" if gain_kW > 0
+                  else "no usable kW gained in any block")
     rule = (f"Each step buys {UPS_MODULES_PER_RELIEF} modules in total ({UPS_MODULES_PER_RELIEF} x {host.unit_rating_kW.value:g} kW = {added_kW:g} kW), "
-            f"put in one block ({host.id}): the fewest blocks that can host them, chosen as the block whose added modules carry the most usable kW "
-            f"(then the larger module, then the id). The price follows the kW added, so the same plant listed as one block or as several is priced "
+            f"put in one block ({host.id}): the fewest blocks that can host them, chosen as the block whose added modules cost least per usable kW "
+            f"gained after its own redundancy ({per_usable}; a 2N block installs two kW for each usable one), then the larger gain, then the id. "
+            f"The price follows the kW added, so the same plant listed as one block or as several is priced "
             f"and dated the same; a block declared with no units is ignored.")
     schemes = ", ".join(sorted({u.redundancy for u in blocks}))
     return ConstraintResult(
@@ -278,6 +310,7 @@ def ups_capacity(ctx: EnvelopeContext) -> ConstraintResult:
             apply=_apply,
         ),
         notes=("GPU racks present step loads; confirm the UPS block accepts the step, not just the steady load.",),
+        margin_racks=racks.value,
     )
 
 

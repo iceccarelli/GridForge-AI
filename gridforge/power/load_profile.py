@@ -319,6 +319,10 @@ def _comma_reader(text: str) -> CsvRows:
 #: A decimal comma, `1234,5`; and the shape that could equally be a thousands separator, `1,234` / `12,345` / `123,456`.
 _DECIMAL_COMMA = re.compile(r"[+-]?[0-9]+,[0-9]+")
 _COMMA_OR_THOUSANDS = re.compile(r"[+-]?[1-9][0-9]{0,2},[0-9]{3}")
+#: The same ambiguity written with a point: in a decimal-comma locale `30.000` is thirty thousand (the point is the thousands separator), and nowhere else
+#: is it thirty. A thousands group never starts with zero, so `0.500` is plainly one half; a figure with four or more digits before the point (`1234.567`)
+#: is not a thousands group either.
+_POINT_OR_THOUSANDS = re.compile(r"[+-]?[1-9][0-9]{0,2}\.[0-9]{3}")
 _DAY_FIRST_DATE = re.compile(r"\s*[0-9]{1,4}[./-][0-9]{1,2}[./-][0-9]{1,4}")
 
 
@@ -346,6 +350,13 @@ def _number(cell: str, where: str, delimiter: str, decimal_commas: list[str]) ->
             raise LoadProfileError(f"{where}: {text[:24]!r} is not a number")
         decimal_commas.append(text)
         text = text.replace(",", ".")
+    elif delimiter == ";" and _POINT_OR_THOUSANDS.fullmatch(text):
+        # A semicolon-separated file is a regional (decimal-comma) export, where `30.000` is thirty thousand kW; read as a decimal point it was thirty kW,
+        # a thousandfold slip with no word said. Refused as ambiguous, by row and column, with the plain number asked for.
+        thousands, plain = text.replace(".", ""), f"{float(text):g}"
+        raise LoadProfileError(f"{where}: {text[:24]!r} could be {plain} (read with a decimal point) or {thousands} (read with the point as a thousands "
+                               f"separator, as a decimal-comma export writes it; this file is semicolon-separated); this tool will not choose. Write the "
+                               f"plain number with no thousands separator: {thousands} if that is what it is, or {plain} (or {text}0) if it is {plain}")
     try:
         return float(text)
     except ValueError as exc:
