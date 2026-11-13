@@ -65,6 +65,9 @@ const PRIVATE_PATHS = [
   // /power/deploy/<token> is a customer's case; the trailing slash leaves the public /power/deploy page open.
   "/power/deploy/",
   "/workspace",
+  // /power/compare is a public page (sitemap, nav, llms.txt), so only the URL form that carries a project's owner/edit token is closed:
+  // /power/compare?project=<token> (lib/security-headers.ts QUERY_TOKEN_WHEN_PRESENT sends the matching headers for that form).
+  "/power/compare?project=",
   // The presentation mode of the Observatory is a stage tool, not a page for a search result. /observatory itself is indexable.
   "/observatory/presenter",
 ];

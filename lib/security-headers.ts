@@ -12,6 +12,8 @@
 
 export interface HeaderRule {
   source: string;
+  /** Next's `has`: the rule applies only to a request that carries these query keys (any value). Absent: every request to `source`. */
+  has?: { type: "query"; key: string }[];
   headers: { key: string; value: string }[];
 }
 
@@ -26,6 +28,10 @@ export interface HeaderRule {
 export const TOKEN_API_ROUTES = [
   "/api/keys",
   "/api/usage",
+  // /api/engagements answers the signed-in buyer with the document, intake and watch tokens of what they bought (documentToken, intakeToken,
+  // watches[].token) in its body: the response is a credential list, so it is never cached, referred or indexed. The handler sets the same
+  // headers itself (app/api/engagements/route.ts), so the route is private even where these rules are not applied.
+  "/api/engagements",
   "/api/payg/:path*",
   "/api/billing/:path*",
   // The routes whose PATH carries the bearer token (app/api/<prefix>/[token]/...): a released deliverable, an intake and its evidence, a
@@ -42,9 +48,20 @@ export const TOKEN_API_ROUTES = [
 
 /**
  * Pages whose credential is in the QUERY STRING, not the path. /commissioned?session_id=cs_... is the checkout success page: the Stripe session
- * id is the credential for it, and for an API plan or Hall Watch the page shows the portal link. Never cached, never sent as a referrer, never indexed.
+ * id is the credential for it, and for an API plan or Hall Watch the page shows the portal link. /workspace?project=<token> opens a project: the
+ * token is its owner/edit credential (app/workspace/WorkspaceClient.tsx reads it from the URL; the save route hands out the link). Never cached,
+ * never sent as a referrer, never indexed. /workspace is a page nobody indexes (robots.txt and its own metadata say so), so it gets the headers
+ * on every request.
  */
-export const QUERY_TOKEN_PAGES = ["/commissioned"] as const;
+export const QUERY_TOKEN_PAGES = ["/commissioned", "/workspace"] as const;
+
+/**
+ * A PUBLIC page that also accepts a credential in its query string. /power/compare is the free Time-to-Power comparison: it is in the sitemap, the
+ * navigation and llms.txt, and is cached (revalidate = 300), so it must stay cacheable and indexable as it is. But /power/compare?project=<token>
+ * (ProjectPanel, EvidenceLadderCard) opens the comparison for a saved project and the token is that project's owner/edit credential. The token
+ * headers therefore apply only to a request that carries the key (Next's `has`), and robots.txt closes that URL form (app/robots.ts), not the page.
+ */
+export const QUERY_TOKEN_WHEN_PRESENT = [{ source: "/power/compare", key: "project" }] as const;
 
 /** The route patterns whose path contains a bearer token, then the pages whose query carries one, then the API routes that authenticate with one. */
 export const TOKEN_ROUTES = [
@@ -139,5 +156,6 @@ export function securityHeaderRules(): HeaderRule[] {
     { source: "/:path*", headers: GLOBAL_HEADERS },
     // Later rules win for a key both define, so the token routes' Referrer-Policy replaces the global one.
     ...TOKEN_ROUTES.map((source) => ({ source, headers: TOKEN_HEADERS })),
+    ...QUERY_TOKEN_WHEN_PRESENT.map(({ source, key }) => ({ source, has: [{ type: "query" as const, key }], headers: TOKEN_HEADERS })),
   ];
 }

@@ -3,6 +3,7 @@ import { storeFault } from "@/lib/safe-log";
 import { identify, identityRefusal } from "@/lib/portal";
 import { PRODUCT_BY_KIND } from "@/lib/products";
 import { narrowPattern, normalisedEmail } from "@/lib/deliverables";
+import { TOKEN_HEADERS } from "@/lib/security-headers";
 
 export const runtime = "nodejs";
 
@@ -19,8 +20,22 @@ export const runtime = "nodejs";
  *
  * Matched on the VERIFIED email from the caller's Supabase session, never on an
  * email the caller supplied. See lib/portal.ts.
+ *
+ * The body carries bearer tokens (documentToken, intakeToken, watches[].token), so EVERY answer, the refusals and outages included, is sent
+ * with the token-route header set (Cache-Control no-store, Referrer-Policy no-referrer, X-Robots-Tag noindex): lib/security-headers.ts
+ * TOKEN_HEADERS, the same set the token pages and routes get from next.config. Set here as well so the route is private wherever it is served.
  */
 export async function GET(req: Request) {
+  const res = await answer(req);
+  for (const h of TOKEN_HEADERS) {
+    // A refusal that already says no-store (the standard 429 shape, lib/rate-limit.ts) keeps its own, narrower value.
+    if (h.key === "Cache-Control" && /no-store/i.test(res.headers.get("Cache-Control") ?? "")) continue;
+    res.headers.set(h.key, h.value);
+  }
+  return res;
+}
+
+async function answer(req: Request): Promise<Response> {
   const who = await identify(req);
   if (!who.ok) {
     return identityRefusal(who);

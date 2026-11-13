@@ -67,6 +67,34 @@ describe("a purchase stored with the buyer's capitalised address", () => {
   });
 });
 
+describe("every response of the route is private to the caller (it carries document, intake and watch tokens)", () => {
+  const expectPrivate = (res: Response, what: string) => {
+    expect(res.headers.get("cache-control"), what).toMatch(/no-store/);
+    expect(res.headers.get("referrer-policy"), what).toBe("no-referrer");
+    expect(res.headers.get("x-robots-tag"), what).toMatch(/noindex/);
+  };
+  const get = async (headers: Record<string, string>) => (await import("@/app/api/engagements/route")).GET(new Request(siteUrl("/api/engagements"), { headers }));
+
+  it("the answer that carries tokens: no-store, no-referrer, noindex", async () => {
+    db.seed("deliverables", [deliverable("doc_jane", "Jane.Doe@Acme.com")]);
+    const res = await get(bearerFor("jane.doe@acme.com"));
+    expect(res.status).toBe(200);
+    expect(JSON.stringify(await res.clone().json())).toContain("intake_doc_jane");
+    expectPrivate(res, "200");
+  });
+
+  it("an empty answer, a refusal and an outage carry them too (nothing about the account is cacheable)", async () => {
+    expectPrivate(await get(bearerFor("nobody@acme.com")), "empty list");
+    const noSession = await get({});
+    expect(noSession.status).toBe(401);
+    expectPrivate(noSession, "401");
+    delete process.env.SUPABASE_SERVICE_ROLE_KEY;
+    const down = await get(bearerFor("jane.doe@acme.com"));
+    expect(down.status).toBe(503);
+    expectPrivate(down, "503");
+  });
+});
+
 describe("what a case-insensitive match must never widen to", () => {
   it("another buyer's rows never appear", async () => {
     db.seed("deliverables", [deliverable("doc_jane", "Jane.Doe@Acme.com"), deliverable("doc_other", "someone.else@acme.com")]);
