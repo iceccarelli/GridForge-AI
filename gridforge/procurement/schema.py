@@ -216,7 +216,7 @@ def _numeric(raw: dict) -> dict[str, float]:
         if isinstance(v, str):
             text = v.strip()
             try:
-                if "_" in text:                       # float("1_000") is 1000.0 in Python; a quotation does not write numbers that way
+                if "_" in text or not text.isascii():          # float("1_000") and float("٠") are numbers to Python, not to a quotation
                     raise ValueError(text)
                 num = float(text)
             except ValueError:
@@ -268,13 +268,18 @@ class SupplierResponse:
             raise ProcurementError(
                 "a response must carry the date it was received — an undated price "
                 "cannot become a dated cost-library entry")
+        supplier = str(d["supplier"])
+        try:
+            values = _numeric(_section(d, "values"))
+        except ProcurementError as exc:
+            raise ProcurementError(f"{supplier}: {exc}") from None      # the refusal names the bidder as well as the field
         return SupplierResponse(
-            supplier=str(d["supplier"]), received_on=str(d["received_on"]),
+            supplier=supplier, received_on=str(d["received_on"]),
             # Nulls are the template's own placeholders — an unanswered optional
             # field, not an error. A value that is present but not a number IS an
             # error, and it is named, because "this response failed to load" is
             # useless to whoever has to go back to the supplier.
-            values=_numeric(_section(d, "values")),
+            values=values,
             text={str(k): str(v) for k, v in _section(d, "text").items()},
             compliance={str(k): str(v).upper()
                         for k, v in _section(d, "compliance").items()
