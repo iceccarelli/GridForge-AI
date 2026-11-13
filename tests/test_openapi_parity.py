@@ -327,7 +327,14 @@ def test_the_version_route_publishes_the_same_idempotency_limit_and_the_payg_ter
     s, _, v = call(base, "/v1/version", key=None, method="GET")
     assert v["idempotency_key_max_chars"] == HONESTY["engine_constants"]["idempotency_key_max_chars"]
     assert v["payg"] == TOOLS_JSON["payg"]
-    assert sorted(v["endpoints"]) == sorted(json.loads((ROOT / "lib" / "engine-deployed.json").read_text())["endpoints"])
+    # The deployed snapshot is what the DEPLOYED engine listed when it was last read. An engine older than the operator-route change still lists
+    # /v1/revoke (operator-only, answers 404 to everyone else); this engine lists no operator-only route, by design, so they are set aside from the
+    # snapshot before comparing. Every other endpoint must still match exactly: a real addition or removal is still a failure.
+    from gridforge.api import server as _server
+    from gridforge.api.tiers import Tier as _Tier
+    operator_only = {r for r, (_, tier) in _server.ROUTES.items() if tier is _Tier.INTERNAL}
+    deployed = json.loads((ROOT / "lib" / "engine-deployed.json").read_text())["endpoints"]
+    assert sorted(v["endpoints"]) == sorted(e for e in deployed if e not in operator_only)
 
 
 def test_the_rate_card_in_the_catalogue_is_the_engines(base):

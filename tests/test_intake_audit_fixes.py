@@ -492,9 +492,18 @@ def test_j17_the_helper_applies_the_loaders_own_bounds_and_can_be_told_the_firm_
 
 def test_j17_the_loader_itself_says_a_derived_firm_capacity_came_from_the_contract():
     """Before: 'firm connection capacity (grid.firm_capacity_MVA) is 12371.1 MVA, above 5000 MVA' for contracted_MW 12000."""
-    from gridforge.api.server import qualify_to_intake
+    from gridforge.api.server import ApiError, qualify_to_intake
     body = {"contracted_MW": 12000, "current_site_peak_MW": 7.4, "busway_ampacity_A": 400, "tapoff_max_A": 63}
-    text = refusal(qualify_to_intake(body))
+    # At the HTTP boundary the API layer now refuses a figure BY ITS OWN NAME before anything is derived (journey audit J1-7), so the request never
+    # reaches the loader with a derived firm capacity...
+    with pytest.raises(ApiError) as e:
+        qualify_to_intake(body)
+    assert e.value.status == 422 and "contracted_MW is 12000 MW, above 5000 MW" in e.value.message
+    # ...and the loader's own refusal, for a document whose firm capacity WAS derived from the contract (an older caller, the CLI), still says so:
+    d = qualify_to_intake({**body, "contracted_MW": 4800})
+    d["grid"]["contracted_MW"] = 12000.0
+    d["grid"]["firm_capacity_MVA"]["value"] = 12000 / 0.97
+    text = refusal(d)
     assert "grid.contracted_MW (12000 MW) divided by 0.97" in text and "at most 4850 MW" in text and "send firm_capacity_MVA" in text
     # a firm capacity that is NOT the contract over 0.97 keeps the ordinary refusal
     other = refusal(doc(**{"grid.firm_capacity_MVA": 6000}))

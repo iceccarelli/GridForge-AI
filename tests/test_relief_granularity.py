@@ -253,9 +253,13 @@ class TestTheHostRule:
             assert _ups_host(_ctx(dd).power.ups).id == "UPS-1"
 
     def test_an_empty_block_is_never_the_host_and_is_not_touched(self):
+        # The LOADER ignores a bank with units < 1 (named warning, tests/test_intake_audit_fixes.py), so an empty bank never reaches the solver
+        # through an intake document. The solver must still be safe when handed one (a programmatic context, an older stored state): the
+        # bank is loaded with one unit and emptied on the context, which is exactly what the solver would be handed.
         d = _ups_doc(_doc("dublin_hall"), 6, 1)
-        d["ups"].insert(0, {"id": "AAA-EMPTY", "unit_rating_kW": 20000, "units": 0, "redundancy": "N", "step_load_capability": 0.5})
+        d["ups"].insert(0, {"id": "AAA-EMPTY", "unit_rating_kW": 20000, "units": 1, "redundancy": "N", "step_load_capability": 0.5})
         ctx = _ctx(d)
+        ctx.power.ups[0].units = 0
         assert [u.id for u in active_banks(ctx.power.ups)] == ["UPS-1"]
         assert _ups_host(ctx.power.ups).id == "UPS-1"
         after = ups_capacity(ctx).relief.apply(ctx)
@@ -266,10 +270,12 @@ class TestTheHostRule:
         unit the list is kept as declared: the constraint binds at zero (as test_adversarial_intake pins for a transformer bank of 0 units) and the
         relief buys the first modules of the block that gains most. An empty LIST is a different thing: undeclared."""
         d = _doc("dublin_hall")
-        d["ups"] = [{"id": "U0", "unit_rating_kW": 1200, "units": 0, "redundancy": "N", "step_load_capability": 0.5},
-                    {"id": "U1", "unit_rating_kW": 1800, "units": 0, "redundancy": "N", "step_load_capability": 0.5}]
-        d["transformers"] = [{"id": "T0", "unit_rating_MVA": 5.0, "units": 0, "redundancy": "N"}]
+        d["ups"] = [{"id": "U0", "unit_rating_kW": 1200, "units": 1, "redundancy": "N", "step_load_capability": 0.5},
+                    {"id": "U1", "unit_rating_kW": 1800, "units": 1, "redundancy": "N", "step_load_capability": 0.5}]
+        d["transformers"] = [{"id": "T0", "unit_rating_MVA": 5.0, "units": 1, "redundancy": "N"}]
         ctx = _ctx(d)
+        for bank in (*ctx.power.ups, *ctx.power.transformers):        # the loader ignores empty banks; the solver is handed them directly here
+            bank.units = 0
         assert [u.id for u in active_banks(ctx.power.ups)] == ["U0", "U1"]          # nothing live: both stand as declared
         assert ups_capacity(ctx).max_racks.value == 0 and transformer_capacity(ctx).max_racks.value == 0
         host = _ups_host(ctx.power.ups)
