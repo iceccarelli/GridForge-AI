@@ -20,12 +20,12 @@ import { PAYG } from "@/lib/products";
 import { callableRates, isCallable, parseToolRates, unavailableLabel, type ToolRate } from "@/lib/payg-pricing";
 import { availabilityIn, deployedEngineRoutes, mcpAvailabilityIn, type Availability } from "@/lib/engine-capabilities";
 import { estimateEndpointServed } from "@/lib/tool-rates";
-import { ENGINE_DISCOVERY, ENGINE_ESTIMATE_GET, ERROR_STATUSES, MAX_MCP_BATCH, MCP_ERRORS, corsStatement, idempotencyStatement, retryStatement, schemaVersionStatement } from "@/lib/openapi";
+import { ENGINE_DISCOVERY, ENGINE_ESTIMATE_GET, ERROR_STATUSES, MAX_MCP_BATCH, MCP_ERRORS, MCP_ID_STATEMENT, corsStatement, httpMethodsStatement, idempotencyStatement, portfolioCapStatement, retryStatement, schemaVersionStatement } from "@/lib/openapi";
 import { endpointReference } from "@/lib/api-reference";
 import { API_CHANGELOG, API_VERSIONING_POLICY, type ApiChangelogEntry } from "@/lib/api-policy";
 import { PORTFOLIO_ENGINE_SENTENCE } from "@/lib/portfolio-scope";
 
-const CHANGELOG_KIND: Record<ApiChangelogEntry["kind"], string> = { policy: "Commitment", additive: "Added", deprecation: "Deprecated" };
+const CHANGELOG_KIND: Record<ApiChangelogEntry["kind"], string> = { policy: "Commitment", additive: "Added", correction: "Corrected", deprecation: "Deprecated" };
 
 // What is callable follows the DEPLOYED engine (its /v1/version), which changes when the engine is redeployed, not when
 // this site is: regenerate at most every five minutes rather than freezing the answer at build time.
@@ -280,7 +280,7 @@ export default async function DevelopersPage() {
         ) : null}
         {tools.some((t) => t.endpoint === "/v1/portfolio") && state("/v1/portfolio") === "available" ? (
           <p className="mt-3 max-w-3xl text-xs text-faint" data-testid="portfolio-scope">
-            <span className="font-mono text-ghost">gridforge_portfolio</span>: {PORTFOLIO_ENGINE_SENTENCE}
+            <span className="font-mono text-ghost">gridforge_portfolio</span>: {PORTFOLIO_ENGINE_SENTENCE} {portfolioCapStatement({ estimator: state("/v1/estimate") === "available" })}
           </p>
         ) : null}
         <h3 className="mt-8 text-sm font-semibold text-ghost">Also served, not tools</h3>
@@ -396,6 +396,7 @@ export default async function DevelopersPage() {
         <h3 id="mcp-errors" className="mt-6 scroll-mt-24 text-sm font-semibold text-ghost">JSON-RPC error codes over /mcp</h3>
         <p className="mt-2 max-w-3xl text-sm text-mute">
           A tool&apos;s refusal is a JSON-RPC error object inside an HTTP 200. A body that is not valid JSON is refused earlier, as an HTTP 400 with a plain error body.
+          Every message must declare <span className="font-mono text-ghost">&quot;jsonrpc&quot;: &quot;2.0&quot;</span>. <span data-testid="mcp-id-statement">{MCP_ID_STATEMENT}</span>
         </p>
         <dl className="mt-3 max-w-3xl divide-y divide-line/60 rounded border border-line bg-panel-2 text-sm" data-testid="mcp-errors">
           {MCP_ERRORS.map((e) => (
@@ -411,6 +412,8 @@ export default async function DevelopersPage() {
         <p className="mt-2 max-w-3xl text-sm text-mute" data-testid="cors-statement">{corsStatement()}</p>
         <h3 className="mt-6 text-sm font-semibold text-ghost">Response version</h3>
         <p className="mt-2 max-w-3xl text-sm text-mute" data-testid="schema-version-statement">{schemaVersionStatement()}</p>
+        <h3 id="methods" className="mt-6 scroll-mt-24 text-sm font-semibold text-ghost">Methods, HEAD and 405</h3>
+        <p className="mt-2 max-w-3xl text-sm text-mute" data-testid="http-methods-statement">{httpMethodsStatement({ estimator: state("/v1/estimate") === "available", mcp: mcpState === "available" })}</p>
       </section>
 
       <section id="versioning" className="mt-12 scroll-mt-24">
@@ -436,9 +439,12 @@ export default async function DevelopersPage() {
       <section className="mt-6 grid gap-4 lg:grid-cols-2">
         <div className="min-w-0 rounded border border-line bg-panel-2 p-6">
           <h3 className="text-lg font-semibold text-ghost">Try it without a key</h3>
-          <p className="mt-2 text-sm text-mute">
-            Seven numbers about an existing air-cooled hall. The answer names the constraint that
-            binds first, how many racks fit as found, and which item sets the energisation date.
+          <p className="mt-2 text-sm text-mute" data-testid="qualify-rule">
+            Up to seven numbers about an existing air-cooled hall: send at least three, any three, and each one you
+            leave out is an assumption the answer names (<span className="font-mono text-ghost">figures_not_supplied</span>).
+            The answer names the constraint that binds first, how many racks fit as found and after relief (each count
+            with its evidence class, <span className="font-mono text-ghost">racks_evidence</span>), and the item that sets
+            the time to power, or why there is no date.
           </p>
           {qualifyState !== "available" ? (
             <p role="status" className="mt-4 rounded bg-ink p-4 text-sm text-queue">

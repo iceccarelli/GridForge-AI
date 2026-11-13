@@ -9,7 +9,7 @@ import { E3_MEANING, EVIDENCE_CLASSES } from "@/lib/evidence-classes";
 import { API_VERSIONING_POLICY } from "@/lib/api-policy";
 import { PORTFOLIO_ENGINE_SENTENCE, PORTFOLIO_FEWER_SENTENCE, PORTFOLIO_FORM_SENTENCE, PORTFOLIO_MORE_SENTENCE } from "@/lib/portfolio-scope";
 import { STUDY_REDUNDANCY_SENTENCE } from "@/lib/study-needs";
-import { ENGINE_DISCOVERY, ENGINE_ESTIMATE_GET, ERROR_STATUSES, MAX_MCP_BATCH, idempotencyStatement } from "@/lib/openapi";
+import { ENGINE_DISCOVERY, ENGINE_ESTIMATE_GET, ERROR_STATUSES, MAX_MCP_BATCH, MCP_ID_STATEMENT, httpMethodsStatement, idempotencyStatement, portfolioCapStatement } from "@/lib/openapi";
 import { projectLadder } from "@/lib/buyer-path";
 import { SITE as COMPANY, SITE_URL } from "@/lib/site";
 import { availabilityIn, deployedEngineRoutes } from "@/lib/engine-capabilities";
@@ -110,11 +110,13 @@ ${callableOps || "- none"}
       : `- Uncalibrated: the model has not been reconciled against an instrumented hall, so its accuracy is unquantified.${calKnown ? "" : " (Read the live record for the current state.)"}`;
   const mcpParagraph = serves("/mcp")
     ? `MCP: ${callableTools.length ? `the tools are ${toolNames}. ` : ""}The transport at /mcp is open and each tool keeps its own tier: the free tools answer without a key, every other tool is refused with
-JSON-RPC error -32001 until a key is sent. A batch holds at most ${MAX_MCP_BATCH} messages. The tools named here are those in the engine's published catalogue whose route the deployed engine serves; the
+JSON-RPC error -32001 until a key is sent. A batch holds at most ${MAX_MCP_BATCH} messages. Every message must declare "jsonrpc": "2.0". ${MCP_ID_STATEMENT} The tools named here are those in the engine's published catalogue whose route the deployed engine serves; the
 machine description of the same operations is ${SITE}/openapi.json.
 
 `
     : "";
+  // The per-request bound on /v1/portfolio and what an unranked hall looks like are stated only while the deployed engine lists the route.
+  const portfolioParagraph = serves("/v1/portfolio") ? `\nPortfolio over the API: ${portfolioCapStatement({ estimator: serves("/v1/estimate") })}\n` : "";
   const mcpLine = serves("/mcp") ? `- MCP endpoint (JSON-RPC 2.0): ${ENGINE}/mcp\n` : "";
   const toolsLine = serves("/v1/tools") ? `- Tool schemas, OpenAI and MCP shape: ${ENGINE}/v1/tools\n` : "";
   const qualifyLine = serves("/v1/qualify") ? `- Free qualifier: POST ${ENGINE}/v1/qualify\n` : "";
@@ -185,8 +187,8 @@ machine description of the same operations is ${SITE}/openapi.json.
 ## What this is, and what it is not
 
 What it is: a screening engine for existing data halls, and a published reference of the thirteen constraints and the rack library (the engine's platform library) it
-uses. Seven numbers about a hall go in; the constraint that binds first comes out, with the racks the hall carries as found and after relief,
-the item that sets the time to power, and the inputs nobody has measured. Output is planning-grade screening, not an issued engineering opinion.
+uses. Up to seven numbers about a hall go in (at least three; each one left out is an assumption the answer names); the constraint that binds first comes out, with the racks the hall carries as found and after relief (each count with its evidence class),
+the item that sets the time to power (or the reason there is no date), and the inputs nobody has measured. Output is planning-grade screening, not an issued engineering opinion.
 
 What it is not: it quotes no equipment and takes no margin on hardware; it does not sell, broker or promise megawatts or a grid connection; and it
 is not an EPC contractor, a utility, an energy trader or a hardware vendor. A queue statistic is not a connection time for any site, and a
@@ -195,7 +197,7 @@ platform figure is taken from the sources cited and held as a library assumption
 ## How to use this site as a tool
 
 The engine is callable directly. \`gridforge_qualify\` is free and needs no API key:
-seven numbers about a hall in, the binding constraint out. This section lists only what the
+up to seven numbers about a hall in (send at least three, any three; each one you leave out is named in the answer as an assumption, in \`figures_not_supplied\`), the binding constraint out. This section lists only what the
 deployed engine says it serves (read from its own /v1/version when this file is generated).
 Authentication: send a key as \`X-API-Key: <key>\` or \`Authorization: Bearer <key>\`; the free operations need none.
 
@@ -211,6 +213,8 @@ Retries: ${idempotencyStatement({ estimator: serves("/v1/estimate") })}
 
 Refusals (a refused or failed call is not charged): ${ERROR_STATUSES.map((e) => `${e.status}, ${e.meaning}`).join("; ")}.
 
+${httpMethodsStatement({ estimator: serves("/v1/estimate"), mcp: serves("/mcp") })}
+${portfolioParagraph}
 Versioning and deprecation: ${API_VERSIONING_POLICY} The dated changelog is at ${SITE}/developers#versioning.
 
 ## Pricing
