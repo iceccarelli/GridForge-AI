@@ -601,8 +601,11 @@ const TOMBSTONE_PAGES_MAX = 100;
 
 /**
  * Every observation withdrawn with its organisation's consent (migration 0056 `calibration_tombstones`), as the sha256 of its id and NOTHING else: no
- * organisation, no time, no content. The export carries them so that `gridforge calibrate import` can refuse an export file saved before a withdrawal
- * and imported after it, and drops from the private ledger what was imported before it (gridforge/calibration/tombstones.py, ledger.py import_export).
+ * organisation, no time, no content. The export carries them so that an operator who imports it (`gridforge calibrate import`, a person running a command on a
+ * saved file: the importer reads no network) RECORDS them in the side file beside the private ledger (gridforge/calibration/tombstones.py, ledger.py
+ * import_export), after which every read of the ledger leaves the withdrawn rows out and the same observation cannot be imported again. Until that import
+ * (or `gridforge calibrate withdraw <hash>`) the private ledger still counts what it already holds, and an export file saved before the withdrawal is refused
+ * only once its tombstones are recorded: the importer cannot know what the database has not told it.
  *
  * Read in full or not at all: a list cut short would let a withdrawn observation come back, so a page that fills the limit is followed by the next, more
  * than TOMBSTONE_PAGES_MAX pages is refused, and any other failure is a failure of the export. The one answer taken as "none": the table is not there

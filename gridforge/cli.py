@@ -579,7 +579,7 @@ def _cmd_calibrate(args) -> int:
                               calibration_for, label, load_ledger)
     from .calibration.keys import known
     from .calibration.ledger import (BUNDLED_PATH, LedgerIntegrityError, append_observation, import_export,
-                                     private_path)
+                                     private_path, record_withdrawals)
     from .calibration import siteref
     from .calibration.ledger import AliasFileUnreadable, _read, site_alias_file, site_aliases
     from .validation.evidence import EvidenceClass as _EvidenceClass
@@ -598,6 +598,12 @@ def _cmd_calibrate(args) -> int:
             n_alias = "alias file unreadable"
             alias_note = f"  (alias file unreadable: {exc}; the site counts below IGNORE it and may count one site twice)"
         print(f"  observations in effect                       : {len(led.observations)}")
+        try:
+            from .calibration.tombstones import read_tombstones, tombstone_path
+            print(f"  withdrawn (tombstoned) observations          : {len(read_tombstones(tombstone_path(private_path())))}"
+                  f"  ({tombstone_path(private_path())})")
+        except ObservationError as exc:
+            print(f"  withdrawn (tombstoned) observations          : UNREADABLE ({exc})")
         print(f"  unsalted -> keyed site aliases declared      : {n_alias}")
         if alias_note:
             print(alias_note)
@@ -640,6 +646,26 @@ def _cmd_calibrate(args) -> int:
             if out["mixed_ref_decision"] == "accept_mixed_refs":
                 print("  NOTE: nothing was merged. A site exported under both an UNSALTED (before 0053) and a KEYED reference is counted as TWO sites; declare it "
                       "with `gridforge calibrate alias` and the ledger will read it as one.", file=sys.stderr)
+        return 0
+
+    if args.cal_cmd == "withdraw":
+        hashes = [h for h in [args.export, *args.more] if h]
+        if not hashes:
+            print("usage: gridforge calibrate withdraw <64-hex observation hash> [<hash> ...] [--ledger PATH]\n"
+                  "  records observations as withdrawn with their organisation's consent (the hashes the admin export lists under `tombstones`, and migration 0056 keeps\n"
+                  "  in calibration_tombstones). They stop counting in every read of the ledger and cannot be imported again; the chained ledger file is not edited.",
+                  file=sys.stderr)
+            return 2
+        try:
+            out = record_withdrawals(hashes, Path(args.ledger) if args.ledger else None)
+        except LedgerIntegrityError:
+            raise
+        except ObservationError as exc:
+            print(f"refused: {exc}", file=sys.stderr)
+            print("Nothing was recorded.", file=sys.stderr)
+            return 2
+        print(f"recorded {out['added']} new withdrawal(s) ({len(hashes) - out['added']} already recorded); {out['tombstones']} in all -> {out['path']}")
+        print(f"  the ledger has {out['rows_out_of_effect']} row(s) that no longer count; the chained ledger file itself is not edited.")
         return 0
 
     if args.cal_cmd == "alias":
@@ -1398,7 +1424,7 @@ def main(argv: list[str] | None = None) -> int:
 
     s = sub.add_parser("calibrate",
                        help="the accuracy record: model vs what the site turned out to be")
-    s.add_argument("cal_cmd", choices=["show", "add", "keys", "where", "import", "alias"])
+    s.add_argument("cal_cmd", choices=["show", "add", "keys", "where", "import", "alias", "withdraw"])
     s.add_argument("--legacy-ref", default="",
                    help="alias/add: the site's UNSALTED reference (site_ + 12 hex) as the DATABASE derives it. Required for a non-ASCII --site (Python cannot know "
                         "how the database lower-cases it); the database expression is printed when it is needed.")
@@ -1407,7 +1433,9 @@ def main(argv: list[str] | None = None) -> int:
     s.add_argument("--accept-mixed-refs", action="store_true",
                    help="import: for THIS import only, accept that a site under both an unsalted and a keyed reference counts as two sites")
     s.add_argument("export", nargs="?", default="",
-                   help="import: the admin calibration export (GET /api/admin/calibration-export), saved as JSON")
+                   help="import: the admin calibration export (GET /api/admin/calibration-export), saved as JSON. withdraw: the first observation hash")
+    s.add_argument("more", nargs="*", default=[],
+                   help="withdraw: further observation hashes (the 64-hex values of the export's `tombstones`)")
     s.add_argument("--kind", default="measured",
                    help="measured only: 'quoted' and 'declared' are refused (a quote or an assumption is not a "
                         "measurement)")

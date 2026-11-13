@@ -146,3 +146,87 @@ def test_the_environment_variable_moves_the_side_file(ledger, tmp_path, monkeypa
     assert T.tombstone_path(ledger) == elsewhere
     monkeypatch.delenv(T.ENV_VAR)
     assert T.tombstone_path(ledger) == ledger.with_name(T.FILENAME)
+
+
+# ---- C4: the importer RECORDS the export's withdrawals, every read of the ledger honours them, and an operator can record one by hand
+
+def run_cli(*args, env=None):
+    import os
+    import subprocess
+    import sys
+    from pathlib import Path
+    r = subprocess.run([sys.executable, "-m", "gridforge", *args], cwd=Path(__file__).resolve().parent.parent, capture_output=True, text=True, env={**os.environ, **(env or {})})
+    assert "Traceback" not in r.stderr, r.stderr
+    return r
+
+
+def test_an_export_that_lists_a_withdrawal_stops_the_row_imported_before_it_from_counting(ledger):
+    """The review's repro (p1): r1 is imported; the next export carries r2 and the tombstone of r1. Before, r1 kept counting in every aggregate and the importer
+    wrote no side file (`add_tombstones` had no caller)."""
+    import_export(export([row(1)]), ledger, accept_mixed_refs=True)
+    assert counted() == 1 and not T.tombstone_path(ledger).exists()
+    out = import_export(export([row(2)], tombstones=[T.observation_hash(row(1)["id"])]), ledger, accept_mixed_refs=True)
+    assert out["imported"] == 1 and out["tombstones_recorded"] == 1
+    assert T.tombstone_path(ledger).exists() and T.read_tombstones(T.tombstone_path(ledger)) == {T.observation_hash(row(1)["id"])}
+    assert counted() == 1 and {o.site_ref for o in load_ledger().for_key("btm.firm_MW")} == {site_only_ref("Site 2")}
+    assert out["ledger_observations"] == 1, "the total the import reports counts what is in effect"
+    assert len(read_chain(ledger)[0]) == 2, "the chained file keeps both rows: only what counts changed"
+    again = import_export(export([row(3)], tombstones=[T.observation_hash(row(1)["id"])]), ledger, accept_mixed_refs=True)           # recorded once
+    assert again["tombstones_recorded"] == 0 and counted() == 2
+
+
+def test_every_read_of_the_ledger_leaves_a_withdrawn_row_out_not_only_load_ledger(ledger):
+    from gridforge.calibration.ledger import _read
+    import_export(export([row(1), row(2), row(3)]), ledger, accept_mixed_refs=True)
+    T.add_tombstones(T.tombstone_path(ledger), [T.observation_hash(row(2)["id"])])
+    assert counted() == 2 and len(_read(ledger)) == 2                              # `calibrate add` prints its n from this read
+    assert len(read_chain(ledger)[0]) == 3                                         # the chain read stays whole: it verifies the file
+    r = run_cli("calibrate", "add", "--key", "btm.firm_MW", "--site", "Client Z", "--hall", "H1", "--predicted", "30", "--observed", "28", "--unit", "MW",
+                "--on", "2026-06-30", "--method", "metering", "--ledger", str(ledger))
+    assert r.returncode == 0, r.stderr
+    assert len(_read(ledger)) == 3                                                 # two in effect and the one just added, not four
+
+
+def test_an_import_that_is_refused_still_records_the_withdrawals_it_carries_and_says_so(ledger):
+    import_export(export([row(1)]), ledger, accept_mixed_refs=True)
+    before = ledger.read_bytes()
+    dead = T.observation_hash(row(1)["id"])
+    with pytest.raises(ObservationError, match="WERE recorded"):
+        import_export(export([row(2, evidence_class="E4")], tombstones=[dead]), ledger, accept_mixed_refs=True)            # a row that fails the policy
+    assert ledger.read_bytes() == before and counted() == 0, "no observation was imported, and the withdrawn one no longer counts"
+    assert T.read_tombstones(T.tombstone_path(ledger)) == {dead}
+
+
+def test_gridforge_calibrate_withdraw_records_hashes_by_hand(ledger):
+    import_export(export([row(1), row(2), row(3)]), ledger, accept_mixed_refs=True)
+    h1, h2 = T.observation_hash(row(1)["id"]), T.observation_hash(row(2)["id"])
+    r = run_cli("calibrate", "withdraw", h1, h2, "--ledger", str(ledger))
+    assert r.returncode == 0, r.stderr
+    assert "recorded 2 new" in r.stdout and "2 row(s) that no longer count" in r.stdout
+    assert counted() == 1 and T.read_tombstones(T.tombstone_path(ledger)) == {h1, h2}
+    again = run_cli("calibrate", "withdraw", h1, "--ledger", str(ledger))
+    assert again.returncode == 0 and "recorded 0 new" in again.stdout and "1 already recorded" in again.stdout
+    where = run_cli("calibrate", "where", env={"GRIDFORGE_CALIBRATION_LEDGER": str(ledger)})
+    assert where.returncode == 0 and "withdrawn (tombstoned) observations" in where.stdout and ": 2" in where.stdout
+    with pytest.raises(ObservationError, match="withdrawn"):
+        import_export(export([row(1)]), ledger, accept_mixed_refs=True)
+
+
+@pytest.mark.parametrize("args", [["not-a-hash"], ["A" * 64], ["a" * 63], ["a" * 64, "oops"], []])
+def test_calibrate_withdraw_refuses_what_is_not_a_hash_and_writes_nothing(ledger, args):
+    import_export(export([row(1)]), ledger, accept_mixed_refs=True)
+    r = run_cli("calibrate", "withdraw", *args, "--ledger", str(ledger))
+    assert r.returncode == 2, (r.stdout, r.stderr)
+    assert not T.tombstone_path(ledger).exists() and counted() == 1
+
+
+def test_calibrate_withdraw_refuses_the_bundled_ledger():
+    from gridforge.calibration.ledger import BUNDLED_PATH
+    r = run_cli("calibrate", "withdraw", "a" * 64, "--ledger", str(BUNDLED_PATH))
+    assert r.returncode == 2 and "bundled" in r.stderr and "Nothing was recorded" in r.stderr
+
+
+def test_a_damaged_tombstone_file_is_not_overwritten_by_a_withdrawal(ledger):
+    T.tombstone_path(ledger).write_text("{ not json")
+    r = run_cli("calibrate", "withdraw", "a" * 64, "--ledger", str(ledger))
+    assert r.returncode == 2 and T.tombstone_path(ledger).read_text() == "{ not json"

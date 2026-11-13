@@ -19,9 +19,11 @@ export const dynamic = "force-dynamic";
 // self-typed under one shared password, and the permission record is an assertion of a document the system never opens.
 //
 // `tombstones` (additive) is the list of observations withdrawn together with their organisation's consent (0056), each as the sha256 of its id and
-// nothing more. `gridforge calibrate import` refuses an export that contains a tombstoned row and leaves tombstoned observations out of the private
-// ledger, so an export saved before a withdrawal cannot bring an observation back. It is read in full or the export fails (a truncated list would let
-// one return); on a database where 0056 is not applied there is no such table, no withdrawal, and the list is empty.
+// nothing more. When an operator imports this export, `gridforge calibrate import` RECORDS them in a side file beside the private ledger; from then on the
+// ledger leaves those observations out of every read and the importer refuses an export that contains one. That happens only when someone runs the import
+// (or `gridforge calibrate withdraw <hash>`): the importer reads no network, so the ledger keeps counting what it holds until then, and an export saved
+// before a withdrawal is refused only once its tombstones were recorded. The list is read in full or the export fails (a truncated list would let one
+// return); on a database where 0056 is not applied there is no such table, no withdrawal, and the list is empty.
 export async function GET() {
   const store = await cookies();
   if (!(await verifyAdminCookie(store.get(ADMIN_COOKIE)?.value))) {

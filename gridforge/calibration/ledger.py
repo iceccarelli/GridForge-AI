@@ -13,7 +13,8 @@ from pathlib import Path
 
 from .schema import Observation, ObservationError, SHA256_RE
 from .siteref import SiteRefError, alias_path, canonical, read_alias_file
-from .tombstones import heads as tombstone_heads, is_withdrawn, observation_hash as _tombstone_hash, read_tombstones, tombstone_path
+from .tombstones import (add_tombstones, heads as tombstone_heads, is_withdrawn, observation_hash as _tombstone_hash, read_tombstones,
+                         tombstone_path)
 from ..validation.evidence import EvidenceClass
 
 try:                                  # POSIX. Elsewhere a lock-file fallback keeps two writers apart.
@@ -211,7 +212,14 @@ def read_chain(path: Path) -> tuple[list[Observation], str | None]:
 
 
 def _read(path: Path) -> list[Observation]:
-    return read_chain(path)[0]
+    """The observations of one ledger file IN EFFECT: a withdrawn observation (a tombstone beside the file, tombstones.py) is not among them, so whatever counts
+    rows through this (the figure `calibrate add` prints, the total an import reports) counts what ``load_ledger`` counts. The chain itself is read whole by
+    ``read_chain`` and ``_load``, which verify it and never drop a row. The bundled ledger has no tombstones (a published row is withdrawn by a commit)."""
+    obs = read_chain(path)[0]
+    if Path(path).resolve() == BUNDLED_PATH.resolve():
+        return obs
+    dead = tombstone_heads(read_tombstones(tombstone_path(Path(path))))
+    return [o for o in obs if not is_withdrawn(o.source_ref, dead)] if dead else obs
 
 
 def load_ledger(published_only: bool = False, use_aliases: bool = True) -> Ledger:
@@ -239,6 +247,21 @@ def load_ledger(published_only: bool = False, use_aliases: bool = True) -> Ledge
         heads[str(p)] = phead
     return Ledger(observations=obs + private, sources=sources,
                   private_loaded=bool(private), heads=heads)
+
+
+def record_withdrawals(hashes, path: Path | None = None) -> dict:
+    """Record observations as withdrawn (D5) in the side file beside the private ledger: the 64-hex sha256 of each observation's id, which is what the database
+    keeps as a tombstone and what the admin export lists under ``tombstones``. From then on ``load_ledger`` and every other read leave those rows out and an
+    import refuses them. The chained ledger file is not touched. Returns how many were new, how many tombstones there are, and how many rows of the ledger they
+    take out of effect. A hash that is not 64 lowercase hex characters refuses the whole call and nothing is written."""
+    target = Path(path) if path else private_path()
+    _refuse_bundled(target)
+    listed = list(hashes)
+    with _locked(tombstone_path(target)):
+        added = add_tombstones(tombstone_path(target), listed)
+    dead = read_tombstones(tombstone_path(target))
+    out_of_effect = len(read_chain(target)[0]) - len(_read(target)) if target.exists() else 0
+    return {"added": added, "tombstones": len(dead), "rows_out_of_effect": out_of_effect, "path": str(tombstone_path(target))}
 
 
 # ---------------------------------------------------------------------------------------------- writing
@@ -416,15 +439,32 @@ def import_export(doc, path: Path | None = None, *, accept_mixed_refs: bool = Fa
     if not isinstance(doc, dict) or doc.get("schema") != EXPORT_SCHEMA or not isinstance(doc.get("rows"), list):
         raise ObservationError(f"not a calibration export: expected {{'schema': '{EXPORT_SCHEMA}', 'rows': [...]}}")
     rows = doc["rows"]
-    new = [_row_to_observation(r, i + 1) for i, r in enumerate(rows)]
-    # D5: a withdrawn observation cannot come back by re-import. The tombstones are the side file's and the export's own (`tombstones`, a list of the 64-hex
-    # hashes the database holds); one withdrawn row refuses the whole export, like any other row that fails the policy, and nothing is written.
-    dead = read_tombstones(tombstone_path(target))
+    # D5: the export's own `tombstones` (a list of the 64-hex hashes the database holds) are RECORDED in the side file beside the ledger, so that what was imported
+    # before the withdrawal stops counting in every read of the ledger and the observation cannot be imported again. A withdrawal does not wait for the rest of the
+    # export to be valid: it is recorded before the rows are looked at, and an import that is then refused says so.
     listed = doc.get("tombstones")
-    if listed is not None:
-        if not isinstance(listed, list) or not all(isinstance(h, str) and SHA256_RE.match(h) for h in listed):
-            raise ObservationError("the export's tombstones must be a list of 64-hex observation hashes")
-        dead = dead | frozenset(listed)
+    if listed is not None and (not isinstance(listed, list) or not all(isinstance(h, str) and SHA256_RE.match(h) for h in listed)):
+        raise ObservationError("the export's tombstones must be a list of 64-hex observation hashes")
+    recorded = 0
+    if listed:
+        with _locked(tombstone_path(target)):
+            recorded = add_tombstones(tombstone_path(target), listed)
+    try:
+        return _import_rows(rows, target, accept_mixed_refs, recorded)
+    except LedgerIntegrityError:
+        raise
+    except ObservationError as exc:
+        if recorded:
+            raise ObservationError(f"{exc} (The export's {recorded} new withdrawal(s) WERE recorded in {tombstone_path(target)}: a withdrawal does not wait for "
+                                   f"the rest of the export.)") from exc
+        raise
+
+
+def _import_rows(rows: list, target: Path, accept_mixed_refs: bool, recorded: int) -> dict:
+    new = [_row_to_observation(r, i + 1) for i, r in enumerate(rows)]
+    # D5: a withdrawn observation cannot come back by re-import: the side file's tombstones (those just recorded included) refuse it. One withdrawn row refuses the
+    # whole export, like any other row that fails the policy, and no observation is written.
+    dead = read_tombstones(tombstone_path(target))
     if dead:
         withdrawn = [i + 1 for i, r in enumerate(rows) if _tombstone_hash(r.get("id")) in dead]
         if withdrawn:
@@ -458,7 +498,7 @@ def import_export(doc, path: Path | None = None, *, accept_mixed_refs: bool = Fa
         new = fixed
     if new:
         _append_many(new, target)
-    total = len(read_chain(target)[0]) if target.exists() else 0
-    return {"imported": len(new), "ledger_observations": total, "path": str(target), "rekeyed": rekeyed,
+    total = len(_read(target)) if target.exists() else 0                       # the rows in effect: a withdrawn one is not counted
+    return {"imported": len(new), "ledger_observations": total, "path": str(target), "rekeyed": rekeyed, "tombstones_recorded": recorded,
             "aliases": len(aliases), "distinct_sites_imported": len({o.site for o in new}),
             "mixed_ref_decision": (decision if new else None)}
