@@ -463,6 +463,11 @@ export function ledgerEligible(
 // a recorded file decision (project_evidence_reviews) and the project's site history (hall_project_attachments joined to sites). An
 // administrator can, with the service role. `ledgerGateChecklist` is `ledgerBlockers` plus those two, plus a read of the stored forecast,
 // reported gate by gate as met / not met / cannot be read. A record that could not be read is never "met".
+//
+// Neither reads the three PUBLICATION conditions migration 0056 adds to the view (the organisation's standing consent, the project's attested
+// completion milestone, no withdrawal; lib/calibration-gates.ts PUBLICATION_CONDITIONS). The database refuses to RECORD a production observation
+// without the first two, so a row that exists had them when it was stored; a later withdrawal takes it out of the view while the checks here still
+// pass, which is why the panel says only that the export view makes the final decision. Reading them here is open work (docs/CALIBRATION_GATES_RUNBOOK.md).
 
 /** What project_evidence_reviews holds for the observation's evidence file. */
 export type FileDecisionRead = "unreadable" | "none" | { decision: "verified" | "rejected"; sha256_confirmed: string | null };
