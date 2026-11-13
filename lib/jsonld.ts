@@ -1,6 +1,7 @@
 import type { ConstraintDoc, ConstraintReference } from "@/lib/constraints";
 import { capabilityById } from "@/lib/capability-registry";
-import { LADDER_PRODUCTS, eurFromCents, type Product } from "@/lib/products";
+import { API_PRODUCTS, LADDER_PRODUCTS, PAYG, eurFromCents, type Product } from "@/lib/products";
+import { FREE_ALLOWANCE_TEXT, billingRuleText, eurExact } from "@/lib/payg-pricing";
 import { SITE, SITE_URL, siteUrl } from "@/lib/site";
 import { WEBSITE_ID, orgRef } from "@/lib/entity";
 
@@ -198,6 +199,84 @@ export function engagementCatalogJsonLd() {
     "@type": "OfferCatalog",
     name: `${SITE.name} — Engagements`,
     itemListElement: LADDER_PRODUCTS.map(engagementOfferJsonLd),
+  };
+}
+
+// ---------------------------------------------------------------------------------------------------------------
+// The metered engine API as a schema.org WebAPI with its Offers: the free allowance, pay-as-you-go and the monthly plans.
+//
+// Every amount, currency, quantity and sentence is read from the catalogue (PAYG and API_PRODUCTS in lib/products.ts; the billing rule
+// and the free-allowance sentence from lib/payg-pricing.ts, which the Python engine's text is pinned to). Nothing is typed here.
+// What the markup does NOT say: no `availability` (whether a route is callable follows the deployed engine, which the catalogue does not
+// know), no rating, review or count of anything, and no price for anything the catalogue does not price. The per-route unit weights are
+// not repeated here; they are on the page and in /openapi.json.
+// ---------------------------------------------------------------------------------------------------------------
+
+const API_CURRENCY = PAYG.currency.toUpperCase();
+
+/** The free monthly allowance: a price of nothing, for a quantity the catalogue states. */
+export function apiFreeAllowanceOfferJsonLd() {
+  return {
+    "@type": "Offer",
+    name: "Free allowance",
+    description: FREE_ALLOWANCE_TEXT,
+    price: priceString(0),
+    priceCurrency: API_CURRENCY,
+    eligibleQuantity: { "@type": "QuantitativeValue", value: PAYG.freeAllowanceUnits, unitText: "units per month" },
+  };
+}
+
+/** Pay-as-you-go: the price of one unit, with the billing rule (which carries the minimum invoice and the cap behaviour) as the description. */
+export function apiPaygOfferJsonLd() {
+  return {
+    "@type": "Offer",
+    name: "Pay-as-you-go",
+    description: `${billingRuleText()} The monthly spending cap is yours to set, from ${eurExact(PAYG.minCapEur * 100)} to ${eurExact(PAYG.maxCapEur * 100)}.`,
+    priceCurrency: API_CURRENCY,
+    priceSpecification: {
+      "@type": "UnitPriceSpecification",
+      price: priceString(PAYG.unitPriceCents),
+      priceCurrency: API_CURRENCY,
+      referenceQuantity: { "@type": "QuantitativeValue", value: 1, unitText: "unit" },
+      unitText: "per unit",
+    },
+  };
+}
+
+/** A monthly API plan: its price per month and the units it includes, both from the catalogue. */
+export function apiPlanOfferJsonLd(p: Product) {
+  const units = p.apiUnits ?? 0;
+  return {
+    "@type": "Offer",
+    name: p.name,
+    description: `${units} metered units a month on a signed API key, billed monthly. Past those units the engine answers 402.`,
+    priceCurrency: API_CURRENCY,
+    priceSpecification: {
+      "@type": "UnitPriceSpecification",
+      price: priceString(p.amountCents),
+      priceCurrency: API_CURRENCY,
+      billingDuration: "P1M",
+      referenceQuantity: { "@type": "QuantitativeValue", value: 1, unitCode: "MON" },
+      unitText: "per month",
+    },
+  };
+}
+
+/**
+ * The engine API as a WebAPI. `plans` is true where the page shows the monthly plans (/developers); /pricing shows the free allowance and
+ * pay-as-you-go and points to /developers for the plans, so its markup carries what its page carries.
+ */
+export function apiServiceJsonLd(opts: { plans: boolean }) {
+  return {
+    "@context": "https://schema.org",
+    "@type": "WebAPI",
+    name: "Time to Power engine API",
+    description:
+      "The capacity and density engine as a JSON API and an MCP server: constraint screening for an existing AI data hall, with an evidence class on each headline figure. Screening-mode output, not an issued engineering opinion.",
+    url: siteUrl("/developers"),
+    documentation: siteUrl("/developers"),
+    provider: orgRef(),
+    offers: [apiFreeAllowanceOfferJsonLd(), apiPaygOfferJsonLd(), ...(opts.plans ? API_PRODUCTS.map(apiPlanOfferJsonLd) : [])],
   };
 }
 

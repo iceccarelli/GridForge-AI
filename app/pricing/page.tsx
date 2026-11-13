@@ -2,7 +2,7 @@ import type { Metadata } from "next";
 import { OG_BASE } from "@/lib/site";
 import { pageImages } from "@/lib/page-cards";
 import { PageJsonLd } from "@/components/PageJsonLd";
-import { breadcrumbJsonLd, engagementCatalogJsonLd, webPageJsonLd } from "@/lib/jsonld";
+import { apiServiceJsonLd, breadcrumbJsonLd, engagementCatalogJsonLd, webPageJsonLd } from "@/lib/jsonld";
 import Link from "next/link";
 import CostEstimator from "@/components/CostEstimator";
 import { EngagementLadder } from "@/components/EngagementLadder";
@@ -55,6 +55,8 @@ export default async function PricingPage() {
         data={[
           webPageJsonLd("/pricing", PRICING_TITLE, PRICING_DESCRIPTION),
           engagementCatalogJsonLd(),
+          // The free allowance and pay-as-you-go, which this page shows; the monthly plans are on /developers and in its markup.
+          apiServiceJsonLd({ plans: false }),
           breadcrumbJsonLd([
             { name: "Time to Power", path: "/" },
             { name: "Pricing", path: "/pricing" },

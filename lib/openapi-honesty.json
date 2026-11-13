@@ -1,12 +1,150 @@
 {
-  "note": "The honesty fields the engine puts in its own responses, listed by the OpenAPI document (lib/openapi.ts) so a machine reading the contract knows where the evidence class, the calibration record and the assumption disclosure are. This is a description of what the engine returns, not a second source of it: tests/test_openapi_parity.py runs the real handlers in gridforge/api/server.py and fails if a field named here is missing from the response, or if the engine's constants named here differ.",
+  "note": "The honesty fields the engine puts in its own responses, listed by the OpenAPI document (lib/openapi.ts) so a machine reading the contract knows where the evidence class, the calibration record and the assumption disclosure are. This is a description of what the engine returns, not a second source of it: tests/test_openapi_parity.py and tests/test_api_published_contract.py run the real handlers and the real server in gridforge/api/server.py and fail if a field named here is missing from the response, or if the engine's constants named here differ. additive_top_level lists keys that arrive with the engine changes merged after the keys in top_level: tests/test_published_additive_keys.py requires an engine to return all of them or none, so documentation and engine cannot be half-way apart.",
   "engine_constants": {
     "idempotency_key_max_chars": 150,
     "idempotency_window_hours": 24,
     "max_body_bytes": 524288,
     "max_mcp_batch": 10,
-    "max_estimate_halls": 100000
+    "max_estimate_halls": 100000,
+    "solve_shed_retry_after_seconds": 2,
+    "ledger_unavailable_retry_after_seconds": 30
   },
+  "schema_version": {
+    "note": "Read off gridforge/api/server.py (API_SCHEMA, Handler._send) and proved against the real server by tests/test_api_published_contract.py.",
+    "value": "gridforge/api/1",
+    "body_field": "schema_version",
+    "header": "X-GridForge-Schema"
+  },
+  "solving_routes": [
+    "/v1/qualify",
+    "/v1/screen",
+    "/v1/compare",
+    "/v1/study",
+    "/v1/portfolio",
+    "/v1/proposal",
+    "/v1/deck",
+    "/v1/diff",
+    "/v1/spec",
+    "/v1/bids",
+    "/v1/power/assess",
+    "/v1/power/deploy/assess",
+    "/v1/power/deploy/spec",
+    "/v1/power/deploy/bids"
+  ],
+  "service_unavailable": [
+    {
+      "cause": "busy",
+      "meaning": "every solve slot the engine allows is taken (all callers together, or the share a keyless caller may hold): the request was refused at once, never queued, and nothing was charged",
+      "retry_after_constant": "solve_shed_retry_after_seconds",
+      "body_fields": [
+        "error",
+        "retryable",
+        "retry_after_seconds",
+        "fix"
+      ],
+      "routes": "solving"
+    },
+    {
+      "cause": "usage_not_recorded",
+      "meaning": "a metered key's charge could not be written to the usage ledger, so the call was refused rather than served unrecorded: nothing was charged and no work was done",
+      "retry_after_constant": "ledger_unavailable_retry_after_seconds",
+      "body_fields": [
+        "error",
+        "retryable",
+        "units_required",
+        "fix"
+      ],
+      "routes": "keyed"
+    },
+    {
+      "cause": "paid_endpoints_not_configured",
+      "meaning": "the deployment holds no API keys and cannot verify signed ones, so a metered route is refused",
+      "retry_after_constant": null,
+      "body_fields": [
+        "error",
+        "fix"
+      ],
+      "routes": "keyed"
+    }
+  ],
+  "cors": {
+    "note": "Read off gridforge/api/server.py (Handler._cors, DEFAULT_ALLOWED_ORIGINS, PUBLIC_CORS_PATHS). The origin list and the public routes are the engine's defaults; an operator can change them with GRIDFORGE_ALLOWED_ORIGINS and GRIDFORGE_PUBLIC_CORS. tests/test_api_published_contract.py runs the real server and fails if any of it is not what it sends.",
+    "default_allowed_origins": [
+      "https://timetopower.ai",
+      "https://www.timetopower.ai"
+    ],
+    "public_paths": [
+      "/health",
+      "/v1/version",
+      "/v1/qualify",
+      "/v1/estimate"
+    ],
+    "allow_methods": [
+      "GET",
+      "POST",
+      "OPTIONS"
+    ],
+    "allow_headers_allowed_origin": [
+      "Content-Type",
+      "X-API-Key",
+      "Authorization",
+      "Idempotency-Key",
+      "X-GridForge-Project"
+    ],
+    "allow_headers_public_path": [
+      "Content-Type"
+    ],
+    "expose_headers": [
+      "X-GridForge-Units",
+      "X-GridForge-Units-Month",
+      "X-GridForge-Units-Remaining",
+      "X-GridForge-Charge-Cents",
+      "X-GridForge-Idempotent-Replay",
+      "Idempotent-Replay"
+    ]
+  },
+  "mcp_errors": [
+    {
+      "code": -32600,
+      "name": "Invalid Request",
+      "when": "the message is not a JSON-RPC object with a non-empty string method, the batch is empty, or the batch holds more messages than the limit. HTTP 400 for a bad single message or a bad batch; one bad message inside a batch gets this error in its own slot of the 200 answer"
+    },
+    {
+      "code": -32601,
+      "name": "Method not found",
+      "when": "the method is none of initialize, notifications/initialized, ping, tools/list and tools/call"
+    },
+    {
+      "code": -32602,
+      "name": "Invalid params",
+      "when": "the tool name is unknown (data.available lists the names), arguments is not an object, the arguments are refused (the refusal a REST call gets as 422, with its message and fields in data), or the Idempotency-Key is reused with other arguments (data.status 422) or is too long (data.status 400). Nothing is charged"
+    },
+    {
+      "code": -32001,
+      "name": "API key required",
+      "when": "a metered tool was called without a valid API key (data.free_tool names gridforge_qualify)"
+    },
+    {
+      "code": -32002,
+      "name": "Refused by the meter",
+      "when": "the key's allowance or cap is spent (data.status 402, with the fields of the REST 402). Nothing ran and nothing was charged"
+    },
+    {
+      "code": -32003,
+      "name": "Service unavailable",
+      "when": "the engine is busy or the usage could not be recorded (data.status 503, data.retryable true). The HTTP response carries a Retry-After header, as the REST 503 does"
+    },
+    {
+      "code": -32005,
+      "name": "Rate limit exceeded",
+      "when": "the second or a later tools/call in one HTTP request went over the per-client limit (data.status 429, data.limit_per_minute). The first call of a request is counted by the HTTP limiter, which answers HTTP 429 instead"
+    },
+    {
+      "code": -32603,
+      "name": "Engine error",
+      "when": "the engine failed on a valid call. Only data.request_id is returned, no exception text, and the call's charge is refunded"
+    }
+  ],
   "calibration_block_fields": [
     "state",
     "statement",
@@ -48,9 +186,12 @@
   ],
   "responses": {
     "/v1/qualify": {
+      "when": "the plain request; with assumed_fields the answer also carries inputs_declared_assumed (only what you declared), and intake gains assumed_count and assumed_count_note. inputs_derived_assumed lists the firm connection capacity the qualifier derived from contracted_MW when you sent contracted_MW and no firm_capacity_MVA (class E0; a separate list from the declared one)",
       "top_level": [
+        "platform",
         "as_found",
         "after_relief",
+        "first_three_constraints",
         "intake",
         "calibration",
         "notice"
@@ -68,14 +209,36 @@
         "gaps",
         "warnings",
         "recommended_engagement"
+      ],
+      "additive_top_level": [
+        "inputs_derived_assumed"
+      ]
+    },
+    "/v1/estimate": {
+      "top_level": [
+        "endpoint",
+        "units",
+        "unit_price_cents",
+        "currency",
+        "estimated_cents",
+        "billable",
+        "free",
+        "basis",
+        "note"
       ]
     },
     "/v1/screen": {
       "top_level": [
+        "project",
+        "objective",
+        "recommended",
         "scenarios",
         "intake",
-        "calibration"
+        "calibration",
+        "grid_queue_context",
+        "retail_price_context"
       ],
+      "when": "format json, the default; md and html return format, title and the rendered document instead (html adds document_full)",
       "intake_gaps": true,
       "intake_fields": [
         "completeness",
@@ -88,12 +251,188 @@
     "/v1/compare": {
       "top_level": [
         "schema",
+        "objective",
+        "baseline",
         "scenarios",
         "ranking",
         "grade",
         "caveats",
         "request_digest",
+        "project",
+        "intake_completeness",
+        "grid_queue_context",
+        "retail_price_context",
         "provenance"
+      ],
+      "additive_top_level": [
+        "calibration"
+      ]
+    },
+    "/v1/study": {
+      "top_level": [
+        "schema",
+        "generated",
+        "project",
+        "intake",
+        "scenarios",
+        "cost_evidence",
+        "sensitivity",
+        "disclaimer"
+      ],
+      "when": "format json, the default; md and html return format, title and the rendered document (html adds document_full), and csv returns format and files",
+      "additive_top_level": [
+        "calibration"
+      ]
+    },
+    "/v1/portfolio": {
+      "top_level": [
+        "objective",
+        "halls",
+        "total_racks",
+        "total_racks_evidence"
+      ],
+      "when": "format json, the default; md and html add document and model_packs (one model pack per hall). warnings is present only when there is something to warn about",
+      "additive_top_level": [
+        "calibration",
+        "total_racks_upper_bound",
+        "total_racks_by_site_max",
+        "comparable_total_racks",
+        "comparable_total_racks_by_site_max",
+        "comparable_total_racks_evidence",
+        "incomparable_halls",
+        "constraint_rollup",
+        "totals_note"
+      ]
+    },
+    "/v1/diff": {
+      "top_level": [
+        "headline",
+        "material",
+        "before",
+        "after",
+        "racks_delta",
+        "weeks_delta",
+        "date_basis",
+        "date_evidence_class",
+        "date_binding_item",
+        "date_label",
+        "capex_delta_eur",
+        "binding_moved",
+        "changed_inputs",
+        "drivers",
+        "explained_racks",
+        "unexplained_racks",
+        "inputs",
+        "model_drift",
+        "model_drift_known",
+        "unprobed_inputs",
+        "unprobeable_inputs"
+      ],
+      "when": "format json, the default; md and html add format, title and document to the same keys",
+      "additive_top_level": [
+        "material_reasons",
+        "not_compared",
+        "calibration"
+      ]
+    },
+    "/v1/spec": {
+      "top_level": [
+        "format",
+        "title",
+        "document",
+        "document_full",
+        "specification",
+        "response_template"
+      ],
+      "when": "format html, the default; md leaves out document_full; list=true returns the reliefs that can be tendered instead",
+      "additive_top_level": [
+        "calibration"
+      ]
+    },
+    "/v1/bids": {
+      "top_level": [
+        "relief",
+        "constraint_id",
+        "sized_for_racks",
+        "ranked",
+        "leading",
+        "note"
+      ],
+      "when": "the default ranking; evidence_only=true returns the validated quote lines instead, and ingest=true adds cost_library_entries",
+      "additive_top_level": [
+        "calibration"
+      ]
+    },
+    "/v1/proposal": {
+      "top_level": [
+        "format",
+        "title",
+        "document",
+        "document_full",
+        "engagement"
+      ],
+      "when": "format html, the default; md leaves out document_full",
+      "additive_top_level": [
+        "calibration"
+      ]
+    },
+    "/v1/deck": {
+      "top_level": [
+        "format",
+        "title",
+        "slides",
+        "document",
+        "document_full"
+      ],
+      "additive_top_level": [
+        "calibration"
+      ]
+    },
+    "/v1/power/assess": {
+      "top_level": [
+        "project",
+        "objective",
+        "platform",
+        "capacity",
+        "binding_constraint",
+        "headroom_ladder",
+        "time_to_power",
+        "evidence",
+        "next_action",
+        "intake"
+      ]
+    },
+    "/v1/power/deploy/assess": {
+      "top_level": [
+        "load_profile",
+        "capacity",
+        "architectures",
+        "next_action"
+      ],
+      "additive_top_level": [
+        "calibration"
+      ]
+    },
+    "/v1/power/deploy/spec": {
+      "top_level": [
+        "specification",
+        "response_template"
+      ],
+      "when": "format json; html (the default) and md add format, title and the rendered document (html also document_full and document_md)",
+      "additive_top_level": [
+        "calibration"
+      ]
+    },
+    "/v1/power/deploy/bids": {
+      "top_level": [
+        "architecture",
+        "units",
+        "ranked",
+        "leading",
+        "note"
+      ],
+      "additive_top_level": [
+        "calibration"
       ]
     }
   }

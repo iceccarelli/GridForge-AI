@@ -22,6 +22,7 @@ Zero dependencies: MCP here is a JSON-RPC dialect, not a package.
 """
 from __future__ import annotations
 
+from ..compute.library import PLATFORMS
 from .metering import UNIT_COST, payg_public
 from .tiers import Tier
 
@@ -62,7 +63,81 @@ _OBJECTIVE = {
 }
 
 
-def _tool(name, summary, endpoint, schema, *, tier=Tier.CLIENT, returns=""):
+#: The seven figures the free qualifier asks for, in the order it asks them. tests/test_api_published_contract.py fails if this is not
+#: the engine's own QUALIFY_FIELDS (server.py), so the published list cannot drift from the handler's.
+QUALIFY_FIGURES = ("contracted_MW", "current_site_peak_MW", "current_it_load_MW", "busway_ampacity_A", "tapoff_max_A",
+                   "plant_supply_C", "positions_available")
+
+
+def _label(what: str) -> dict:
+    return {"type": "string",
+            "description": (f"Optional. {what} A label for your own records: the qualifier writes it into the intake it builds and it "
+                            "changes no figure in the result.")}
+
+
+def _qualify_schema() -> dict:
+    return {
+        "type": "object",
+        "description": ("Seven figures about one air-cooled hall, and some options. The four marked required are the minimum this contract "
+                        "asks you to send. The engine itself answers 422 only when more than four of the seven figures are missing (any "
+                        "three are enough); every figure you leave out is filled from library defaults and listed under intake.gaps in "
+                        "the result. The engine does not validate a request against this schema before running it: a key that is not "
+                        "listed here is not read as a figure and is ignored, except cost_evidence, which this route does not take and "
+                        "refuses with 422."),
+        "required": ["contracted_MW", "current_site_peak_MW", "busway_ampacity_A", "tapoff_max_A"],
+        "properties": {
+            "contracted_MW": {"type": "number", "description": "Contracted grid capacity, MW."},
+            "current_site_peak_MW": {"type": "number", "description": "Current site peak demand, MW."},
+            "current_it_load_MW": {"type": "number", "description": "Current IT load, MW."},
+            "busway_ampacity_A": {"type": "number", "description": "Installed busway ampacity, A."},
+            "tapoff_max_A": {"type": "number", "description": "Largest installed tap-off rating, A."},
+            "plant_supply_C": {"type": "number", "description": "Chilled-water design supply temperature, °C."},
+            "positions_available": {"type": "integer", "description": "Rack positions that can be released."},
+            "firm_capacity_MVA": {"type": "number",
+                                  "description": ("Optional. Firm capacity of the grid connection, MVA, sent as a plain number. It is a "
+                                                  "real input: a value below the connection the engine would otherwise derive lowers the "
+                                                  "firm-supply headroom. Omit it (and send contracted_MW) and the engine derives one from "
+                                                  "contracted_MW, lists it as an assumption (E0) under inputs_derived_assumed in the result, "
+                                                  "and adds a required grid.firm_capacity_MVA row to intake.gaps. That list is separate "
+                                                  "from inputs_declared_assumed, which holds only what you declared. firm_capacity_MVA "
+                                                  "cannot be named in assumed_fields.")},
+            "platform": {"type": "string", "enum": list(PLATFORMS), "default": "gb300_nvl72",
+                         "description": ("Optional. The rack platform the hall is tested against (GET /v1/platforms lists them). It sets "
+                                         "the per-rack electrical and thermal load, so it changes the result. An id the library does not "
+                                         "carry is refused with 422.")},
+            "objective": _OBJECTIVE,
+            "assumed_fields": {
+                "type": "array", "items": {"type": "string", "enum": list(QUALIFY_FIGURES)},
+                "uniqueItems": True, "maxItems": len(QUALIFY_FIGURES),
+                "description": ("Optional. Declares which of the figures above you are sending as ASSUMPTIONS rather than as this hall's "
+                                "own data, for example values copied from a reference template. Each entry must be one of the seven "
+                                "figures (contracted_MW, current_site_peak_MW, current_it_load_MW, busway_ampacity_A, tapoff_max_A, "
+                                "plant_supply_C, positions_available), named at most once, and the same request must also send that "
+                                "figure (a figure you did not send cannot be declared assumed). Effect: a named figure is classed E0 "
+                                "(assumption) instead of E5 (supplied by the client) in the result's basis and evidence, and is "
+                                "listed in the result's inputs_declared_assumed (path, input, unit, value, evidence \"E0\", note); "
+                                "intake.assumed_count says how many, while intake.completeness and required_inputs_missing still "
+                                "count a declared figure as supplied. It changes the label and not the arithmetic: the racks and the "
+                                "binding constraint are the same with or without it, and nothing you send can raise a class above E0. "
+                                "Omitted, null or an empty list, the request is answered as if the field did not exist. A name that is "
+                                "not one of the seven, a repeat, a value that is not a list, or a figure you did not send is refused "
+                                "with 422, naming the entry and listing the allowed names. An engine that serves this field reports "
+                                "capabilities.qualify_assumed_fields: true at GET /v1/version.")},
+            "client": _label("Your organisation's name."),
+            "reference": _label("Your own reference for this hall or request."),
+            "site_name": _label("The site's name."),
+            "metro": _label("The metro area."),
+            "country": _label("The country."),
+            "hall_id": _label("The hall's identifier."),
+        },
+        "additionalProperties": False,
+    }
+
+
+def _tool(name, summary, endpoint, schema, *, tier=Tier.CLIENT, returns="", boundary):
+    """`boundary` is the evidence boundary of the result in one sentence: what the answer may and may not be taken for. It is published
+    beside the description (GET /v1/tools, public/reference/tools.json) and /developers and /openapi.json render it from there, so the
+    sentence is written once, here, next to the tool it describes."""
     return {
         "name": name,
         "description": summary,
@@ -71,9 +146,27 @@ def _tool(name, summary, endpoint, schema, *, tier=Tier.CLIENT, returns=""):
         "tier": tier.value,
         "units": UNIT_COST.get(endpoint, 1),
         "returns": returns,
+        "evidence_boundary": boundary,
         "inputSchema": schema,
     }
 
+
+#: The four deployment-request fields every /v1/power/deploy/* route accepts besides the load profile, the grid figure, the target and the
+#: units. gridforge_power_deploy_assess documents them inline; the spec and bids routes parse the same request (they build the same
+#: deployment from it) and used to leave them out, so a client that validated against the published schema refused the engine's own valid
+#: request. tests/test_api_published_contract.py sends them to every route.
+_BTM_SHARED_PROPERTIES = {
+    "ride_through_hours": {"type": "number", "description": "the outage duration a battery must be sized against; defaults to 2h if omitted"},
+    "redundancy": {"type": "string", "enum": ["N", "N+1", "N+2", "2N"], "default": "N"},
+    "interconnection": {"type": "object",
+                        "description": "utility, pcc_voltage_kV, import_capacity_MW — feeds the interconnection readiness gate. Omitting it "
+                                       "leaves that gate MISSING_DATA, never a guessed PASS.",
+                        "properties": {"utility": {"type": "string"}, "pcc_voltage_kV": {"type": "number"},
+                                       "import_capacity_MW": {"type": "number"}}},
+    "permitting": {"type": "object",
+                   "description": "e.g. {emissions_status, noise_status} — feeds the permitting readiness gate.",
+                   "additionalProperties": {"type": "string"}},
+}
 
 TOOLS: list[dict] = [
     _tool(
@@ -84,26 +177,16 @@ TOOLS: list[dict] = [
          "when that item's lead time is an assumption). Use this to triage "
          "a portfolio before paying for anything."),
         "/v1/qualify",
-        {
-            "type": "object",
-            "required": ["contracted_MW", "current_site_peak_MW", "busway_ampacity_A",
-                         "tapoff_max_A"],
-            "properties": {
-                "contracted_MW": {"type": "number", "description": "Contracted grid capacity, MW."},
-                "current_site_peak_MW": {"type": "number", "description": "Current site peak demand, MW."},
-                "current_it_load_MW": {"type": "number", "description": "Current IT load, MW."},
-                "busway_ampacity_A": {"type": "number", "description": "Installed busway ampacity, A."},
-                "tapoff_max_A": {"type": "number", "description": "Largest installed tap-off rating, A."},
-                "plant_supply_C": {"type": "number", "description": "Chilled-water design supply temperature, °C."},
-                "positions_available": {"type": "integer", "description": "Rack positions that can be released."},
-                "objective": _OBJECTIVE,
-            },
-            "additionalProperties": False,
-        },
+        _qualify_schema(),
         tier=Tier.PUBLIC,
         returns=("binding constraint, racks as found and after relief, the item that sets the "
-                 "date, and the inputs nobody has measured. No capital cost or dated lead times in this free read: "
-                 "the free /v1/compare returns indicative capital and weeks with evidence classes, and the paid documents add the full costed ladder."),
+                 "date, and the inputs nobody has measured (when you send assumed_fields, also inputs_declared_assumed, which lists only what you "
+                 "declared; when you send contracted_MW and no firm_capacity_MVA, inputs_derived_assumed, the firm capacity the qualifier "
+                 "derived, as an assumption). No capital cost or "
+                 "dated lead times in this free read: the metered /v1/compare (it needs an API key) returns indicative capital and weeks "
+                 "with evidence classes, and the paid documents add the full costed ladder."),
+        boundary=("Directional only: a figure you send is treated as yours (E5) unless you name it in assumed_fields (E0), what you leave "
+                  "out is assumed and disclosed in intake.gaps, and this free answer carries no capital cost and no dated lead time."),
     ),
     _tool(
         "gridforge_estimate",
@@ -124,6 +207,8 @@ TOOLS: list[dict] = [
         tier=Tier.PUBLIC,
         returns=("endpoint, units, unit_price_cents, estimated_cents, billable, free, the rule that "
                  "produced the units, and (with a key) the remaining allowance and whether the call fits."),
+        boundary=("Arithmetic on the published rate card, not an engineering result: it prices a call and says whether it fits an allowance, and it "
+                  "runs no model."),
     ),
     _tool(
         "gridforge_screen",
@@ -139,6 +224,8 @@ TOOLS: list[dict] = [
          "additionalProperties": False},
         returns="screen payload (with grid_queue_context: the measured US queue statistic beside the assumed grid wait), or the rendered "
                 "screening document.",
+        boundary=("Screening mode: the constraints are solved from the intake you send, anything you leave out is filled from library defaults and "
+                  "disclosed as an assumption, and each figure carries its evidence class (E0 to E7)."),
     ),
     _tool(
         "gridforge_compare",
@@ -162,6 +249,8 @@ TOOLS: list[dict] = [
          "additionalProperties": False},
         returns="gridforge/ttp-compare/1: scenarios[], ranking, grade, caveats, grid_queue_context (measured US queue statistic, context "
                 "only), request_digest, provenance.",
+        boundary=("Same solve as the screen: a scenario with an unknown lead time gets no date and a reason, nothing is ranked on a figure it does "
+                  "not have, and a date that rests on an assumed lead time is labelled 'assumed lead time, not a date'."),
     ),
     _tool(
         "gridforge_study",
@@ -176,6 +265,8 @@ TOOLS: list[dict] = [
                                    "default": "json"}},
          "additionalProperties": False},
         returns="the model pack, a rendered document, or the CSV working files.",
+        boundary=("Screening mode, not an issued engineering opinion: five architectures solved from your intake, with the provenance and evidence "
+                  "class of every number in the pack."),
     ),
     _tool(
         "gridforge_portfolio",
@@ -193,6 +284,8 @@ TOOLS: list[dict] = [
          "additionalProperties": False},
         returns="halls ranked against the objective, with the total deployable rack count; with format md or html, "
                 "also the rendered document and a model pack per hall.",
+        boundary=("Each hall is solved from its own intake in screening mode, so a ranking is only as good as those intakes; it is not a measured "
+                  "comparison of the sites."),
     ),
     _tool(
         "gridforge_diff",
@@ -210,6 +303,8 @@ TOOLS: list[dict] = [
                                    "default": "json"}},
          "additionalProperties": False},
         returns="headline, racks/weeks/capex deltas, ranked drivers, explained and residual.",
+        boundary=("Attributes a change to the inputs that moved it using single-input probes, and reports what the probes do not explain as a "
+                  "residual rather than distributing it."),
     ),
     _tool(
         "gridforge_spec",
@@ -232,6 +327,8 @@ TOOLS: list[dict] = [
          "additionalProperties": False},
         returns=("the specification document, what it is sized for, and the response "
                  "template a supplier fills in."),
+        boundary=("Every numeric requirement is derived from the capacity model, at the site's own conditions, and names the constraint it came "
+                  "from; it is a specification to tender against, not a supplier's quotation."),
     ),
     _tool(
         "gridforge_bids",
@@ -260,6 +357,8 @@ TOOLS: list[dict] = [
                         "objective": _OBJECTIVE},
          "additionalProperties": False},
         returns="ranked bids with scores, schedule impact, and optional cost-library lines.",
+        boundary=("Ranks only the supplier responses you send, against the capacity model; a non-compliant bid is never ranked above a compliant "
+                  "one, and quote lines returned with evidence_only are not accepted until a person reviews them."),
     ),
     _tool(
         "gridforge_power_assess",
@@ -285,6 +384,8 @@ TOOLS: list[dict] = [
         returns=("capacity (current/target/gap), binding_constraint, headroom_ladder (every "
                  "relief priced and dated), time_to_power (critical item and dependencies), "
                  "evidence (calibration state, evidence classes used), and next_action."),
+        boundary=("Composed from the same solved scenario as the screen and the study: no price, lead time or date is invented, every figure "
+                  "traces to the engine or an explicit input with its evidence class, and the calibration state is stated."),
     ),
     _tool(
         "gridforge_power_deploy_assess",
@@ -389,6 +490,9 @@ TOOLS: list[dict] = [
                  "'proceed to RFQ', always separates RFQ-readiness from build clearance, and "
                  "states which objective was used, why, and the trade-off against the "
                  "runner-up architecture — never a silent 'cheapest wins'."),
+        boundary=("Compares architectures only on the load profile and units you declare: a unit with no declared cost leaves its architecture "
+                  "not-yet-comparable rather than priced at zero, and a generator with no declared availability can never yield a plain PASS "
+                  "(it is escalated to REQUIRES_ENGINEERING_STUDY)."),
     ),
     _tool(
         "gridforge_power_deploy_spec",
@@ -416,6 +520,7 @@ TOOLS: list[dict] = [
                                                                 "pass {flat_kW: 0} if omitting "
                                                                 "a real profile"},
              "grid_firm_MW": {"type": "number"}, "target_MW": {"type": "number"},
+             **_BTM_SHARED_PROPERTIES,
              "generation": {"type": "array", "items": {"type": "object"}},
              "bess": {"type": "array", "items": {"type": "object"}},
              "format": {"type": "string", "enum": ["json", "html", "md"], "default": "html"},
@@ -424,6 +529,8 @@ TOOLS: list[dict] = [
          },
          "additionalProperties": False},
         returns="the specification document, or its summary and response template as JSON.",
+        boundary=("Every numeric requirement is derived from the generation or storage unit you declared and traceable to it; it is a tender "
+                  "specification, not a supplier's quotation."),
     ),
     _tool(
         "gridforge_power_deploy_bids",
@@ -438,12 +545,15 @@ TOOLS: list[dict] = [
              "architecture": {"type": "string"}, "project": {"type": "string"},
              "load_profile": {"type": "object"},
              "grid_firm_MW": {"type": "number"}, "target_MW": {"type": "number"},
+             **_BTM_SHARED_PROPERTIES,
              "generation": {"type": "array", "items": {"type": "object"}},
              "bess": {"type": "array", "items": {"type": "object"}},
              "responses": {"type": "array", "items": {"type": "object"}},
          },
          "additionalProperties": False},
         returns="the ranked comparison, the leading compliant supplier (or null) and the note.",
+        boundary=("Ranks only the responses you send: mandatory non-compliance is never outranked by price, incomplete responses are disqualified "
+                  "rather than guessed at, and installation method and evidence quality are left to an engineer."),
     ),
     _tool(
         "gridforge_proposal",
@@ -457,6 +567,7 @@ TOOLS: list[dict] = [
                         "format": {"type": "string", "enum": ["html", "md"], "default": "html"}},
          "additionalProperties": False},
         returns="the proposal document and the engagement's catalogue price.",
+        boundary=("Built from what the engine already found for this intake; the price it states is the named engagement's catalogue price."),
     ),
 ]
 

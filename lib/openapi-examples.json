@@ -1,0 +1,183 @@
+{
+  "note": "Request examples for /openapi.json, one or two per POST operation, built from inputs the repository already ships and labels synthetic: examples/intake/*.json (invented halls), public/reference/examples/qualify-request.json, public/reference/response_template.json (the supplier response template of the published reference specification) and a behind-the-meter deployment request lifted from the engine's own tests (a synthetic load profile and invented units). A value that is {\"$from\": <repository path or #bases/<name>>, \"$set\": {<dotted path>: <value>}} is that file with the named fields replaced; lib/openapi-examples.ts (the document) and tests/test_api_published_contract.py (the engine) resolve it the same way. tests/site/openapi-examples.test.ts checks every example against its operation's request schema, and tests/test_api_published_contract.py sends every example to the real server and fails if one is refused.",
+  "bases": {
+    "btm_deployment": {
+      "load_profile": {
+        "csv": "timestamp,kW\n2026-01-01T00:00:00,30000\n2026-01-01T00:15:00,30000\n2026-01-01T00:30:00,30000\n",
+        "source": "synthetic-hall.csv"
+      },
+      "grid_firm_MW": 10.0,
+      "target_MW": 35.0,
+      "ride_through_hours": 3.0,
+      "redundancy": "N+1",
+      "generation": [
+        {"id": "GEN-A", "kind": "gas_engine", "nameplate_MW": 20.0, "capex_eur": 16000000, "lead_time_weeks": 44, "fuel_type": "natural gas"},
+        {"id": "GEN-B", "kind": "gas_engine", "nameplate_MW": 20.0, "capex_eur": 16000000, "lead_time_weeks": 44, "fuel_type": "natural gas"}
+      ],
+      "bess": [
+        {"id": "BESS-1", "power_MW": 8.0, "energy_MWh": 32.0, "capex_eur": 7200000, "lead_time_weeks": 30}
+      ],
+      "interconnection": {"utility": "TenneT", "pcc_voltage_kV": 20, "import_capacity_MW": 15},
+      "permitting": {"emissions_status": "application submitted"}
+    }
+  },
+  "requests": {
+    "/v1/qualify": {
+      "plain": {
+        "summary": "Seven figures about an existing hall. Free, no key.",
+        "value": {"$from": "public/reference/examples/qualify-request.json"}
+      },
+      "figures_declared_assumed": {
+        "summary": "The same seven figures, two of them declared assumptions (for example values copied from a reference template).",
+        "value": {"$from": "public/reference/examples/qualify-request.json", "$set": {"assumed_fields": ["contracted_MW", "tapoff_max_A"]}}
+      }
+    },
+    "/v1/estimate": {
+      "portfolio_of_twelve": {
+        "summary": "What would a twelve-hall portfolio cost? Free, no key, never metered.",
+        "value": {"endpoint": "/v1/portfolio", "hall_count": 12}
+      }
+    },
+    "/v1/screen": {
+      "reference_hall": {
+        "summary": "A full intake: the synthetic reference hall.",
+        "value": {"intake": {"$from": "examples/intake/reference_hall.json"}}
+      }
+    },
+    "/v1/compare": {
+      "reference_hall": {
+        "summary": "The scenarios the synthetic reference hall defines, side by side.",
+        "value": {"intake": {"$from": "examples/intake/reference_hall.json"}}
+      }
+    },
+    "/v1/study": {
+      "reference_hall": {
+        "summary": "The Envelope Study pack for the synthetic reference hall.",
+        "value": {"intake": {"$from": "examples/intake/reference_hall.json"}}
+      }
+    },
+    "/v1/portfolio": {
+      "two_halls": {
+        "summary": "Two synthetic halls ranked (two units).",
+        "value": {"intakes": [{"$from": "examples/intake/dublin_hall.json"}, {"$from": "examples/intake/london_hall.json"}]}
+      }
+    },
+    "/v1/diff": {
+      "contracted_capacity_raised": {
+        "summary": "What moved when the synthetic Dublin hall's contracted capacity goes from 10 MW to 12 MW.",
+        "value": {
+          "before": {"$from": "examples/intake/dublin_hall.json"},
+          "after": {"$from": "examples/intake/dublin_hall.json", "$set": {"grid.contracted_MW": 12.0}}
+        }
+      }
+    },
+    "/v1/spec": {
+      "busway_tender": {
+        "summary": "A tender specification for the busway relief of the synthetic reference hall (the published reference specification).",
+        "value": {"intake": {"$from": "examples/intake/reference_hall.json"}, "constraint": "busway_ampacity", "reference": "REF-TND-01"}
+      }
+    },
+    "/v1/bids": {
+      "one_response": {
+        "summary": "One supplier's completed response ranked against the busway specification: the published response template filled in with invented figures, with the specification's lists of site conditions and assumed inputs left out for brevity (the engine checks only project, hall, constraint and sized_for_racks).",
+        "value": {
+          "intake": {"$from": "examples/intake/reference_hall.json"},
+          "constraint": "busway_ampacity",
+          "responses": [
+            {
+              "$from": "public/reference/response_template.json",
+              "$set": {
+                "supplier": "Synthetic Supplier A",
+                "received_on": "2026-10-01",
+                "specification.site_conditions": [],
+                "specification.assumed_inputs": [],
+                "values.capex_eur": 1000000,
+                "values.lead_time_weeks": 30,
+                "values.install_weeks": 4,
+                "values.outage_hours_per_unit": 8,
+                "values.duty_at_site_conditions": 1,
+                "values.validity_days": 90,
+                "compliance.E-10": "C",
+                "compliance.E-11": "C",
+                "compliance.E-12": "C",
+                "compliance.C-01": "C",
+                "compliance.C-02": "C",
+                "compliance.C-03": "C"
+              }
+            }
+          ]
+        }
+      }
+    },
+    "/v1/proposal": {
+      "density_screen": {
+        "summary": "The Density Screen proposal, opening with what the engine found for the synthetic reference hall.",
+        "value": {"intake": {"$from": "examples/intake/reference_hall.json"}, "engagement": "density_screen"}
+      }
+    },
+    "/v1/deck": {
+      "reference_hall": {
+        "summary": "The walkthrough deck for the synthetic reference hall.",
+        "value": {"intake": {"$from": "examples/intake/reference_hall.json"}}
+      }
+    },
+    "/v1/power/assess": {
+      "reference_hall": {
+        "summary": "The Power Readiness Case for the synthetic reference hall.",
+        "value": {"intake": {"$from": "examples/intake/reference_hall.json"}}
+      }
+    },
+    "/v1/power/deploy/assess": {
+      "synthetic_deployment": {
+        "summary": "A synthetic 35 MW target, 10 MW of firm grid, two gas engines and one battery. The figures are invented.",
+        "value": {"$from": "#bases/btm_deployment"}
+      }
+    },
+    "/v1/power/deploy/spec": {
+      "grid_bess_generation": {
+        "summary": "The tender specification for the grid + battery + generation architecture of the synthetic deployment, as JSON.",
+        "value": {"$from": "#bases/btm_deployment", "$set": {"architecture": "GRID + BESS + GENERATION", "project": "North Campus", "format": "json"}}
+      }
+    },
+    "/v1/power/deploy/bids": {
+      "one_response": {
+        "summary": "One supplier's completed response (invented figures) ranked against that tender.",
+        "value": {
+          "$from": "#bases/btm_deployment",
+          "$set": {
+            "architecture": "GRID + BESS + GENERATION",
+            "project": "North Campus",
+            "responses": [
+              {
+                "supplier": "Synthetic Supplier A",
+                "received_on": "2026-10-01",
+                "values": {"capex_eur": 20000000, "lead_time_weeks": 40, "install_weeks": 6, "warranted_availability": 0.97, "validity_days": 90},
+                "compliance": {
+                  "G1-01": "C", "G1-02": "C", "G1-03": "C", "G1-05": "C",
+                  "G2-01": "C", "G2-02": "C", "G2-03": "C", "G2-05": "C",
+                  "B1-01": "C", "B1-02": "C", "B1-03": "C",
+                  "C-01": "C", "C-02": "C"
+                }
+              }
+            ]
+          }
+        }
+      }
+    },
+    "/mcp": {
+      "list_tools": {
+        "summary": "List the tools. No key needed; every tool is listed whatever the caller holds.",
+        "value": {"jsonrpc": "2.0", "id": 1, "method": "tools/list"}
+      },
+      "call_free_qualifier": {
+        "summary": "Call the free qualifier with the same seven figures as the REST example. No key needed.",
+        "value": {
+          "jsonrpc": "2.0",
+          "id": 2,
+          "method": "tools/call",
+          "params": {"name": "gridforge_qualify", "arguments": {"$from": "public/reference/examples/qualify-request.json"}}
+        }
+      }
+    }
+  }
+}

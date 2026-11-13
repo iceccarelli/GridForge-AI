@@ -6,6 +6,7 @@
 import engineDeployed from "@/lib/engine-deployed.json";
 import honesty from "@/lib/openapi-honesty.json";
 import discovery from "@/lib/openapi-discovery.json";
+import { requestExamplesFor } from "@/lib/openapi-examples";
 import { PER_HALL_ENDPOINTS } from "@/lib/payg-pricing";
 import { SITE_URL } from "@/lib/site";
 import { DATA_ORIGINS, EVIDENCE_CLASS_CODES, ORIGINS, ROLES } from "@/lib/site-registry-fields";
@@ -18,6 +19,8 @@ export interface ToolRow {
   tier: string;
   units: number;
   returns: string;
+  /** What the result may and may not be taken for, in one sentence (gridforge/api/tools.py `boundary`). */
+  evidence_boundary?: string;
   inputSchema: Record<string, unknown>;
 }
 
@@ -30,7 +33,12 @@ export interface ToolsFile {
   mcp?: { endpoint: string; protocol: string; protocolVersion: string };
 }
 
+/** What the engine sends to say which response schema a body follows (server.py API_SCHEMA); a fact about the response, not a policy. */
+export const API_SCHEMA_VERSION: string = honesty.schema_version.value;
+const SCHEMA_HEADER = { description: `Always ${honesty.schema_version.value}. The same value is in the body as ${honesty.schema_version.body_field}, except in a JSON-RPC response from /mcp, which carries the header only.`, schema: { type: "string", enum: [honesty.schema_version.value] } };
+
 const RESPONSE_HEADERS = {
+  [honesty.schema_version.header]: SCHEMA_HEADER,
   "X-GridForge-Units": { description: "Units this request was weighted at (0 on an idempotent replay).", schema: { type: "string" } },
   "X-GridForge-Units-Month": { description: "Units used so far this UTC month, counted against this key's own scope (free allowance, pay-as-you-go cap or plan).", schema: { type: "string" } },
   "X-GridForge-Units-Remaining": { description: "Units left under the cap or plan allowance for the month. Present only when the key has one.", schema: { type: "string" } },
@@ -75,6 +83,11 @@ export function idempotencyStatement(opts: { estimator?: boolean } = {}): string
   );
 }
 
+/** The seconds the engine names in Retry-After when it sheds a request because it is busy (server.py SOLVE_RETRY_AFTER_SECONDS). */
+export const SHED_RETRY_AFTER_SECONDS: number = honesty.engine_constants.solve_shed_retry_after_seconds;
+/** The seconds it names when a metered key's usage cannot be recorded (the 503 in Handler._charge). */
+export const LEDGER_RETRY_AFTER_SECONDS: number = honesty.engine_constants.ledger_unavailable_retry_after_seconds;
+
 /**
  * The refusals a caller can meet, read off the engine's HTTP handler. One list, so /developers and the OpenAPI default
  * response say the same thing. A refused or failed call is never charged.
@@ -86,10 +99,97 @@ export const ERROR_STATUSES: { status: number; meaning: string }[] = [
   { status: 413, meaning: `the body is larger than ${MAX_BODY_BYTES / 1024} KiB` },
   { status: 415, meaning: "the body was declared as anything other than application/json" },
   { status: 422, meaning: "the input is too thin or invalid, or an Idempotency-Key was reused with a different body; nothing was solved" },
-  { status: 429, meaning: "the per-client request rate limit was exceeded; wait and retry (the limit is rate_limit_per_minute at /v1/version)" },
+  { status: 429, meaning: "the per-client request rate limit was exceeded (the limit is rate_limit_per_minute at /v1/version); the body carries limit_per_minute and the response has no Retry-After header, so wait and retry" },
   { status: 500, meaning: "the engine failed on a valid request; the charge is refunded" },
-  { status: 503, meaning: "paid endpoints are not configured on that deployment, or a charge could not be recorded durably" },
+  {
+    status: 503,
+    meaning:
+      `the request was refused and not charged. Retry it after the Retry-After seconds when the engine is busy (${SHED_RETRY_AFTER_SECONDS} seconds, with retry_after_seconds in the body) or when a metered key's usage could not be recorded (${LEDGER_RETRY_AFTER_SECONDS} seconds). ` +
+      "Do not retry when paid endpoints are not configured on that deployment (no Retry-After)",
+  },
 ];
+
+/** The three causes of a 503 and what each sends, as the engine sends them (lib/openapi-honesty.json service_unavailable, verified by tests/test_api_published_contract.py). */
+export const SERVICE_UNAVAILABLE = honesty.service_unavailable.map((c) => ({
+  cause: c.cause,
+  meaning: c.meaning,
+  retryAfterSeconds: c.retry_after_constant === null ? null : (honesty.engine_constants as Record<string, number>)[c.retry_after_constant],
+  bodyFields: c.body_fields,
+  routes: c.routes as "solving" | "keyed",
+}));
+
+/** Whether the route runs the model, and so can be shed with a 503 when the engine is busy (server.py SOLVING_ROUTES). */
+export function isSolvingRoute(endpoint: string): boolean {
+  return (honesty.solving_routes as string[]).includes(endpoint);
+}
+
+/** The HTTP statuses a request to this route can be answered with besides 200: 401 and 402 only where a key is required, 503 where the route solves or a key is required. */
+export function failureStatuses(endpoint: string, keyed: boolean): number[] {
+  const out = [400, ...(keyed ? [401, 402] : []), 413, 415, 422, 429, 500, ...(isSolvingRoute(endpoint) || keyed ? [503] : [])];
+  return out.filter((status) => ERROR_STATUSES.some((e) => e.status === status));
+}
+
+/** The JSON-RPC error codes a tools/call of this route's tool can come back with (the tool's own refusals, never the transport's -32600 and -32601). */
+export function mcpCodesFor(endpoint: string, keyed: boolean): number[] {
+  return [...(keyed ? [-32001, -32002] : []), ...(isSolvingRoute(endpoint) || keyed ? [-32003] : []), -32005, -32602, -32603]
+    .filter((code) => MCP_ERRORS.some((e) => e.code === code))
+    .sort((a, b) => b - a);
+}
+
+/**
+ * What a caller does with each way a request can be turned away, stated once for /openapi.json and /developers. Only what the engine's
+ * code and tests establish: which statuses carry a Retry-After header and which do not, and what the 503 body holds.
+ */
+export function retryStatement(): string {
+  const busy = SERVICE_UNAVAILABLE.find((c) => c.cause === "busy")!;
+  const ledger = SERVICE_UNAVAILABLE.find((c) => c.cause === "usage_not_recorded")!;
+  const unconfigured = SERVICE_UNAVAILABLE.find((c) => c.cause === "paid_endpoints_not_configured")!;
+  return (
+    `A 503 means the request was turned away and not run, and it is not charged. It has three causes. ` +
+    `(1) The engine is busy: every solve slot it allows is taken, so it refuses at once instead of queueing; the response carries Retry-After: ${busy.retryAfterSeconds} and the body ${busy.bodyFields.join(", ")} (retryable is true). ` +
+    `(2) A metered key's usage could not be recorded, so the call is refused rather than served unrecorded; the response carries Retry-After: ${ledger.retryAfterSeconds} and the body ${ledger.bodyFields.join(", ")} (retryable is true; retry_after_seconds is not in this body). ` +
+    `(3) The deployment has no API keys configured; the body is ${unconfigured.bodyFields.join(", ")}, there is no Retry-After header, and retrying will not help. ` +
+    `A 429 is a rate limit: the body carries limit_per_minute and the response has no Retry-After header. A 402 is not a retry: the allowance or cap is spent and the body names the reset time in resets_at. ` +
+    `Over /mcp the same refusals arrive as JSON-RPC errors inside an HTTP 200 (the codes are listed on the /mcp operation), and a 503 there still carries the Retry-After header.`
+  );
+}
+
+/** The MCP transport's error codes, read off server.py (_mcp_call_tool, handle_mcp, _serve_mcp) and proved by tests/test_api_published_contract.py. */
+export const MCP_ERRORS: { code: number; name: string; when: string }[] = honesty.mcp_errors;
+
+export function mcpErrorsStatement(): string {
+  return (
+    "JSON-RPC errors from /mcp: " +
+    MCP_ERRORS.map((e) => `${e.code} ${e.name}: ${e.when}`).join(". ") +
+    ". A body that is not valid JSON is refused at the HTTP level (400 with a plain {error} body), not as a JSON-RPC error. A tool's refusal is a JSON-RPC error object inside an HTTP 200; a notification gets 202 and no body."
+  );
+}
+
+/** The browser (CORS) policy the engine sends, read off Handler._cors (lib/openapi-honesty.json cors, verified against the real server). */
+export const CORS_POLICY = {
+  defaultAllowedOrigins: honesty.cors.default_allowed_origins,
+  publicPaths: honesty.cors.public_paths,
+  allowMethods: honesty.cors.allow_methods,
+  allowHeaders: honesty.cors.allow_headers_allowed_origin,
+  publicAllowHeaders: honesty.cors.allow_headers_public_path,
+  exposeHeaders: honesty.cors.expose_headers,
+};
+
+export function corsStatement(): string {
+  const c = CORS_POLICY;
+  return (
+    `Browsers (CORS): by default a page served from ${c.defaultAllowedOrigins.join(" or ")} is answered with its own origin in Access-Control-Allow-Origin on every route and may send ${c.allowHeaders.join(", ")}. ` +
+    `A page on any other origin may read only ${c.publicPaths.join(", ")}: those answer Access-Control-Allow-Origin: * with ${c.publicAllowHeaders.join(", ")} as the only allowed request header, so it cannot send a key; every other route sends it no Access-Control-Allow-Origin at all. ` +
+    `Allowed methods: ${c.allowMethods.join(", ")}. A preflight OPTIONS request is answered 204 with these headers. Exposed response headers: ${c.exposeHeaders.join(", ")}. The engine sends no Access-Control-Allow-Credentials: keys travel in headers, never cookies. ` +
+    `These are the engine's defaults; an operator can change the origin list and turn the wildcard off. Servers, scripts and MCP clients are not subject to CORS.`
+  );
+}
+
+/** Every JSON response says which response schema it follows. A statement of what is sent, and nothing about how long a value is served or when it changes. */
+export function schemaVersionStatement(): string {
+  const v = honesty.schema_version;
+  return `Every JSON response carries ${v.body_field}: "${v.value}" in its body and the same value in an ${v.header} header. A JSON-RPC response from /mcp carries the header only.`;
+}
 
 // ---------------------------------------------------------------------------------------------------------------------------
 // The site and hall registry (migrations 0049-0051; routes under app/api/orgs, app/api/sites, app/api/halls; lib/sites.ts).
@@ -394,6 +494,9 @@ function discoverySchema(path: string): Record<string, unknown> {
   return spec.includes ? { allOf: [CALIBRATION_REF, schema] } : schema;
 }
 
+/** The evidence boundary of /v1/deck, which is not a tool and so has no row in tools.json to carry one. */
+export const DECK_EVIDENCE_BOUNDARY = "Screening-mode walkthrough deck for a human session, built from the same solve as the screen, and not an issued engineering opinion.";
+
 const DISCOVERY_ROUTES: ExtraRoute[] = [
   {
     path: "/health", method: "get", operationId: "health", auth: "none",
@@ -534,12 +637,49 @@ function operationFor(route: ExtraRoute, units: number | null): Record<string, u
 }
 
 /** Where, in a tool's 200 response, the engine puts its honesty fields (lib/openapi-honesty.json). */
+interface ResponseSpec {
+  top_level: string[];
+  /** Keys that arrive with later engine changes; documented with the rest (tests/test_published_additive_keys.py: all present or none). */
+  additive_top_level?: string[];
+  after_relief?: string[];
+  intake_gaps?: boolean;
+  intake_fields?: string[];
+  /** The request this key list is the answer to, when it is not the plain one (a format, a flag). */
+  when?: string;
+}
+
+/** The top-level keys a route returns and the request they are for (lib/openapi-honesty.json responses, run against the real handlers by the tests). */
+export function responseSpecFor(endpoint: string): ResponseSpec | undefined {
+  return (honesty.responses as Record<string, ResponseSpec>)[endpoint];
+}
+
+/** Every top-level key the route is documented to return, in the order given. */
+export function responseKeys(spec: ResponseSpec): string[] {
+  return [...spec.top_level, ...(spec.additive_top_level ?? [])];
+}
+
+/** One sentence naming the keys a route answers with, for the 200 response's description. */
+export function responseKeysSentence(endpoint: string): string {
+  const spec = responseSpecFor(endpoint);
+  if (!spec) return "";
+  return `Top-level keys of the answer${spec.when ? ` (${spec.when})` : ""}: ${responseKeys(spec).join(", ")}. The body also carries ${honesty.schema_version.body_field}.`;
+}
+
 function responseSchemaFor(endpoint: string): Record<string, unknown> {
-  const spec = (honesty.responses as Record<string, { top_level: string[]; after_relief?: string[]; intake_gaps?: boolean }>)[endpoint];
+  const spec = responseSpecFor(endpoint);
   if (!spec) return { type: "object" };
-  const properties: Record<string, unknown> = {};
-  for (const f of spec.top_level) {
+  const properties: Record<string, unknown> = {
+    [honesty.schema_version.body_field]: { type: "string", const: honesty.schema_version.value, description: "Which response schema the body follows; also the X-GridForge-Schema header." },
+  };
+  for (const f of responseKeys(spec)) {
     if (f === "calibration") properties[f] = CALIBRATION_REF;
+    else if (f === "inputs_derived_assumed")
+      properties[f] = {
+        type: "array",
+        description:
+          "Figures the qualifier derived because you did not send them (today the firm connection capacity, from contracted_MW), each with path, input, unit, value, evidence \"E0\" and a note saying how it was derived. Separate from inputs_declared_assumed, which lists only what you declared.",
+        items: { type: "object", properties: { path: str(), input: str(), unit: str(), value: { type: "number" }, evidence: { type: "string", const: "E0" }, note: str() } },
+      };
     else if (f === "notice") properties[f] = str("The engine's standing notice: directional, modelled output, not an issued engineering opinion.");
     else if (f === "grade") properties[f] = str("How far the comparison can be relied on: screening or indicative. Never stronger than its weakest input.");
     else if (f === "caveats") properties[f] = { type: "array", items: str(), description: "Plain-language limits on the answer, including what the context blocks are and are not." };
@@ -568,7 +708,56 @@ function responseSchemaFor(endpoint: string): Record<string, unknown> {
       });
     } else properties[f] = {};
   }
-  return { type: "object", properties, additionalProperties: true };
+  if (endpoint === "/v1/qualify") {
+    // Present only when assumed_fields is sent (see that property of the request).
+    properties.inputs_declared_assumed = {
+      type: "array",
+      description: "Only with assumed_fields: the figures you declared assumed, each with path, input, unit, value, evidence \"E0\" and note. Lists only what you declared.",
+      items: { type: "object", properties: { path: str(), input: str(), unit: str(), value: { type: "number" }, evidence: { type: "string", const: "E0" }, note: str() } },
+    };
+  }
+  return { type: "object", description: responseKeysSentence(endpoint), properties, additionalProperties: true };
+}
+
+/** `examples` for a media type, from lib/openapi-examples.json; nothing when the path has none. */
+function exampleBlock(path: string): { examples?: Record<string, unknown> } {
+  const examples = requestExamplesFor(path);
+  return examples ? { examples } : {};
+}
+
+/** The refusals one tool operation can meet beyond the default list, with the headers and fields the engine really sends. */
+function refusalResponses(endpoint: string, keyed: boolean): Record<string, unknown> {
+  const errorBody = { "application/json": { schema: { $ref: "#/components/schemas/Error" } } };
+  const solving = isSolvingRoute(endpoint);
+  const out: Record<string, unknown> = {};
+  if (keyed) {
+    out["401"] = { description: "No key, or a key the engine does not accept (including one that has been revoked). Nothing ran and nothing was charged.", headers: { [honesty.schema_version.header]: SCHEMA_HEADER }, content: errorBody };
+    out["402"] = {
+      description:
+        "The key's monthly allowance or cap is spent. This is not a rate limit and not a retry: nothing ran and nothing was charged. The body names the reason (free_allowance_exhausted, spending_cap_reached or plan_quota_exhausted), the units asked for and used, and resets_at, the start of the next UTC month.",
+      headers: { [honesty.schema_version.header]: SCHEMA_HEADER },
+      content: errorBody,
+    };
+  }
+  out["429"] = {
+    description: "The per-client request rate limit was exceeded. The body carries error and limit_per_minute. The response has no Retry-After header. Nothing ran and nothing was charged.",
+    headers: { [honesty.schema_version.header]: SCHEMA_HEADER },
+    content: errorBody,
+  };
+  if (solving || keyed) {
+    const causes = SERVICE_UNAVAILABLE.filter((c) => (c.routes === "solving" ? solving : keyed));
+    out["503"] = {
+      description:
+        "The request was turned away and not run, and it is not charged. " +
+        causes.map((c, i) => `(${i + 1}) ${c.meaning}. ${c.retryAfterSeconds === null ? "No Retry-After header, and a retry will not help" : `Retry-After: ${c.retryAfterSeconds}`}; body: ${c.bodyFields.join(", ")}.`).join(" "),
+      headers: {
+        "Retry-After": { description: "Seconds to wait before retrying. Sent on the busy and the usage-not-recorded 503, not on the not-configured one.", schema: { type: "integer" } },
+        [honesty.schema_version.header]: SCHEMA_HEADER,
+      },
+      content: errorBody,
+    };
+  }
+  return out;
 }
 
 export function buildOpenApi(file: ToolsFile, serverUrl: string, siteOrigin: string = SITE_URL): Record<string, unknown> {
@@ -579,9 +768,10 @@ export function buildOpenApi(file: ToolsFile, serverUrl: string, siteOrigin: str
       [t.method.toLowerCase()]: {
         operationId: t.name,
         summary: firstSentence(t.description),
-        description: `${t.description}\n\nReturns: ${t.returns}\n\n${file.evidence_note}`,
+        description: `${t.description}\n\nReturns: ${t.returns}${t.evidence_boundary ? `\n\nEvidence boundary: ${t.evidence_boundary}` : ""}\n\n${file.evidence_note}`,
         tags: [free ? "free" : "metered"],
         "x-gridforge-units": t.units,
+        ...(t.evidence_boundary ? { "x-gridforge-evidence-boundary": t.evidence_boundary } : {}),
         // The weight is per hall in the request (gridforge/api/metering.py units_for), not per call.
         ...(PER_HALL_ENDPOINTS.includes(t.endpoint) ? { "x-gridforge-units-per": "hall" } : {}),
         "x-gridforge-tier": t.tier,
@@ -607,13 +797,14 @@ export function buildOpenApi(file: ToolsFile, serverUrl: string, siteOrigin: str
                 },
               ]),
         ],
-        requestBody: { required: true, content: { "application/json": { schema: t.inputSchema } } },
+        requestBody: { required: true, content: { "application/json": { schema: t.inputSchema, ...exampleBlock(t.endpoint) } } },
         responses: {
           "200": {
-            description: "The result. Every numeric field carries an evidence class and provenance.",
+            description: `The result. Every numeric field carries an evidence class and provenance. ${responseKeysSentence(t.endpoint)}`.trim(),
             headers: RESPONSE_HEADERS,
             content: { "application/json": { schema: responseSchemaFor(t.endpoint) } },
           },
+          ...refusalResponses(t.endpoint, !free),
           default: {
             description: `A refusal: ${ERROR_STATUSES.map((e) => `${e.status}, ${e.meaning}`).join("; ")}. A rejected or failed request is not charged.`,
             content: { "application/json": { schema: { $ref: "#/components/schemas/Error" } } },
@@ -626,19 +817,30 @@ export function buildOpenApi(file: ToolsFile, serverUrl: string, siteOrigin: str
   const deckUnits = file.rate_card?.find((r) => r.endpoint === "/v1/deck")?.units;
   if (deckUnits !== undefined) {
     const screen = file.tools.find((t) => t.endpoint === "/v1/screen");
+    const deckOp = operationFor(
+      {
+        path: "/v1/deck", method: "post", operationId: "deck", auth: "key",
+        summary: "Walkthrough deck for a hall.",
+        description:
+          "An intake in, the client-session walkthrough deck out as HTML (`format`, `title`, `slides`, `document`, `document_full`). Needs a key and is weighted in units. " +
+          "It is a REST route only: there is no MCP tool for it, because it is a document for a human session, not an agent step. Screening-mode output, not an issued engineering opinion.\n\n" +
+          `Evidence boundary: ${DECK_EVIDENCE_BOUNDARY}\n\n` + file.evidence_note,
+        response: {
+          ...obj({ [honesty.schema_version.body_field]: { type: "string", const: honesty.schema_version.value, description: `Which response schema the body follows; also the ${honesty.schema_version.header} header.` }, format: str(), title: str(), slides: int(), document: str(), document_full: str(), calibration: CALIBRATION_REF }),
+          description: responseKeysSentence("/v1/deck"),
+        },
+      },
+      deckUnits,
+    ) as { responses: Record<string, Record<string, unknown>> };
     paths["/v1/deck"] = {
       post: {
-        ...operationFor(
-          {
-            path: "/v1/deck", method: "post", operationId: "deck", auth: "key",
-            summary: "Walkthrough deck for a hall.",
-            description:
-              "An intake in, the client-session walkthrough deck out as HTML (`format`, `title`, `slides`, `document`, `document_full`). Needs a key and is weighted in units. " +
-              "It is a REST route only: there is no MCP tool for it, because it is a document for a human session, not an agent step. Screening-mode output, not an issued engineering opinion.\n\n" + file.evidence_note,
-            response: obj({ format: str(), title: str(), slides: int(), document: str(), document_full: str() }),
-          },
-          deckUnits,
-        ),
+        ...deckOp,
+        "x-gridforge-evidence-boundary": DECK_EVIDENCE_BOUNDARY,
+        responses: {
+          "200": { ...deckOp.responses["200"], description: `The answer. ${responseKeysSentence("/v1/deck")}`, headers: RESPONSE_HEADERS },
+          ...refusalResponses("/v1/deck", true),
+          default: deckOp.responses.default,
+        },
         "x-gridforge-units": deckUnits,
         parameters: [
           { name: "Idempotency-Key", in: "header", required: false, description: idempotencyStatement(), schema: { type: "string", maxLength: IDEMPOTENCY_KEY_MAX_CHARS } },
@@ -648,6 +850,7 @@ export function buildOpenApi(file: ToolsFile, serverUrl: string, siteOrigin: str
           required: true,
           content: {
             "application/json": {
+              ...exampleBlock("/v1/deck"),
               schema: {
                 type: "object",
                 properties: {
@@ -675,16 +878,34 @@ export function buildOpenApi(file: ToolsFile, serverUrl: string, siteOrigin: str
         `One POST endpoint, protocol version ${file.mcp?.protocolVersion ?? "unknown"}. initialize, tools/list and tools/call. The transport is open: ${file.tools.length} tools are listed and each keeps its own tier, ` +
         `so ${file.tools.filter((t) => t.units === 0).map((t) => t.name).join(" and ")} answer without a key and every other tool is refused with JSON-RPC error -32001 until a key is sent. ` +
         `A batch holds at most ${MAX_MCP_BATCH} messages. The Idempotency-Key header applies to tools/call. ` +
-        `The tool names, schemas and unit weights are the operations in this document (see x-gridforge-mcp-tool).`,
+        `The tool names, schemas and unit weights are the operations in this document (see x-gridforge-mcp-tool). ` +
+        `Results: initialize returns protocolVersion, capabilities, serverInfo and instructions; tools/list returns tools; a tools/call returns content (one text summary), structuredContent (the JSON the tool's REST route returns) and isError false; ping returns {}. ` +
+        `${mcpErrorsStatement()} ${retryStatement()}`,
       tags: ["mcp"],
       // The transport is open and a key is optional: it is read per tool, and the paid tools are refused without one.
       security: [{}, { ApiKeyAuth: [] }],
       parameters: [{ name: "Idempotency-Key", in: "header", required: false, description: idempotencyStatement(), schema: { type: "string", maxLength: IDEMPOTENCY_KEY_MAX_CHARS } }],
-      requestBody: { required: true, content: { "application/json": { schema: { oneOf: [JSON_RPC_REQUEST, { type: "array", maxItems: MAX_MCP_BATCH, items: JSON_RPC_REQUEST }] } } } },
+      requestBody: {
+        required: true,
+        content: { "application/json": { schema: { oneOf: [JSON_RPC_REQUEST, { type: "array", maxItems: MAX_MCP_BATCH, items: JSON_RPC_REQUEST }] }, ...exampleBlock(file.mcp?.endpoint ?? "/mcp") } },
+      },
       responses: {
-        "200": { description: "A JSON-RPC response, or an array of them for a batch. A tool's refusal is a JSON-RPC error object inside a 200.", content: { "application/json": { schema: { type: ["object", "array"] } } } },
+        "200": {
+          description:
+            "A JSON-RPC response, or an array of them for a batch. A tool's refusal is a JSON-RPC error object inside a 200 (the codes are listed in this operation's description). " +
+            "When the error is -32003 the response carries a Retry-After header. A JSON-RPC body has no schema_version field; the X-GridForge-Schema header is there.",
+          headers: {
+            ...RESPONSE_HEADERS,
+            "Retry-After": { description: "Seconds to wait before retrying; present when a JSON-RPC error in the answer is -32003.", schema: { type: "integer" } },
+          },
+          content: { "application/json": { schema: { type: ["object", "array"] } } },
+        },
         "202": { description: "Accepted: the request held only notifications, so there is no body." },
-        "400": { description: "Not a valid JSON-RPC request, an empty batch, or a batch over the limit.", content: { "application/json": { schema: { type: "object" } } } },
+        "400": {
+          description:
+            "A single message that is not a JSON-RPC request object with a method (error -32600 in the body), an empty batch, a batch over the limit, or a body that is not valid JSON (a plain {error} body, not a JSON-RPC error).",
+          content: { "application/json": { schema: { type: "object" } } },
+        },
         default: { description: "The HTTP-level refusals listed under the other operations (413, 415, 429).", content: { "application/json": { schema: { $ref: "#/components/schemas/Error" } } } },
       },
     },
@@ -710,6 +931,7 @@ export function buildOpenApi(file: ToolsFile, serverUrl: string, siteOrigin: str
         " Every figure is modelled from the inputs supplied and carries an evidence class; where the calibration block (GET /v1/calibration, and on the responses that carry it) says uncalibrated, it means uncalibrated. " +
         "This document states no price: it gives each operation's weight in units, and the unit price, free allowance, minimum invoice and cap behaviour are the engine's own `payg` object at GET /v1/version. " +
         idempotencyStatement() +
+        ` ${schemaVersionStatement()} ${retryStatement()} ${corsStatement()}` +
         " The paths under /api/orgs, /api/sites and /api/halls are the website's signed-in site and hall registry: they are served by the website (see each path's server), take a signed-in person's session token instead of an API key, are never metered, and answer 503 until their database migrations are applied.",
     },
     servers: [{ url: serverUrl }],
@@ -753,7 +975,12 @@ export function buildOpenApi(file: ToolsFile, serverUrl: string, siteOrigin: str
             units_required: { type: "integer" }, units_used: { type: "integer" }, monthly_quota: { type: "integer" }, cap_units: { type: "integer" },
             month: { type: "string" }, resets_at: { type: "string", format: "date-time", description: "On a 402: when the allowance renews (start of next UTC month)." },
             fix: { type: "string", description: "What to do next, in words." },
-            retryable: { type: "boolean" },
+            plan: { type: "string", description: "On a 402: which kind of key ran out (api_free, api_payg, subscription or operator_key)." },
+            unit_price_cents: { type: "integer", description: "On a 402: the pay-as-you-go unit price in euro cents, as GET /v1/version states it in `payg`." },
+            retryable: { type: "boolean", description: "On a 503 that a retry can clear (the engine is busy, or a metered key's usage could not be recorded): true. Absent on every other error, including the 503 that says paid endpoints are not configured." },
+            retry_after_seconds: { type: "integer", description: "Only on the 503 that says the engine is busy: the same number of seconds as the Retry-After header. The 503 for usage that could not be recorded carries the header and not this field." },
+            limit_per_minute: { type: "integer", description: "On a 429: the per-client request limit per minute." },
+            request_id: { type: "string", description: "On a 500: the X-Request-Id request header you sent, or empty if you sent none (over /mcp the engine generates one)." },
           },
           additionalProperties: true,
         },

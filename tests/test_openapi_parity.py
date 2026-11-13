@@ -14,6 +14,7 @@ import urllib.request
 from pathlib import Path
 
 import pytest
+from openapi_example_support import example_bodies
 
 from gridforge.api import server as S
 from gridforge.api.ledger import IDEMPOTENCY_WINDOW_SECONDS
@@ -61,8 +62,12 @@ def test_every_documented_honesty_field_is_in_the_real_response(endpoint):
         out = S.handle_qualify(QUALIFY, Tier.PUBLIC)
     elif endpoint == "/v1/screen":
         out = S.handle_screen({"intake": DUBLIN}, Tier.CLIENT)
-    else:
+    elif endpoint == "/v1/compare":
         out = S.handle_compare({"intake": DUBLIN}, Tier.CLIENT)
+    else:
+        # every other documented route, on its own published example request, through the one place a solve starts
+        tier = Tier.PUBLIC if endpoint == "/v1/estimate" else Tier.CLIENT
+        out = S._invoke(endpoint, S.ROUTES[endpoint][0], next(iter(example_bodies(endpoint).values())), tier)
     for f in spec["top_level"]:
         assert f in out, f"{endpoint} does not return {f}"
     for f in spec.get("after_relief", []):
