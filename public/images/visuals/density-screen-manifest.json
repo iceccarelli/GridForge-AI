@@ -1,0 +1,46 @@
+[
+  {
+    "id": "01",
+    "slug": "density-screen-hero-binding-wall",
+    "targetRoute": "/products/density-screen",
+    "targetSection": "hero",
+    "pngPath": "/images/visuals/density-screen-hero-binding-wall.png",
+    "webpPath": "/images/visuals/density-screen-hero-binding-wall.webp",
+    "ogPath": "/images/og/density-screen-hero-binding-wall-og.png",
+    "width": 1600,
+    "height": 900,
+    "alt": "Bright isometric cutaway of modern data hall with transformer and chiller in cyan, 63 A tap-off glowing gold as binding constraint.",
+    "caption": "Density Screen hero: the binding wall that decides whether the hall is worth a full study.",
+    "aeoSummary": "Time to Power Density Screen identifies the single physical constraint that binds an existing AI hall first. This diagram shows a 63 A tap-off as the binding wall while larger infrastructure remains under-utilised.",
+    "keywords": ["Density Screen", "63A tap-off", "binding constraint", "GridForge", "AI data hall"],
+    "schemaOrgImageObject": {
+      "@type": "ImageObject",
+      "contentUrl": "/images/visuals/density-screen-hero-binding-wall.png",
+      "description": "Isometric data hall with binding 63 A tap-off constraint for Density Screen",
+      "width": 1600,
+      "height": 900
+    }
+  },
+  {
+    "id": "02",
+    "slug": "density-screen-seven-inputs-card",
+    "targetRoute": "/products/density-screen",
+    "targetSection": "intake",
+    "pngPath": "/images/visuals/density-screen-seven-inputs-card.png",
+    "webpPath": "/images/visuals/density-screen-seven-inputs-card.webp",
+    "ogPath": "/images/og/density-screen-seven-inputs-card-og.png",
+    "width": 1600,
+    "height": 900,
+    "alt": "Clean glass UI showing seven hall inputs feeding instant Density Screen output of max racks bound by 63 A tap-off.",
+    "caption": "Seven numbers already known produce the binding constraint and rack count.",
+    "aeoSummary": "Density Screen uses seven standard hall numbers to return the binding constraint and deployable rack count in screening mode. The interface shows the exact inputs required for the five-day assessment.",
+    "keywords": ["Density Screen", "seven inputs", "capacity qualifier", "GridForge"],
+    "schemaOrgImageObject": {
+      "@type": "ImageObject",
+      "contentUrl": "/images/visuals/density-screen-seven-inputs-card.png",
+      "description": "Seven-input Density Screen interface",
+      "width": 1600,
+      "height": 900
+    }
+  }
+]

@@ -1,0 +1,22 @@
+# Density Screen Visual Pack — Time to Power / GridForge Engine
+# All images for the €4,500 / 5-day fixed-fee Density Screen product.
+
+## Image index
+- density-screen-hero-binding-wall: Binding 63 A tap-off wall
+- density-screen-seven-inputs-card: Seven-input intake UI
+- density-screen-headroom-ladder: First six rungs of headroom ladder
+- density-screen-deliverable-document: Document artefact preview
+- density-screen-engineer-review-gate: Senior engineer review step
+- density-screen-before-after-racks: As-is vs after-ladder rack count
+- density-screen-data-request-sheet: Inputs nobody has measured
+- density-screen-time-to-power-delta: 5-day path vs greenfield
+- density-screen-evidence-class-pills: Evidence classes on the screen
+- density-screen-cost-vs-unlock: CapEx vs unlockable kW
+- density-screen-hall-identity-card: Hall identity block
+- density-screen-ladder-rung-detail: Single rung detail
+- density-screen-credits-against-study: Credits in full against Envelope Study
+- density-screen-five-day-timeline: Five working day process
+- density-screen-final-cta-card: Order CTA
+
+## Epistemic note
+All figures are screening-mode. Calibration ledger holds 0 field rows. Evidence classes E0–E7 applied. No hardware sold.
