@@ -38,7 +38,8 @@ def three():
 
 def test_json_is_unchanged_and_carries_no_document(three):
     out = post({"intakes": three})
-    assert set(out) == {"objective", "halls", "total_racks", "total_racks_evidence"}
+    # + "calibration" (audit D8: every answer carries the accuracy record). The old exact set pinned its absence; the existing keys are unchanged.
+    assert set(out) == {"objective", "halls", "total_racks", "total_racks_evidence", "calibration"}
 
 
 @pytest.mark.parametrize("fmt", ["md", "html"])

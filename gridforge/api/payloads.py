@@ -25,6 +25,22 @@ def calibration_block(results: list[ScenarioResult]) -> dict:
     return accuracy_block(keys)
 
 
+def calibration_block_for_bindings(binding_ids: list[str]) -> dict:
+    """The same record as ``calibration_block``, for an answer that names the constraints that bound rather than carrying solved results
+    (a diff of two states). Constraint ids outside the vocabulary are left out, never invented as keys."""
+    from ..calibration import all_keys
+    known = set(all_keys())
+    keys = [k for k in dict.fromkeys(constraint_key(b) for b in binding_ids) if k in known]
+    return accuracy_block(keys + ["envelope.racks", "envelope.it_load_kW"])
+
+
+def btm_calibration_block() -> dict:
+    """The record for the behind-the-meter answers. The ledger has one key for them, ``btm.firm_MW`` (the firm MW an architecture holds under
+    its contingency case, which is the engine's own result); an architecture's capex and lead time are echoes of what the customer declared,
+    so they are not calibrated here and are not claimed to be."""
+    return accuracy_block(["btm.firm_MW"])
+
+
 _PAID_ONLY_GAP_PREFIXES = ("economics.", "transformers.replacement_lead_time")
 
 
