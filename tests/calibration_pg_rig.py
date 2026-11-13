@@ -216,7 +216,7 @@ def satisfy_publication_gates(db, project, reached_on="2020-01-01"):
         p = {"organisation_id": org, "publish_scope": "aggregate_residual_statistics", "min_aggregate_observations": 10, "min_aggregate_organisations": 3,
              "consent_text_version": "rig-1", "consent_text_sha256": DOC("rig consent text"), "document_sha256": DOC("rig signed " + org), "recorded_by": owner}
         psql(db, f"select public.gf_record_calibration_consent({q(json.dumps(p))}::jsonb)")
-    if scalar(db, f"select count(*) from project_completion_milestones where project_id = '{project}' and milestone = 'energised'") == "0":
+    if scalar(db, f"select count(*) from project_completion_milestones where project_id = '{project}' and milestone = 'energised' and organisation_id = '{org}'") == "0":
         proof = new_evidence(db, project, verified=True, sha="b")
         p = {"project_id": project, "milestone": "energised", "reached_on": reached_on, "evidence_id": proof, "basis": "rig: energisation certificate",
              "attested_by": owner}

@@ -6,7 +6,8 @@
 //                         consent (a grant, not a withdrawal). Also raised, with other meanings, by the consent writers themselves
 //                         (a non-owner recording consent; a withdrawal with nothing to withdraw): the site calls neither yet.
 //   GF016  milestone      the project has not attested its completion milestone (energised), or the observation is dated before it, or a
-//                         supplier record of the project shows delivery still in flight at the observed date. Also raised by the milestone writer.
+//                         supplier record of the project shows delivery still in flight at the observed date, or the milestone was attested
+//                         under another organisation than the project belongs to now. Also raised by the milestone writer.
 //   GF017  withdrawal     the observation (by the hash of its id) was withdrawn with its organisation's consent and cannot be recorded again;
 //                         also raised by the release registry for a snapshot that contains one.
 //   GF018  release        the snapshot registry refused a release: too few observations or organisations, one organisation too large a share,
@@ -65,8 +66,9 @@ const REFUSALS: Readonly<Record<PublicationGateCode, PublicationRefusal>> = {
     status: 409,
     error:
       "This measurement was not recorded: the project has not attested that it reached completion (energised), or the measurement is dated before that, " +
-      "or a supplier record of the project still shows delivery in flight on that date. An editor or an owner of the project's organisation attests " +
-      "completion against a commissioning file that a reviewer has verified. " +
+      "or a supplier record of the project still shows delivery in flight on that date, or completion was attested under another organisation (it does " +
+      "not move with the project). An editor or an owner of the project's organisation attests completion against a commissioning file that a reviewer " +
+      "has verified. " +
       NO_PAGE,
   },
   GF017: {

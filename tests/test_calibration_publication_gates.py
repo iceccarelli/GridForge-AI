@@ -482,7 +482,7 @@ def test_a_milestone_is_attested_only_for_an_attached_project_by_an_editor_with_
     refused(attest(db, project, verified, ctx.owner, basis="  ", check=False), "basis")
     assert count(db, "project_completion_milestones", f"project_id = '{project}'") == 0
     assert attest(db, project, verified, ctx.editor).returncode == 0
-    refused(attest(db, project, verified, ctx.owner, check=False), "project_completion_milestones")   # one attestation of a milestone, ever
+    refused(attest(db, project, verified, ctx.owner, check=False), "project_completion_milestones")   # one FIRST attestation per organisation; a correction supersedes it
     assert scalar(db, f"select count(*) from project_events where project_id = '{project}' and event_type = 'completion_milestone_attested'") == "1"
 
 
@@ -490,6 +490,85 @@ def test_the_milestone_record_is_append_only(db, ctx):
     project, _ = prepared(db, ctx)
     append_only(db, "project_completion_milestones", "update project_completion_milestones set reached_on = '2020-01-01'")
     assert count(db, "project_completion_milestones", f"project_id = '{project}'") == 1
+
+
+# ---- C9: the date has a lower bound, the milestone belongs to the organisation that attested it, and an owner can correct a wrong date
+
+@pytest.mark.parametrize("day,ok", [("1900-01-01", False), ("1999-12-31", False), ("2000-01-01", True)])
+def test_a_milestone_dated_before_2000_is_refused(db, ctx, day, ok):
+    """A 1900 date was accepted, then the owner's correction failed on the uniqueness of the one record, so the project was gated by it for ever."""
+    project, _ = prepared(db, ctx, milestone=False)
+    proof = new_evidence(db, project, verified=True, sha="b")
+    r = attest(db, project, proof, ctx.editor, reached_on=day, check=False)
+    if ok:
+        assert r.returncode == 0, r.stderr
+    else:
+        refused(r, "before 2000")
+        assert count(db, "project_completion_milestones", f"project_id = '{project}'") == 0
+
+
+def move_project(db, project, src, dst):
+    """What moving a project between organisations is: the owner of the first detaches it, an editor of the second attaches it (0050)."""
+    reg.ok(db, "gf_detach_project_from_hall", p_actor=src.owner, p_hall=src.hall, p_project=project)
+    attach(db, project, dst.hall, dst.owner)
+
+
+def test_a_milestone_attested_under_one_organisation_does_not_gate_the_project_under_another(db):
+    a, b = org_context(db), org_context(db)
+    grant(db, a.org)
+    grant(db, b.org)
+    project, proof = prepared(db, a)
+    assert submit(db, project=project, on="2026-06-29")[2].returncode == 0
+    move_project(db, project, a, b)
+    r = submit(db, project=project, on="2026-06-30")[2]
+    refused(r, "attested under another organisation")
+    assert "GF016" in psql(db, f"select gf_submit_observation('{rig.obs_args(project, new_evidence(db, project), rig.new_case(db, created_at='2026-03-02T09:00:00Z'), observed_on='2026-06-30')}'::jsonb,"
+                               f" '{GOOD % 'observation_submitted'}'::jsonb)", check=False, sqlstate=True).stderr
+    refused(attest(db, project, proof, b.viewer, check=False), "owner or editor")
+    assert attest(db, project, proof, b.editor, reached_on="2026-06-01").returncode == 0                 # the new organisation attests it itself
+    assert submit(db, project=project, on="2026-06-30")[2].returncode == 0
+    assert scalar(db, f"select string_agg(organisation_id::text, ',' order by attested_at) from project_completion_milestones where project_id = '{project}'") == f"{a.org},{b.org}"
+
+
+def test_the_view_treats_a_milestone_of_another_organisation_as_absent(db):
+    a, b = org_context(db), org_context(db)
+    grant(db, a.org)
+    project, oid = eligible(db, a)
+    assert exported(db, oid)
+    bypassing_triggers(db, f"update project_completion_milestones set organisation_id = '{b.org}' where project_id = '{project}'")
+    assert not exported(db, oid), "a milestone attested under another organisation must not satisfy the view"
+    bypassing_triggers(db, f"update project_completion_milestones set organisation_id = '{a.org}' where project_id = '{project}'")
+    assert exported(db, oid)
+
+
+def milestone_id(db, project, newest=False):
+    return scalar(db, f"select id from project_completion_milestones where project_id = '{project}' order by attested_at {'desc' if newest else ''} limit 1")
+
+
+def test_an_owner_corrects_a_wrong_milestone_date_by_a_later_record_and_nothing_is_edited(db, ctx):
+    project, proof = prepared(db, ctx, reached_on="2026-08-01")                          # attested too late: nothing from June may be recorded
+    first = milestone_id(db, project)
+    refused(submit(db, project=project, on="2026-06-30")[2], "data from before completion is not recorded")
+    refused(attest(db, project, proof, ctx.editor, reached_on="2026-05-01", supersedes_id=first, check=False), "only an active owner")
+    refused(attest(db, project, proof, ctx.owner, reached_on="2026-05-01", supersedes_id=str(uuid.uuid4()), check=False), "must supersede a completion milestone record")
+    other, _ = prepared(db, ctx)
+    refused(attest(db, project, proof, ctx.owner, reached_on="2026-05-01", supersedes_id=milestone_id(db, other), check=False), "must supersede a completion milestone record")
+    refused(attest(db, project, proof, ctx.owner, reached_on="2026-05-01", check=False), "project_completion_milestones")       # a second FIRST attestation is still refused
+    second = json.loads(attest(db, project, proof, ctx.owner, reached_on="2026-05-01", supersedes_id=first).stdout.strip().splitlines()[-1])["id"]
+    refused(attest(db, project, proof, ctx.owner, reached_on="2026-04-01", supersedes_id=first, check=False), "already been corrected")
+    assert scalar(db, f"select reached_on from project_completion_milestones where id = '{first}'") == "2026-08-01"       # the wrong record is untouched
+    assert count(db, "project_completion_milestones", f"project_id = '{project}'") == 2
+    assert submit(db, project=project, on="2026-06-30")[2].returncode == 0
+    # the view reads the STANDING record: a correction that moves the date past a recorded observation takes it out, moving it back puts it in again
+    _, oid = eligible(db, ctx)                                                           # a second project, on the standing milestone of its own
+    later = json.loads(attest(db, project, proof, ctx.owner, reached_on="2026-07-15", supersedes_id=second).stdout.strip().splitlines()[-1])["id"]
+    stored_oid = scalar(db, f"select id from project_observations where project_id = '{project}'")
+    record_permission(db, project)
+    assert review(db, stored_oid).returncode == 0
+    assert not exported(db, stored_oid)
+    attest(db, project, proof, ctx.owner, reached_on="2026-05-01", supersedes_id=later)
+    assert exported(db, stored_oid)
+    assert exported(db, oid)
 
 
 # =============================================================================================== D5: withdrawal tombstones

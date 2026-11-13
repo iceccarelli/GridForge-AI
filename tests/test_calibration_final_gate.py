@@ -42,12 +42,15 @@ VIEW_GATES = {
         r"NOT \(EXISTS \( SELECT 1 FROM hall_project_attachments hpa JOIN sites st ON st\.id = hpa\.site_id "
         r"WHERE hpa\.project_id = o\.project_id AND st\.data_origin <> 'production'::text\)\)",
     # 0056 (D3): the consent of the organisation the row was recorded under still stands: ITS latest decision is a grant (not the project's, which is 0047's)
-    "the organisation's LATEST consent is a grant":
+    "the organisation's LATEST consent is a grant, and no withdrawal followed the consent the row was recorded under":
         r"calibration_consents cc WHERE cc\.organisation_id = o\.organisation_id AND cc\.kind = 'granted'::text AND cc\.seq = .*max\(c3\.seq\).*"
-        r"calibration_consents c3 WHERE c3\.organisation_id = o\.organisation_id",
+        r"calibration_consents c3 WHERE c3\.organisation_id = o\.organisation_id.*"
+        r"calibration_consents rc WHERE rc\.id = o\.consent_id AND rc\.organisation_id = o\.organisation_id AND rc\.kind = 'granted'::text AND NOT \(EXISTS "
+        r"\( SELECT 1 FROM calibration_consents w WHERE w\.organisation_id = rc\.organisation_id AND w\.kind = 'withdrawn'::text AND w\.seq > rc\.seq\)\)",
     # 0056 (D1): the project attested its completion milestone, the observation is not older than it, and no supplier record shows delivery in flight
     "the project attested its completion milestone and no supplier record shows delivery in flight":
-        r"project_completion_milestones pm WHERE pm\.project_id = o\.project_id AND pm\.milestone = 'energised'::text AND pm\.reached_on <= o\.observed_on "
+        r"project_completion_milestones pm WHERE pm\.project_id = o\.project_id AND pm\.milestone = 'energised'::text AND pm\.organisation_id = o\.organisation_id "
+        r"AND pm\.reached_on <= o\.observed_on AND NOT \(EXISTS \( SELECT 1 FROM project_completion_milestones x WHERE x\.supersedes_id = pm\.id\)\) "
         r"AND NOT gf_project_delivery_in_flight\(o\.project_id, o\.observed_on\)",
     # 0056 (D5): a withdrawn observation is never listed again, whatever consent is recorded later
     "the observation was not withdrawn (no tombstone)":
@@ -242,7 +245,7 @@ def test_replaying_0046_or_0047_last_is_reported_as_gaps(older):
         drop_database(name)
 
 
-NEW_IN_0056 = ["view: the organisation's LATEST consent is a grant",
+NEW_IN_0056 = ["view: the organisation's LATEST consent is a grant, and no withdrawal followed the consent the row was recorded under",
                "view: the project attested its completion milestone and no supplier record shows delivery in flight",
                "view: the observation was not withdrawn (no tombstone)"]
 

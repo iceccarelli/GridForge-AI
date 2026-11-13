@@ -26,7 +26,11 @@
 --   D1  project_completion_milestones: an append-only record that a project reached the 'energised' milestone on a date, backed by a VERIFIED evidence
 --       file of that project and attested by an editor or owner of the organisation. The insert gate refuses a production observation for a project
 --       with no such record, an observation dated before the milestone, and an observation of a project whose own supplier records (0018) show
---       delivery still in flight at the observed date. The view applies the same rule again.
+--       delivery still in flight at the observed date (any date anywhere in a line's chain of corrections counts, unless the latest record states an
+--       energisation date on or before the observed one). The view applies the same rule again. The date is not before 2000 and not in the future. A
+--       record is bound to the ORGANISATION it was attested under (derived, never supplied): one attested under another organisation is absent for a
+--       project that has been moved (GF016 names the cause), so the new organisation attests it afresh. An OWNER corrects a wrong date by a later record
+--       that supersedes the first (supersedes_id; nothing is edited or deleted), and the gate and the view read the record nothing supersedes.
 --   D5  calibration_tombstones: when an organisation's consent is WITHDRAWN (a new row; the trigger on that insert does the rest in the same
 --       transaction) every observation recorded under the organisation gets a tombstone: the SHA-256 of its id, the time and the withdrawal row, and
 --       NO content. The view excludes tombstoned observations for ever (a later re-grant covers only observations recorded after it), and the insert
@@ -343,28 +347,54 @@ $$;
 create table if not exists public.project_completion_milestones (
   id uuid primary key default gen_random_uuid(),
   project_id uuid not null references public.projects (id),
+  -- The organisation the project belonged to when this was attested: derived by the guard from the project's hall attachment, never supplied. A milestone
+  -- stands for the project only under the organisation that attested it; when the project moves to another organisation that one attests it afresh.
+  organisation_id uuid not null references public.organisations (id),
   milestone text not null check (milestone in ('energised')),
-  reached_on date not null,
+  -- not before 2000: an implausible date is not a milestone (and a wrong one is corrected by an owner, below, never edited)
+  reached_on date not null check (reached_on >= date '2000-01-01'),
   -- The file that shows it (a commissioning or energisation record). It must be one of this project's files and VERIFIED by a reviewer (0048).
   evidence_id uuid not null references public.project_evidence (id),
   basis text not null check (length(btrim(basis)) between 1 and 1000),
   attested_by text not null
     check (attested_by = lower(btrim(attested_by)) and position('@' in attested_by) > 1 and length(attested_by) <= 254 and attested_by !~ '\s'),
   attested_at timestamptz not null default clock_timestamp(),
-  -- a milestone is reached once; it is not edited, retracted or repeated
-  unique (project_id, milestone)
+  -- A CORRECTION: an owner's later record that supersedes this one (a wrong date). Nothing is edited or deleted; the standing record of a project under its
+  -- organisation is the one nothing supersedes.
+  supersedes_id uuid references public.project_completion_milestones (id)
 );
+
+-- One first attestation per project, milestone and organisation; each record is corrected at most once (the next correction supersedes the correction).
+create unique index if not exists project_completion_milestones_one_initial
+  on public.project_completion_milestones (project_id, milestone, organisation_id) where supersedes_id is null;
+create unique index if not exists project_completion_milestones_one_correction
+  on public.project_completion_milestones (supersedes_id) where supersedes_id is not null;
 
 create or replace function public.gf_milestone_guard() returns trigger
 language plpgsql as $$
-declare org uuid; ev public.project_evidence;
+declare org uuid; ev public.project_evidence; prev public.project_completion_milestones;
 begin
   select s.org_id into org from public.projects p join public.sites s on s.id = p.site_id where p.id = new.project_id;
   if org is null then
     raise exception 'a completion milestone can be attested only for a project that is attached to a hall of an organisation' using errcode = 'GF016';
   end if;
-  if public.gf_org_access(org, new.attested_by, 'editor') <> 'ok' then
-    raise exception 'only an active owner or editor of the project''s organisation can attest its completion milestone' using errcode = 'GF016';
+  new.organisation_id := org;
+  if new.supersedes_id is null then
+    if public.gf_org_access(org, new.attested_by, 'editor') <> 'ok' then
+      raise exception 'only an active owner or editor of the project''s organisation can attest its completion milestone' using errcode = 'GF016';
+    end if;
+  else
+    -- a correction of a wrong date: an OWNER's act, of a record of this project under the organisation it belongs to now, and of the standing one
+    select * into prev from public.project_completion_milestones where id = new.supersedes_id;
+    if not found or prev.project_id <> new.project_id or prev.milestone <> new.milestone or prev.organisation_id <> org then
+      raise exception 'a correction must supersede a completion milestone record of this project that was attested under the organisation it belongs to now' using errcode = 'GF016';
+    end if;
+    if exists (select 1 from public.project_completion_milestones x where x.supersedes_id = prev.id) then
+      raise exception 'that completion milestone record has already been corrected: correct the latest one' using errcode = 'GF016';
+    end if;
+    if public.gf_org_access(org, new.attested_by, 'owner') <> 'ok' then
+      raise exception 'only an active owner of the project''s organisation can correct its completion milestone' using errcode = 'GF016';
+    end if;
   end if;
   select * into ev from public.project_evidence where id = new.evidence_id and project_id = new.project_id;
   if not found then
@@ -375,6 +405,9 @@ begin
   end if;
   if new.reached_on > (clock_timestamp() at time zone 'UTC')::date then
     raise exception 'a milestone dated in the future is a plan, not a milestone that has been reached' using errcode = 'GF016';
+  end if;
+  if new.reached_on < date '2000-01-01' then
+    raise exception 'a milestone dated before 2000 is not a plausible date for a project to have been energised' using errcode = 'GF016';
   end if;
   return new;
 end;
@@ -435,12 +468,14 @@ create or replace function public.gf_attest_completion_milestone(p jsonb, p_even
 language plpgsql as $$
 declare r public.project_completion_milestones;
 begin
-  insert into public.project_completion_milestones (project_id, milestone, reached_on, evidence_id, basis, attested_by)
+  -- `supersedes_id` present: a correction of a wrong date by an owner (the guard checks it); absent: the first attestation under the project's organisation.
+  insert into public.project_completion_milestones (project_id, milestone, reached_on, evidence_id, basis, attested_by, supersedes_id)
   values ((p->>'project_id')::uuid, p->>'milestone', (p->>'reached_on')::date, (p->>'evidence_id')::uuid, p->>'basis',
-          lower(btrim(p->>'attested_by')))
+          lower(btrim(p->>'attested_by')), (p->>'supersedes_id')::uuid)
   returning * into r;
   perform public.gf_emit(r.project_id, p_event,
-      jsonb_build_object('milestone_id', r.id, 'milestone', r.milestone, 'reached_on', r.reached_on, 'evidence_id', r.evidence_id));
+      jsonb_build_object('milestone_id', r.id, 'milestone', r.milestone, 'reached_on', r.reached_on, 'evidence_id', r.evidence_id,
+                         'supersedes_id', r.supersedes_id));
   return to_jsonb(r);
 end;
 $$;
@@ -537,8 +572,15 @@ begin
   new.organisation_id := org;
   new.consent_id := c.id;
   -- D1. The project has reached, and attested, its completion milestone; the observation is not older than it; its own supplier records agree.
-  select * into m from public.project_completion_milestones where project_id = new.project_id and milestone = 'energised';
+  -- The standing record of the project's milestone UNDER ITS ORGANISATION NOW (not superseded by a correction). One attested under another organisation is
+  -- absent for this one: a milestone does not travel with a project that has been moved.
+  select * into m from public.project_completion_milestones pm
+   where pm.project_id = new.project_id and pm.milestone = 'energised' and pm.organisation_id = org
+     and not exists (select 1 from public.project_completion_milestones x where x.supersedes_id = pm.id);
   if not found then
+    if exists (select 1 from public.project_completion_milestones where project_id = new.project_id and milestone = 'energised') then
+      raise exception 'the project''s completion milestone was attested under another organisation; the organisation it belongs to now has to attest it again: a milestone does not move with the project' using errcode = 'GF016';
+    end if;
     raise exception 'the project has not attested that it reached its completion milestone (energised): partial or in-flight data is not recorded' using errcode = 'GF016';
   end if;
   if m.reached_on > new.observed_on then
@@ -606,23 +648,25 @@ where r.decision = 'verified'
     join public.sites st on st.id = hpa.site_id
     where hpa.project_id = o.project_id
       and st.data_origin <> 'production')
-  -- 0056 (D3): the organisation the row was recorded under still has a standing consent, and its latest decision is a grant.
+  -- 0056 (D3): the organisation the row was recorded under still has a standing consent, and its latest decision is a grant; and (D3/D5, defence in depth) the
+  -- consent the row was RECORDED UNDER (consent_id) has not been followed by a withdrawal, whatever has been granted since. A tombstone is the primary record of a
+  -- withdrawal; the second term keeps out a row that somehow escaped it (an insert whose snapshot predates the withdrawal, a withdrawal written with the triggers
+  -- off) when the organisation grants consent again.
   and exists (
     select 1 from public.calibration_consents cc
     where cc.organisation_id = o.organisation_id and cc.kind = 'granted'
       and cc.seq = (select max(c3.seq) from public.calibration_consents c3 where c3.organisation_id = o.organisation_id))
-  -- 0056 (D3/D5, defence in depth): the consent the row was RECORDED UNDER (consent_id) has not been followed by a withdrawal, whatever has been granted since.
-  -- A tombstone is the primary record of a withdrawal; this makes a row that somehow escaped it (an insert whose snapshot predates the withdrawal, a withdrawal
-  -- written with the triggers off) stay out when the organisation grants consent again.
   and exists (
     select 1 from public.calibration_consents rc
     where rc.id = o.consent_id and rc.organisation_id = o.organisation_id and rc.kind = 'granted'
       and not exists (select 1 from public.calibration_consents w
                       where w.organisation_id = rc.organisation_id and w.kind = 'withdrawn' and w.seq > rc.seq))
-  -- 0056 (D1): the project attested its completion milestone, the observation is not older than it, and no supplier record of the project shows delivery in flight.
+  -- 0056 (D1): the project attested its completion milestone UNDER THE ORGANISATION THE ROW WAS RECORDED UNDER (the standing record, not one an owner has since
+  -- corrected), the observation is not older than it, and no supplier record of the project shows delivery in flight.
   and exists (
     select 1 from public.project_completion_milestones pm
-    where pm.project_id = o.project_id and pm.milestone = 'energised' and pm.reached_on <= o.observed_on
+    where pm.project_id = o.project_id and pm.milestone = 'energised' and pm.organisation_id = o.organisation_id and pm.reached_on <= o.observed_on
+      and not exists (select 1 from public.project_completion_milestones x where x.supersedes_id = pm.id)
       and not public.gf_project_delivery_in_flight(o.project_id, o.observed_on))
   -- 0056 (D5): the observation was not withdrawn with its organisation's consent (a tombstone is permanent, a later re-grant does not lift it).
   and not exists (

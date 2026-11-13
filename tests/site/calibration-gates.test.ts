@@ -143,7 +143,7 @@ describe("the gate list in code is the final view's, not a copy that can drift",
     // 0056's three conditions are filed apart from the six gates: they are the organisation's and the project's decisions, but the administrator's
     // checklist does not read them, so they must not be counted as gates (and a gate must not quietly absorb one).
     expect(conditionsOf("publication").map((c) => c.label)).toEqual([
-      "the organisation's LATEST consent is a grant",
+      "the organisation's LATEST consent is a grant, and no withdrawal followed the consent the row was recorded under",
       "the project attested its completion milestone and no supplier record shows delivery in flight",
       "the observation was not withdrawn (no tombstone)",
     ]);
