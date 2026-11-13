@@ -1,6 +1,7 @@
 import { paymentHoldAnswer } from "@/lib/one-time-holds";
 import { NextResponse } from "next/server";
-import { notifyOperator } from "@/lib/mail";
+import { notifyOperator, redact } from "@/lib/mail";
+import { GENERATION_FAILED_DETAIL } from "@/lib/customer-error";
 import { SITE_URL } from "@/lib/site";
 import { availableReliefs, claimForGeneration, claimStamp, generateAndStore, getByIntakeToken, recoverStaleGenerating, updateByToken } from "@/lib/deliverables";
 import { PRODUCT_BY_KIND, deliverableEndpoint } from "@/lib/products";
@@ -263,6 +264,8 @@ export async function POST(req: Request, ctx: { params: Promise<{ token: string 
 
     if (!stored.ok) {
       const persist = stored.stage === "persist";
+      // The cause goes to the log (addresses and link tokens removed); the buyer is given a fixed sentence below, never the engine client's text.
+      console.error(`[GridForge] intake generation failed at ${stored.stage} (${row.kind}):`, redact(stored.error));
       // The buyer is told "we will pick this up"; nothing else tells anyone, so say it to the operator.
       await notifyOperator(
         `${persist ? "Documents could not be stored" : "Engine could not produce a document"} — ${row.email ?? "unknown buyer"} (${row.kind})`,
@@ -276,7 +279,7 @@ export async function POST(req: Request, ctx: { params: Promise<{ token: string 
           error:
             "Your numbers were saved, but the document could not be produced just now. " +
             "Nothing is lost and nothing was invented — we will pick this up and come back to you.",
-          detail: stored.error,
+          detail: GENERATION_FAILED_DETAIL,
         },
         { status: persist ? 503 : 502 }
       );

@@ -229,23 +229,23 @@ function Observed({ state, projectToken, onSaved }: { state: ProjectState; proje
         </p>
       ) : (
         <form onSubmit={submit} className="space-y-1.5 pt-1">
-          <select value={pick} onChange={(e) => setPick(Number(e.target.value))} className={input}>
+          <select aria-label="Which stored assessment this measurement is of" value={pick} onChange={(e) => setPick(Number(e.target.value))} className={input}>
             {options.map((o, i) => (
               <option key={`${o.case_token}-${o.label}`} value={i}>{`${o.label} · r${o.revision}${o.tag}`}</option>
             ))}
           </select>
           <p className="text-faint">Predicted (engine, stored): {sel?.predicted} MW</p>
-          <input value={observed} onChange={(e) => setObserved(e.target.value)} placeholder="measured firm MW" inputMode="decimal" className={input} />
-          <input type="date" value={on} onChange={(e) => setOn(e.target.value)} className={input} />
-          <input value={method} onChange={(e) => setMethod(e.target.value)} placeholder="how it was measured" className={input} />
-          <select value={kind} onChange={(e) => setKind(e.target.value)} className={input} required>
+          <input aria-label="Measured firm MW" value={observed} onChange={(e) => setObserved(e.target.value)} placeholder="measured firm MW" inputMode="decimal" className={input} />
+          <input type="date" aria-label="Date of the measurement" value={on} onChange={(e) => setOn(e.target.value)} className={input} />
+          <input aria-label="How it was measured" value={method} onChange={(e) => setMethod(e.target.value)} placeholder="how it was measured" className={input} />
+          <select aria-label="Kind of measurement" value={kind} onChange={(e) => setKind(e.target.value)} className={input} required>
             <option value="">Kind of measurement (required)</option>
             <option value="metered">Metered</option>
             <option value="bms_trend">BMS trend</option>
             <option value="commissioning_record">Commissioning record</option>
           </select>
           <p className="text-faint">A vendor quote, an assumed value or a simulation is not a measurement.</p>
-          <select value={evidence} onChange={(e) => setEvidence(e.target.value)} className={input} required>
+          <select aria-label="Source artifact of the measurement" value={evidence} onChange={(e) => setEvidence(e.target.value)} className={input} required>
             <option value="">Source artifact (required)</option>
             {state.evidence.items.map((it) => (
               <option key={it.id} value={it.id}>{it.filename}</option>
@@ -257,8 +257,8 @@ function Observed({ state, projectToken, onSaved }: { state: ProjectState; proje
               I confirm this measurement is of the architecture actually installed — not a plan, RFQ or assessment.
             </span>
           </label>
-          <input value={basis} onChange={(e) => setBasis(e.target.value)} placeholder="how you know it is installed (e.g. commissioning record)" className={input} />
-          <input value={by} onChange={(e) => setBy(e.target.value)} placeholder="who is reporting this" className={input} />
+          <input aria-label="How you know it is installed" value={basis} onChange={(e) => setBasis(e.target.value)} placeholder="how you know it is installed (e.g. commissioning record)" className={input} />
+          <input aria-label="Who is reporting this measurement" value={by} onChange={(e) => setBy(e.target.value)} placeholder="who is reporting this" className={input} />
           <button
             disabled={busy || !observed || !on || !method.trim() || !by.trim() || !evidence || !attested || !basis.trim() || !kind}
             className="rounded border border-power/60 px-3 py-1 text-[12px] text-power disabled:opacity-50"
@@ -491,7 +491,7 @@ function SupplierReality({ state, projectToken, onSaved }: { state: ProjectState
           ) : (
             <form onSubmit={submit} className="space-y-1.5 pt-1">
               {selected.length > 1 && (
-                <select value={pick} onChange={(e) => setPick(Number(e.target.value))} className={input}>
+                <select aria-label="Which selected supplier package these facts are about" value={pick} onChange={(e) => setPick(Number(e.target.value))} className={input}>
                   {selected.map((p, i) => <option key={p.package_token} value={i}>{`${p.architecture} · ${p.selection!.supplier}`}</option>)}
                 </select>
               )}
@@ -503,26 +503,26 @@ function SupplierReality({ state, projectToken, onSaved }: { state: ProjectState
                 </label>
               ))}
               <div className="flex gap-1.5">
-                <input value={cost} onChange={(e) => setCost(e.target.value)} placeholder="actual cost" inputMode="decimal" className={input} />
+                <input aria-label="Actual cost" value={cost} onChange={(e) => setCost(e.target.value)} placeholder="actual cost" inputMode="decimal" className={input} />
                 <input value={currency} onChange={(e) => setCurrency(e.target.value.toUpperCase().slice(0, 3))} className={`${input} w-20`} aria-label="currency" />
               </div>
               {cost !== "" && (
                 <>
-                  <select value={scope} onChange={(e) => setScope(e.target.value)} className={input} required>
+                  <select aria-label="Does this cost cover what the quote priced" value={scope} onChange={(e) => setScope(e.target.value)} className={input} required>
                     <option value="">Does this cost cover what the quote priced? (required)</option>
                     <option value="same_as_quote">Same scope as the quote</option>
                     <option value="differs">Different scope</option>
                     <option value="unknown">I do not know</option>
                   </select>
-                  {scope === "differs" && <input value={scopeNote} onChange={(e) => setScopeNote(e.target.value)} placeholder="what differs" className={input} />}
+                  {scope === "differs" && <input aria-label="What differs from the quote's scope" value={scopeNote} onChange={(e) => setScopeNote(e.target.value)} placeholder="what differs" className={input} />}
                 </>
               )}
-              <select value={evidence} onChange={(e) => setEvidence(e.target.value)} className={input} required>
+              <select aria-label="Source artifact of these facts" value={evidence} onChange={(e) => setEvidence(e.target.value)} className={input} required>
                 <option value="">Source artifact (required)</option>
                 {state.evidence.items.map((it) => <option key={it.id} value={it.id}>{it.filename}</option>)}
               </select>
-              <input value={method} onChange={(e) => setMethod(e.target.value)} placeholder="how these facts were established" className={input} />
-              <input value={by} onChange={(e) => setBy(e.target.value)} placeholder="who is reporting this" className={input} />
+              <input aria-label="How these facts were established" value={method} onChange={(e) => setMethod(e.target.value)} placeholder="how these facts were established" className={input} />
+              <input aria-label="Who is reporting these facts" value={by} onChange={(e) => setBy(e.target.value)} placeholder="who is reporting this" className={input} />
               <button
                 disabled={busy || !anyFact || !evidence || !method.trim() || !by.trim() || (cost !== "" && (!scope || !currency || (scope === "differs" && !scopeNote.trim())))}
                 className="rounded border border-power/60 px-3 py-1 text-[12px] text-power disabled:opacity-50"
@@ -567,7 +567,7 @@ function Commission({ projectToken }: { projectToken: string }) {
 
   return (
     <Card title="COMMISSION FOR THIS PROJECT">
-      <input value={email} onChange={(e) => setEmail(e.target.value)} placeholder="billing email (optional)"
+      <input aria-label="Billing email (optional)" value={email} onChange={(e) => setEmail(e.target.value)} placeholder="billing email (optional)"
         className="w-full rounded border border-line bg-ink px-2 py-1.5 text-[12px] text-ghost" />
       {PROJECT_ATTACHABLE_KINDS.map((kind) => {
         const p = PRODUCTS[kind];

@@ -5,6 +5,8 @@ import { engagementIntakeSchema, toIntakeDocument } from "@/lib/engagement-intak
 import { BASELINE_HEADLINE, weeksLine, getWatch, nextRun, notesFor, recordNote, runWatch, storedChange, updateWatch } from "@/lib/watches";
 import { guardRequest } from "@/lib/rate-limit";
 import { readBoundedJson } from "@/lib/http-body";
+import { GENERATION_FAILED_DETAIL } from "@/lib/customer-error";
+import { redact } from "@/lib/mail";
 
 /** The same outer wall as the engagement intake: the schema bounds every field. */
 const MAX_INTAKE_BYTES = 128 * 1024;
@@ -107,13 +109,15 @@ export async function POST(req: Request, ctx: { params: Promise<{ token: string 
       // intake and last_state move together or not at all. Saving the new intake
       // here without a matching last_state would make the NEXT change be diffed
       // against a baseline from a different hall, and misattributed.
+      // The cause goes to the log (addresses and link tokens removed); the watch's owner is given a fixed sentence, never the engine client's text.
+      console.error("[GridForge] watch re-solve failed:", redact(out.error));
       return NextResponse.json(
         {
           ok: false,
           error:
             "The model could not be re-solved just now, so your updated numbers were NOT saved " +
             "and your watch still shows the previous ones. Nothing was invented — please submit again shortly.",
-          detail: out.error,
+          detail: GENERATION_FAILED_DETAIL,
         },
         { status: 502 }
       );

@@ -53,6 +53,34 @@ describe("security headers", () => {
     for (const r of TOKEN_ROUTES) expect(tokenPages.includes(r) || api.has(r) || query.has(r), `${r} matches no page or route`).toBe(true);
   });
 
+  it("every API route with a [token] segment is covered by a no-store / no-referrer / noindex rule (a token API response is as private as its page)", () => {
+    // Walk every app/api route handler. A path segment named [token] or [shareToken] means the URL carries a bearer credential, and the JSON
+    // it answers (a released deliverable, an intake, a project, a watch, a qualification) must not be stored by a shared cache, sent on as a
+    // referrer or indexed. Adding such a route without a rule must fail here, not in a review.
+    const handlers = (dir: string): string[] => fs.readdirSync(dir, { withFileTypes: true }).flatMap((e) => (e.isDirectory() ? handlers(path.join(dir, e.name)) : e.name === "route.ts" ? [path.join(dir, e.name)] : []));
+    const tokenApiRoutes = handlers("app/api")
+      .map((f) => "/" + path.relative("app", path.dirname(f)).split(path.sep).join("/"))
+      .filter((r) => /\[(token|shareToken)\]/.test(r));
+    expect(tokenApiRoutes.length, "found no token API routes: the walk is broken").toBeGreaterThan(10);
+    const covers = (pattern: string, route: string) => {
+      if (!pattern.endsWith("/:path*")) return pattern === route; // an exact pattern covers that route only
+      const prefix = pattern.slice(0, -"/:path*".length);
+      return route === prefix || route.startsWith(prefix + "/");
+    };
+    for (const r of tokenApiRoutes) {
+      const rules = securityHeaderRules().filter((rule) => rule.source !== "/:path*" && covers(rule.source, r));
+      expect(rules.length, `${r} carries a token in its path and no header rule covers it`).toBeGreaterThan(0);
+      const merged = Object.fromEntries(rules.flatMap((rule) => rule.headers.map((h) => [h.key, h.value])));
+      expect(merged["Cache-Control"], r).toMatch(/no-store/);
+      expect(merged["Referrer-Policy"], r).toBe("no-referrer");
+      expect(merged["X-Robots-Tag"], r).toMatch(/noindex/);
+    }
+    // The named prefixes (the audit found only keys, usage, payg and billing).
+    for (const prefix of ["/api/deliverable", "/api/intake", "/api/watch", "/api/projects", "/api/qualify", "/api/power/deploy/cases"]) {
+      expect(TOKEN_API_ROUTES as readonly string[], prefix).toContain(`${prefix}/:path*`);
+    }
+  });
+
   it("serves AVIF before WebP and keeps remote images to the one allowed host", () => {
     expect(nextConfig.images!.formats).toEqual(["image/avif", "image/webp"]);
     expect(nextConfig.images!.remotePatterns).toHaveLength(1);

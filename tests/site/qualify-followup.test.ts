@@ -104,7 +104,10 @@ describe("a qualified read can ask for a human", () => {
     await POST(post("tok_north_hall", { email: "buyer@acme.example" }), ctx("tok_north_hall"));
     const toBuyer = resendCalls.find((c) => c.body.to.includes("buyer@acme.example"));
     expect(toBuyer).toBeTruthy();
-    expect(toBuyer!.body.text).toContain("North Hall");
+    // The hall's name is free text its creator typed, and this mail goes to an address the caller typed: it is not echoed (see
+    // qualify-followup-relay.test.ts). The figures are the engine's.
+    expect(toBuyer!.body.text).toContain("Your read showed");
+    expect(toBuyer!.body.text).not.toContain("North Hall");
     expect(toBuyer!.body.text).toContain("Rack feed / tap-off rating");
     expect(toBuyer!.body.text).toContain("14");
     // No invented savings, urgency or false claims of measurement on this hall.

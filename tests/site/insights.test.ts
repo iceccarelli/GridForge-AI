@@ -115,16 +115,25 @@ describe("nothing identifying leaves this route", () => {
     }
   });
 
-  it("does not publish the metro of a hall it never answered — THE regression", async () => {
-    // Eight halls scored, so the gate opens. A ninth enquiry failed. Its metro
-    // used to be published anyway: a distinctive location, attached to somebody
-    // who got nothing and was never part of the distribution.
-    seed([...Array.from({ length: 8 }, () => scored()), unscored()]);
+  it("publishes no metro at all: not a hall's it never answered, not one it did", async () => {
+    // History: the metro of an enquiry the engine never answered used to be published (the gate counted solved halls, the list
+    // counted every row). The list was then restricted to solved halls, but `metro` is free text up to 80 characters that ANY
+    // visitor types, so once any eight halls existed a single visitor's text ("Acme Corp Hall 3, Ballycoolin") was published
+    // verbatim. Nothing free-text is published now: aggregate counts only.
+    seed([
+      scored({ metro: "Acme Corp Hall 3, Ballycoolin" }),
+      ...Array.from({ length: 7 }, () => scored()),
+      unscored(),
+    ]);
     const { GET } = await route();
     const body = await (await GET()).json();
     expect(body.published).toBe(true);
-    expect(body.metros).toContain("Dublin");
-    expect(body.metros).not.toContain("Reykjavik");
+    expect(body).not.toHaveProperty("metros");
+    const blob = JSON.stringify(body);
+    for (const text of ["Ballycoolin", "Acme Corp", "Dublin", "Reykjavik"]) expect(blob).not.toContain(text);
+    // The aggregate counts are all still there.
+    expect(body.halls).toBe(8);
+    expect(body.constraints[0].halls).toBe(8);
   });
 });
 

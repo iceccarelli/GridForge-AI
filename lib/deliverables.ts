@@ -15,6 +15,7 @@
 
 import crypto from "node:crypto";
 import { storeFault } from "@/lib/safe-log";
+import { redact } from "@/lib/mail";
 import { PRODUCTS, PRODUCT_BY_KIND, type DeliverableEndpoint } from "./products";
 import { engineFetch } from "@/lib/rate-limit";
 import { ENGINE_CALL_TIMEOUT_MS, claimMeta, generatingStampOf, isStaleGenerating } from "@/lib/engagement-state";
@@ -484,10 +485,13 @@ export async function compareBids(
     const body = (await res.json().catch(() => ({}))) as Record<string, unknown>;
     if (!res.ok) {
       const detail = typeof body?.error === "string" ? body.error : `engine ${res.status}`;
-      console.error("[GridForge] bid comparison refused:", res.status, detail);
+      console.error("[GridForge] bid comparison refused:", res.status, redact(detail));
       // 422 from the engine is the customer's responses being wrong, which they
-      // can fix. Anything else is ours.
-      return { ok: false, status: res.status === 422 ? 422 : 502, error: detail };
+      // can fix: its text is about their own input and is shown. Anything else is ours,
+      // and the engine's own words about it are not the buyer's to read.
+      return res.status === 422
+        ? { ok: false, status: 422, error: detail }
+        : { ok: false, status: 502, error: "The comparison could not be run just now. It has been logged." };
     }
     return {
       ok: true,

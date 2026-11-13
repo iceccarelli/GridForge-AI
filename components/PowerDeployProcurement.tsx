@@ -161,6 +161,7 @@ export function PowerDeployProcurement({
           <p className="text-sm text-mute">This case is not attached to a project in this browser yet.</p>
           {ownerEmail && (
             <input
+              aria-label="Email this case is registered to"
               value={email}
               onChange={(e) => setEmail(e.target.value)}
               placeholder="email this case is registered to"
@@ -168,14 +169,14 @@ export function PowerDeployProcurement({
             />
           )}
           <form onSubmit={createAndAttach} className="flex flex-wrap gap-2">
-            <input value={name} onChange={(e) => setName(e.target.value)} placeholder="new project name"
+            <input aria-label="New project name" value={name} onChange={(e) => setName(e.target.value)} placeholder="new project name"
               className="rounded border border-line bg-ink px-3 py-1.5 text-sm text-ghost" />
             <button disabled={!!busy || !name.trim()} className="rounded border border-power/60 px-3 py-1.5 text-sm text-power disabled:opacity-50">
               {busy === "create" ? "Creating" : "Create project and attach"}
             </button>
           </form>
           <form onSubmit={(e) => { e.preventDefault(); if (tokenInput.trim()) void attachTo(tokenInput.trim()); }} className="flex flex-wrap gap-2">
-            <input value={tokenInput} onChange={(e) => setTokenInput(e.target.value)} placeholder="existing project token"
+            <input aria-label="Existing project token" value={tokenInput} onChange={(e) => setTokenInput(e.target.value)} placeholder="existing project token"
               className="rounded border border-line bg-ink px-3 py-1.5 text-sm text-ghost" />
             <button disabled={!!busy || !tokenInput.trim()} className="rounded border border-line px-3 py-1.5 text-sm text-ghost disabled:opacity-50">
               {busy === "attach" ? "Attaching" : "Attach to project"}
@@ -326,7 +327,7 @@ export function PowerDeployProcurement({
                     </tbody>
                   </table>
                   {!p.selection && (
-                    <input value={actor} onChange={(e) => setActor(e.target.value)} placeholder="your name and role (recorded with the decision)"
+                    <input aria-label="Your name and role (recorded with the decision)" value={actor} onChange={(e) => setActor(e.target.value)} placeholder="your name and role (recorded with the decision)"
                       className="mt-2 w-full max-w-sm rounded border border-line bg-ink px-3 py-1.5 text-sm text-ghost" />
                   )}
                 </div>

@@ -127,6 +127,8 @@ export const RATE_POLICIES = {
   payg_manage: { bucket: "payg_manage", limit: 30, windowSeconds: HOUR },
   /** POST /api/checkout: each valid request creates a Stripe Checkout Session and writes funnel rows. 60 an hour per caller address is a buyer (or an office behind one address) trying products, not a loop. */
   checkout: { bucket: "checkout", limit: 60, windowSeconds: HOUR },
+  /** POST /api/scenarios: each one stores a row for a signed-in, VERIFIED subscriber. Counted per account (`accountOnly`), after entitlement is known; 60 an hour is a person saving comparisons, not a loop. */
+  scenario_save: { bucket: "scenario_save", limit: 60, windowSeconds: HOUR },
   /** POST /api/keys: each one mints (and may rotate) a signed key and, for a free account, takes a place in the monthly ceiling. */
   key_mint: { bucket: "key_mint", limit: 30, windowSeconds: HOUR },
   /**

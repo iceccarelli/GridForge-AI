@@ -4,11 +4,15 @@ import { recordFunnelEvent } from "@/lib/funnel";
 import { accountRef, freeAccountsMax, freeDomainCap } from "@/lib/payg";
 import { verifyFreeAccount } from "@/lib/payg-accounts";
 import { guardRequest } from "@/lib/rate-limit";
+import { readBoundedJson } from "@/lib/http-body";
 import { meteredUnavailable } from "@/lib/api-readiness";
 import { inspectKey } from "@/lib/api-access";
 import { bearerToken, sealPortalResponse, tokenForRead } from "@/lib/portal-token";
 
 export const runtime = "nodejs";
+
+/** The POST body is an account token and a rotate flag. */
+const MAX_BODY_BYTES = 4 * 1024;
 
 /**
  * The customer's key, and rotation.
@@ -86,12 +90,10 @@ async function mintOrRotate(req: Request): Promise<Response> {
     );
   }
   let body: Record<string, unknown> = {};
-  try {
-    const parsedBody: unknown = await req.json();
-    if (parsedBody && typeof parsedBody === "object" && !Array.isArray(parsedBody)) body = parsedBody as Record<string, unknown>;
-  } catch {
-    /* empty body means "issue if I have none" */
-  }
+  // A token and a flag. Bounded before it is parsed; an oversized body is refused, an empty or unreadable one means "issue if I have none".
+  const read = await readBoundedJson(req, MAX_BODY_BYTES);
+  if (!read.ok && read.status === 413) return NextResponse.json({ ok: false, error: "That request is too large." }, { status: 413 });
+  if (read.ok && read.value && typeof read.value === "object" && !Array.isArray(read.value)) body = read.value as Record<string, unknown>;
   // Same precedence as GET: when the request carries an Authorization header the token is read from it ALONE (a stale `token` left in the body
   // cannot override a caller's explicit credential); only without that header is the body's `token` used. Never from the query string on a write.
   const token = req.headers.has("authorization") ? bearerToken(req) : typeof body.token === "string" ? body.token : "";

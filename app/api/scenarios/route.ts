@@ -7,6 +7,9 @@ import {
   subscriptionsConfigured,
 } from "@/lib/subscribers";
 import { identify, identityRefusal } from "@/lib/portal";
+import { guardRequest } from "@/lib/rate-limit";
+import { readBoundedJson } from "@/lib/http-body";
+import { MAX_SCENARIOS_PER_SUBSCRIBER, MAX_SCENARIO_BODY_BYTES } from "@/lib/scenario-limits";
 
 export const runtime = "nodejs";
 
@@ -95,18 +98,37 @@ export async function POST(req: Request) {
   const who = await whoIs(req);
   if (who.denied) return who.denied;
   const email = who.email;
-  let b: Record<string, unknown> = {};
-  try {
-    b = (await req.json()) as Record<string, unknown>;
-  } catch {
-    return NextResponse.json({ ok: false, error: "Invalid payload" }, { status: 400 });
+  // Bounded before it is parsed: a save is a name, a region id and four numbers.
+  const read = await readBoundedJson(req, MAX_SCENARIO_BODY_BYTES);
+  if (!read.ok) {
+    return NextResponse.json({ ok: false, error: read.status === 413 ? "That request is too large." : "Invalid payload" }, { status: read.status });
   }
+  const b = read.value as Record<string, unknown>;
   if (!b || typeof b !== "object" || Array.isArray(b)) {
     return NextResponse.json({ ok: false, error: "Invalid payload" }, { status: 400 });
   }
   if (!subscriptionsConfigured()) return storeUnavailable();
   const denied = await denyIfNotEntitled(email);
   if (denied) return denied;
+
+  // Identified, entitled and well-formed: now admitted (and counted) per verified account, so a subscriber's loop cannot write rows without
+  // bound. A request refused above costs nothing.
+  const g = await guardRequest(req, "scenario_save", { account: { verifiedEmail: email, policy: "scenario_save" }, accountOnly: true });
+  if (g.denied) return g.denied;
+
+  // A per-subscriber cap, enforced here before the write (see lib/scenario-limits.ts: a count then an insert, not a transaction).
+  const existing = await listScenarios(email);
+  if (existing === null) return storeUnavailable();
+  if (existing.length >= MAX_SCENARIOS_PER_SUBSCRIBER) {
+    return NextResponse.json(
+      {
+        ok: false,
+        error: `You have saved the maximum of ${MAX_SCENARIOS_PER_SUBSCRIBER} scenarios. Delete one you no longer need, then save again.`,
+        limit: MAX_SCENARIOS_PER_SUBSCRIBER,
+      },
+      { status: 409 }
+    );
+  }
 
   // Bound every field before it reaches the store. A name is a display string, so
   // it is truncated rather than rejected; a number that is not a number is zero,

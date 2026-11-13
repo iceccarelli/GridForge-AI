@@ -137,6 +137,7 @@ export function AdminDashboard({
         <div className="relative flex-1 min-w-[200px]">
           <Search size={15} className="absolute left-3 top-1/2 -translate-y-1/2 text-faint" />
           <input
+            aria-label="Search leads by company, name, email or location"
             value={q}
             onChange={(e) => setQ(e.target.value)}
             placeholder="Search company, name, email, location…"
@@ -149,6 +150,7 @@ export function AdminDashboard({
           options={[["all", "All tiers"], ["hot", "Hot"], ["warm", "Warm"], ["exploratory", "Exploratory"]]}
         />
         <select
+          aria-label="Filter leads by status"
           value={statusFilter}
           onChange={(e) => setStatusFilter(e.target.value as LeadStatus | "all")}
           className="field px-3 py-2.5 rounded-lg text-sm"
@@ -217,6 +219,7 @@ export function AdminDashboard({
                   <div className="flex items-center gap-2 pt-1">
                     <span className="eyebrow text-[10px] text-faint">STATUS</span>
                     <select
+                      aria-label={`Status of the lead from ${l.company || "this company"}`}
                       value={l.status}
                       onChange={(e) => setStatus(l.id, e.target.value as LeadStatus)}
                       disabled={saving === l.id}

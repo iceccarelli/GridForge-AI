@@ -10,9 +10,13 @@ import { projectForShare } from "@/lib/project-share";
 import { qualificationForCheckout } from "@/lib/qualify";
 import { pg, rpc } from "@/lib/payg-store";
 import { guardRequest } from "@/lib/rate-limit";
+import { readBoundedJson } from "@/lib/http-body";
 import { LEGACY_DEPOSIT_KIND, recordCheckoutEvent, type CheckoutFailureReason } from "@/lib/funnel";
 
 export const runtime = "nodejs";
+
+/** A checkout body is a product id, a company, an address and a few tokens: well under a kilobyte. 16 KB leaves room for every field and nothing else. */
+const MAX_BODY_BYTES = 16 * 1024;
 
 /** How long a Founding Partner slot stays reserved for a checkout that has not completed. */
 const FOUNDING_RESERVATION_MINUTES = 35;
@@ -61,7 +65,8 @@ export async function POST(req: Request) {
     // The product is not known yet at this point of the route: read it only to count the refusal (a failed read or an invalid product
     // records nothing). The answer below is the same whatever this finds.
     try {
-      const peeked = selectProduct(await req.json());
+      const read = await readBoundedJson(req, MAX_BODY_BYTES);
+      const peeked = selectProduct(read.ok ? read.value : null);
       const peekedKind = peeked.valid ? (peeked.productId ? PRODUCTS[peeked.productId].kind : process.env.GRIDFORGE_LEGACY_DEPOSIT === "1" ? LEGACY_DEPOSIT_KIND : null) : null;
       if (peekedKind) await recordCheckoutEvent("checkout_failed", { kind: peekedKind, reason: "payments_not_configured" });
     } catch {
@@ -75,13 +80,13 @@ export async function POST(req: Request) {
   const stripe = boundedStripeClient(key);
 
   let body: Record<string, unknown> = {};
-  try {
-    const parsedBody: unknown = await req.json();
-    // JSON `null`, a number, a string or an array is not an object: read it as an empty body rather than fail on `body.company`.
-    if (parsedBody && typeof parsedBody === "object" && !Array.isArray(parsedBody)) body = parsedBody as Record<string, unknown>;
-  } catch {
-    /* empty body is fine — deposit has fixed defaults */
+  // Bounded before it is parsed: this route is open to anyone. An oversized body is refused; an unreadable or empty one is fine (deposit has fixed defaults).
+  const read = await readBoundedJson(req, MAX_BODY_BYTES);
+  if (!read.ok && read.status === 413) {
+    return NextResponse.json({ ok: false, error: "That request is too large." }, { status: 413 });
   }
+  // JSON `null`, a number, a string or an array is not an object: read it as an empty body rather than fail on `body.company`.
+  if (read.ok && read.value && typeof read.value === "object" && !Array.isArray(read.value)) body = read.value as Record<string, unknown>;
 
   const company = typeof body.company === "string" ? body.company : "";
   const email = typeof body.email === "string" ? body.email : undefined;
