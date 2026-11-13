@@ -17,7 +17,6 @@ the python half of tests/site/openapi-examples.test.ts and tests/site/openapi-co
 """
 from __future__ import annotations
 
-import copy
 import json
 import os
 import re
@@ -29,6 +28,7 @@ from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
+from openapi_example_support import EXAMPLES, resolve
 
 from gridforge.api import server as S
 from gridforge.api.tiers import Tier
@@ -37,7 +37,6 @@ from gridforge.compute.library import PLATFORMS
 
 ROOT = Path(__file__).resolve().parents[1]
 HONESTY = json.loads((ROOT / "lib" / "openapi-honesty.json").read_text())
-EXAMPLES = json.loads((ROOT / "lib" / "openapi-examples.json").read_text())
 PUBLISHED = json.loads((ROOT / "public" / "reference" / "tools.json").read_text())
 QUALIFY_TOOL = TOOLS_BY_NAME["gridforge_qualify"]
 QUALIFY_SCHEMA = QUALIFY_TOOL["inputSchema"]
@@ -597,33 +596,6 @@ def test_every_json_response_carries_the_version_in_the_body_and_the_header_and_
 # =================================================================================================================================
 # S3-7  the request examples and the response keys
 # =================================================================================================================================
-def set_path(target, dotted, value):
-    parts = dotted.split(".")
-    cur = target
-    for p in parts[:-1]:
-        cur = cur.setdefault(p, {})
-    cur[parts[-1]] = value
-
-
-def resolve(node):
-    if isinstance(node, list):
-        return [resolve(x) for x in node]
-    if isinstance(node, dict):
-        if "$from" in node:
-            assert set(node) <= {"$from", "$set"}, node
-            src = node["$from"]
-            if src.startswith("#bases/"):
-                base_doc = EXAMPLES["bases"][src[len("#bases/"):]]
-            else:
-                base_doc = json.loads((ROOT / src).read_text())
-            out = copy.deepcopy(base_doc)
-            for dotted, value in node.get("$set", {}).items():
-                set_path(out, dotted, copy.deepcopy(value))
-            return out
-        return {k: resolve(v) for k, v in node.items()}
-    return node
-
-
 EXAMPLE_ITEMS = [(path, name, resolve(e["value"])) for path, named in EXAMPLES["requests"].items() for name, e in named.items()]
 POST_PATHS = sorted({t["endpoint"] for t in TOOLS} | {"/v1/deck", "/mcp"})
 

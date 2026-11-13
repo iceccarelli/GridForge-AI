@@ -315,9 +315,10 @@ export default async function DevelopersPage() {
             under errors; the JSON-RPC codes are what the same call returns over <span className="font-mono text-ghost">/mcp</span>.
           </p>
           <div className="mt-5 overflow-x-auto" role="region" aria-label="Key, unit weight, evidence boundary and failure modes of every endpoint" tabIndex={0}>
-            <table className="w-full min-w-[960px] border-collapse text-sm" data-testid="endpoint-reference">
+            <table className="w-full min-w-[1000px] border-collapse text-sm" data-testid="endpoint-reference">
               <thead>
                 <tr className="border-b border-line text-left font-mono text-[10px] uppercase tracking-[0.14em] text-faint">
+                  <th className="py-2 pr-4">Tool</th>
                   <th className="py-2 pr-4">Endpoint</th>
                   <th className="py-2 pr-4">Key</th>
                   <th className="py-2 pr-4 text-right">Units</th>
@@ -332,9 +333,10 @@ export default async function DevelopersPage() {
                   return (
                     <tr key={r.id} data-endpoint={r.endpoint} data-availability={availability} className="border-b border-line/60 align-top">
                       <td className="py-3 pr-4 font-mono text-xs text-ghost">
-                        {r.method} {r.endpoint}
-                        <span className="mt-0.5 block text-[10px] text-faint">{r.id === "deck" ? "REST only, no MCP tool" : r.id === "mcp" ? "JSON-RPC 2.0" : r.id}</span>
+                        {r.id}
+                        {r.id === "deck" ? <span className="mt-0.5 block text-[10px] text-faint">REST only, no MCP tool</span> : null}
                       </td>
+                      <td className="py-3 pr-4 font-mono text-xs text-mute">{r.endpoint}</td>
                       {served ? (
                         <>
                           <td className="py-3 pr-4 text-xs text-mute" data-field="key">{r.id === "mcp" ? "none; each tool keeps its own" : r.needsKey ? "required" : "none"}</td>

@@ -23,7 +23,7 @@ import robots from "@/app/robots";
 import sitemap from "@/app/sitemap";
 import { capabilityById } from "@/lib/capability-registry";
 import { sameAsUrls } from "@/lib/entity";
-import { INTELLIGENCE_PLANS, PRODUCTS } from "@/lib/products";
+import { INTELLIGENCE_PLANS, PAYG, PRODUCTS } from "@/lib/products";
 import { SITE_URL } from "@/lib/site";
 import { FULL_ENGINE, stubEngine } from "./engine-stub";
 
@@ -57,6 +57,8 @@ const ALLOWED_TOP_LEVEL = new Set([
   "Organization", "ProfessionalService", "Person", "WebSite",
   // priced things, derived from lib/products.ts (tests/site/jsonld-offers.test.ts), never typed
   "OfferCatalog", "Offer", "Service",
+  // the metered engine API, with its free allowance, pay-as-you-go and plans as Offers (lib/jsonld.ts apiServiceJsonLd; tests/site/jsonld-offers.test.ts)
+  "WebAPI",
 ]);
 const ALLOWED_NESTED = new Set([
   "ListItem", "PropertyValue", "DataDownload", "ImageObject", "ContactPoint", "Place", "QuantitativeValue", "Question", "Answer",
@@ -383,6 +385,7 @@ describe("per page: structured data", () => {
     const amounts = new Set<number>([
       ...Object.values(PRODUCTS).map((p) => p.amountCents),
       ...Object.values(INTELLIGENCE_PLANS).map((p) => p.priceCents),
+      PAYG.unitPriceCents,
     ]);
     const bad: string[] = [];
     for (const w of walked) {

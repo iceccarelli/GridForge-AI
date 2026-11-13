@@ -9,38 +9,19 @@ against any engine checkout (PYTHONPATH).
 """
 from __future__ import annotations
 
-import copy
 import json
 from pathlib import Path
 
 import pytest
+
+from openapi_example_support import EXAMPLES, resolve
 
 from gridforge.api import server as S
 from gridforge.api.tiers import Tier
 
 ROOT = Path(__file__).resolve().parents[1]
 HONESTY = json.loads((ROOT / "lib" / "openapi-honesty.json").read_text())
-EXAMPLES = json.loads((ROOT / "lib" / "openapi-examples.json").read_text())
 HALL = json.loads((ROOT / "public" / "reference" / "examples" / "qualify-request.json").read_text())
-
-
-def resolve(node):
-    if isinstance(node, list):
-        return [resolve(x) for x in node]
-    if isinstance(node, dict):
-        if "$from" in node:
-            src = node["$from"]
-            base = EXAMPLES["bases"][src[len("#bases/"):]] if src.startswith("#bases/") else json.loads((ROOT / src).read_text())
-            out = copy.deepcopy(base)
-            for dotted, value in node.get("$set", {}).items():
-                parts = dotted.split(".")
-                cur = out
-                for p in parts[:-1]:
-                    cur = cur.setdefault(p, {})
-                cur[parts[-1]] = copy.deepcopy(value)
-            return out
-        return {k: resolve(v) for k, v in node.items()}
-    return node
 
 
 ADDITIVE = [(path, name, e) for path, spec in HONESTY["responses"].items() if spec.get("additive_top_level")
