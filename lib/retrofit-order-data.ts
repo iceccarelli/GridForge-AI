@@ -17,6 +17,7 @@
 import fs from "node:fs/promises";
 import path from "node:path";
 import { constraintReference, platformLibrary, type ConstraintDoc, type PlatformEntry } from "@/lib/constraints";
+import K from "@/lib/engineering-constants.json";
 import type { QA } from "@/lib/qa";
 
 /** The retrofit the guide walks through: direct liquid cooling added to the hall, keeping the existing plant for the residual air. Chosen by id so a reordering of the pack cannot change it. */
@@ -55,6 +56,8 @@ export interface PackConstraint {
   /** Racks this constraint permits; null where the pack attaches no count (a gate that passes, or a constraint the architecture does not use). */
   racks: number | null;
   basis: string;
+  /** The relief the pack names for it: what it is, and the risk the engine records against it. */
+  relief: { description: string | null; risk: string | null } | null;
 }
 
 export interface LadderStep {
@@ -70,6 +73,8 @@ export interface LadderStep {
   scope: string | null;
   leadTime: Qty | null;
   notTakenReason: string | null;
+  /** Where the step's price comes from, e.g. "library_default". */
+  costBasis: string | null;
 }
 
 export interface CurvePoint {
@@ -93,8 +98,13 @@ export interface Scenario {
     setsTheDate: string | null;
     dateLabel: string | null;
     dateClass: string | null;
+    /** The whole of the pack's statement of what the schedule does not model. */
     limitation: string | null;
     calculationVersion: string | null;
+    /** Where the date-setting lead time came from, in the pack's words, and the component it belongs to. */
+    leadTimeSource: string | null;
+    leadTimeSourceLabel: string | null;
+    controllingComponent: string | null;
     curve: CurvePoint[];
   };
 }
@@ -113,6 +123,8 @@ export interface HallInputs {
   containment: string;
   floorType: string;
   floorLoadingNote: string;
+  floorLoadingKPa: number;
+  aislePitchM: number;
   tapoffA: number;
   voltageV: number;
   buswayA: number;
@@ -131,6 +143,8 @@ export interface RetrofitPack {
   synthetic: true;
   notice: string;
   hall: HallInputs;
+  /** The intake paths the pack lists as supplied (not assumed). */
+  supplied: string[];
   scenarios: Scenario[];
 }
 
@@ -157,7 +171,8 @@ function parseConstraint(v: unknown): PackConstraint | null {
   if (id === null || name === null || domain === null || basis === null || typeof v.gate !== "boolean") return null;
   const racks = v.racks_permitted === null ? null : num(v.racks_permitted);
   if (v.racks_permitted !== null && racks === null) return null;
-  return { id, name, domain, gate: v.gate, racks, basis };
+  const rel = isObj(v.relief) ? { description: str(v.relief.description), risk: str(v.relief.risk) } : null;
+  return { id, name, domain, gate: v.gate, racks, basis, relief: rel };
 }
 
 function parseStep(v: unknown): LadderStep | null {
@@ -167,7 +182,7 @@ function parseStep(v: unknown): LadderStep | null {
   if (step === null || before === null || after === null || constraint === null || name === null || domain === null || relief === null || typeof v.taken !== "boolean") return null;
   return {
     step, constraint, name, domain, racksBefore: before, racksAfter: after, taken: v.taken, relief,
-    risk: strOr(v.risk, ""), scope: str(v.scope), leadTime: parseQty(v.lead_time_weeks), notTakenReason: str(v.not_taken_reason),
+    risk: strOr(v.risk, ""), scope: str(v.scope), leadTime: parseQty(v.lead_time_weeks), notTakenReason: str(v.not_taken_reason), costBasis: str(v.cost_basis),
   };
 }
 
@@ -205,6 +220,9 @@ function parseScenario(v: unknown): Scenario | null {
       dateClass: str(t.date_evidence_class),
       limitation: str(rec?.limitation),
       calculationVersion: str(rec?.calculation_version),
+      leadTimeSource: str(rec?.lead_time_source),
+      leadTimeSourceLabel: str(rec?.lead_time_source_label),
+      controllingComponent: str(rec?.controlling_component),
       curve,
     },
   };
@@ -228,6 +246,7 @@ function parseHall(doc: unknown): HallInputs | null {
     sitePeakMW: num(peak.value), itLoadMW: num(grid.current_it_load_MW), queueNote: str(grid.queue_note),
     rackPositions: num(hall.rack_positions), positionsAvailable: num(hall.positions_available), designDensityKw: num(hall.design_density_kW_per_rack),
     containment: str(hall.containment), floorType: str(hall.floor_type), floorLoadingNote: str(floor?.note),
+    floorLoadingKPa: num(floor?.value), aislePitchM: num(hall.aisle_pitch_m),
     tapoffA: num(lv.tapoff_max_A), voltageV: num(lv.voltage_V), buswayA: num(busway.value), buswayRuns: num(lv.busway_runs), buswayUtilisation: num(lv.busway_utilisation_limit),
     txUnits: num(tx.units), txRating: num(tx.unit_rating_MVA), txRedundancy: str(tx.redundancy), txDerating: num(tx.derating_factor),
     upsUnits: num(ups.units), upsRating: num(ups.unit_rating_kW), upsRedundancy: str(ups.redundancy),
@@ -238,7 +257,7 @@ function parseHall(doc: unknown): HallInputs | null {
   return {
     id: f.id!, buildYear: f.buildYear!, contractedMW: f.contractedMW!, firmCapacityMVA: f.firmCapacityMVA!, sitePeakMW: f.sitePeakMW!, itLoadMW: f.itLoadMW!,
     queueNote: f.queueNote!, rackPositions: f.rackPositions!, positionsAvailable: f.positionsAvailable!, designDensityKw: f.designDensityKw!,
-    containment: f.containment!, floorType: f.floorType!, floorLoadingNote: f.floorLoadingNote!, tapoffA: f.tapoffA!, voltageV: f.voltageV!,
+    containment: f.containment!, floorType: f.floorType!, floorLoadingNote: f.floorLoadingNote!, floorLoadingKPa: f.floorLoadingKPa!, aislePitchM: f.aislePitchM!, tapoffA: f.tapoffA!, voltageV: f.voltageV!,
     buswayA: f.buswayA!, buswayRuns: f.buswayRuns!, buswayUtilisation: f.buswayUtilisation!,
     transformer: { units: f.txUnits!, ratingMVA: f.txRating!, redundancy: f.txRedundancy!, derating: f.txDerating! },
     ups: { units: f.upsUnits!, ratingKW: f.upsRating!, redundancy: f.upsRedundancy! },
@@ -261,7 +280,8 @@ export function parseRetrofitPack(raw: unknown): RetrofitPack | null {
   if (scenarios.some((s) => s === null)) return null;
   const list = scenarios as Scenario[];
   if (!list.some((s) => s.id === SCENARIO_ID)) return null;
-  return { schema, generated, synthetic: true, notice, hall, scenarios: list };
+  const supplied = Array.isArray(raw.intake.supplied) ? raw.intake.supplied.filter((x): x is string => typeof x === "string") : [];
+  return { schema, generated, synthetic: true, notice, hall, supplied, scenarios: list };
 }
 
 async function readJson<T>(file: string): Promise<T | null> {
@@ -416,6 +436,9 @@ export function capabilityRange(s: Scenario): CapabilityRange | null {
 
 export interface BandRow {
   kw: number;
+  /** The feed current at the low and high end of the library's band for it. */
+  feedLowA: number;
+  feedHighA: number;
   /** Why this rack power is a point of the band, in the library's terms. */
   from: string[];
   feedA: number;
@@ -426,8 +449,12 @@ export interface BandRow {
 
 export interface BandArithmetic {
   rows: BandRow[];
+  /** The library's own class for the feed current, its band as a fraction, and the supply it is stated at. */
+  feed: { evidence: string; bandFraction: number; voltageV: number; phases: number };
   /** The largest rack the installed tap-off can feed, at the library's feed current per kW. */
   maxRackOnTapoffKw: number;
+  /** The same if the library's current were too HIGH by the whole band (the most favourable case for the tap-off). */
+  maxRackOnTapoffHighKw: number;
   /** The largest rack whose residual air the position can remove, at each library platform's liquid share. */
   maxRackOnAir: { platformId: string; platformName: string; liquidShare: number; kw: number }[];
   /** The reference platform's own figures reproduced by the same arithmetic (a check, not a result). */
@@ -456,17 +483,21 @@ export function bandArithmetic(pack: RetrofitPack, platform: PlatformEntry, libr
   const kws = [...labels.keys()].sort((a, b) => a - b);
   if (!kws.length || !libraryPlatforms.length) return null;
   const feedPerKw = platform.rack_feed_current_A / platform.rack_kW;
+  const frac = K.rack_feed.library_feed_current_band_fraction;
   const air = (kw: number, p: PlatformEntry) => {
     const load = kw * (1 - p.liquid_fraction);
     return { platformId: p.id, platformName: p.name, liquidShare: p.liquid_fraction, kw: load, overBy: load - pack.hall.residualAirKw.value };
   };
   const rows: BandRow[] = kws.map((kw) => ({
-    kw, from: labels.get(kw)!, feedA: feedPerKw * kw, tapoffShortfallA: feedPerKw * kw - pack.hall.tapoffA, air: libraryPlatforms.map((p) => air(kw, p)),
+    kw, from: labels.get(kw)!, feedA: feedPerKw * kw, feedLowA: feedPerKw * kw * (1 - frac), feedHighA: feedPerKw * kw * (1 + frac),
+    tapoffShortfallA: feedPerKw * kw - pack.hall.tapoffA, air: libraryPlatforms.map((p) => air(kw, p)),
   }));
   const own = air(platform.rack_kW, platform);
   return {
     rows,
+    feed: { evidence: K.rack_feed.library_feed_current_class, bandFraction: frac, voltageV: K.rack_feed.library_feed_voltage_V, phases: K.rack_feed.library_feed_phases },
     maxRackOnTapoffKw: pack.hall.tapoffA / feedPerKw,
+    maxRackOnTapoffHighKw: pack.hall.tapoffA / (feedPerKw * (1 - frac)),
     maxRackOnAir: libraryPlatforms.map((p) => ({ platformId: p.id, platformName: p.name, liquidShare: p.liquid_fraction, kw: pack.hall.residualAirKw.value / (1 - p.liquid_fraction) })),
     check: {
       feedA: feedPerKw * platform.rack_kW,
@@ -497,11 +528,27 @@ export interface GuideModel {
   /** How many of the limits name an E0 figure in their basis. */
   withE0: number;
   calibration: Calibration | null;
+  /** The engine's raised-floor note, as the published study prints it, or null if the published files do not carry it. */
+  floorNote: string | null;
+  /** True when every price in the followed ladder has the same basis, and that basis. */
+  costBasis: string | null;
+  /** The intake inputs the pack lists as supplied that are lead times. */
+  suppliedLeadTimes: string[];
 }
 
 /** Everything the page needs, or null if the published files are not what the guide was written against (the page then says so and prints nothing from memory). */
+/** The sentence the published study prints about a raised floor, or null. The model pack's constraint rows do not carry the engine's notes; the study does. */
+export async function readFloorNote(): Promise<string | null> {
+  try {
+    const md = await fs.readFile(path.join(process.cwd(), "public", "reference", "envelope_study.md"), "utf8");
+    return /Raised floor: [^\n]*/.exec(md)?.[0].trim() ?? null;
+  } catch {
+    return null;
+  }
+}
+
 export async function loadGuideModel(): Promise<GuideModel | null> {
-  const [raw, ref, lib, calibration] = await Promise.all([readJson<unknown>("model_pack.json"), constraintReference(), platformLibrary(), readCalibration()]);
+  const [raw, ref, lib, calibration, floorNote] = await Promise.all([readJson<unknown>("model_pack.json"), constraintReference(), platformLibrary(), readCalibration(), readFloorNote()]);
   const pack = parseRetrofitPack(raw);
   if (!pack || !ref || !lib) return null;
   const scenario = pack.scenarios.find((s) => s.id === SCENARIO_ID)!;
@@ -514,7 +561,12 @@ export async function loadGuideModel(): Promise<GuideModel | null> {
   return {
     pack, scenario, comparison: pack.scenarios.find((s) => s.id === COMPARISON_ID) ?? null, platform, libraryPlatforms, docs, order,
     zero: order.filter((o) => o.racks === 0), starts: startOrder(scenario), band: bandArithmetic(pack, platform, libraryPlatforms),
-    withE0: order.filter((o) => o.classes.includes("E0")).length, calibration,
+    withE0: order.filter((o) => o.classes.includes("E0")).length, calibration, floorNote,
+    costBasis: (() => {
+      const b = new Set(scenario.ladder.filter((s) => s.taken).map((s) => s.costBasis));
+      return b.size === 1 ? ([...b][0] ?? null) : null;
+    })(),
+    suppliedLeadTimes: pack.supplied.filter((p) => /lead_time/.test(p)),
   };
 }
 
@@ -534,6 +586,44 @@ const WORDS = ["zero", "one", "two", "three", "four", "five", "six", "seven", "e
 export const words = (v: number): string => (Number.isInteger(v) && v >= 0 && v < WORDS.length ? WORDS[v] : fmt(v));
 export const ucfirst = (s: string): string => s.charAt(0).toUpperCase() + s.slice(1);
 export const fmtQty = (q: Qty): string => (q.low !== null && q.high !== null ? `${fmt(q.value)} [${fmt(q.low)}–${fmt(q.high)}]` : fmt(q.value));
+/**
+ * Where a lead time came from, in the pack's own words, for the one component the pack records it for. The pack marks the source only for the
+ * lead time that sets the date; for any other component this returns null and the page says the pack does not mark it.
+ */
+export function leadSourceFor(s: Scenario, componentName: string): string | null {
+  return s.time.controllingComponent === componentName ? s.time.leadTimeSourceLabel : null;
+}
+
+/** The same for a named component: the pack's source for the date-setting lead time, or the plain statement that it records one only for that. */
+export function leadProvenanceFor(s: Scenario, componentName: string): string {
+  return s.time.controllingComponent === componentName
+    ? leadProvenance(s)
+    : "The pack records a source only for the lead time that sets the date; the engine classes any lead time, supplied or library, as E0, an assumption and not a quotation.";
+}
+
+/** The sentences of a text that match a pattern, unchanged (sentence split as firstSentences does). */
+export function sentencesMatching(text: string, re: RegExp): string[] {
+  return text.split(/(?<=\.)\s+(?=[A-Z])/).filter((x) => re.test(x));
+}
+
+/**
+ * Why the date-setting lead time has the band it has, when the pack and the engine's constants agree: a supplied value carries the engine's
+ * supplied-value band, not the library default's. Null unless the numbers actually match, so it never explains a band it cannot account for.
+ */
+export function suppliedBandNote(s: Scenario, lead: Qty): string | null {
+  const t = K.transformer_lead_time;
+  const f = t.supplied_band_fraction;
+  if (!s.time.leadTimeSourceLabel || !/supplied/i.test(s.time.leadTimeSourceLabel) || lead.low === null || lead.high === null) return null;
+  if (Math.abs(lead.value * (1 - f) - lead.low) > 0.5 || Math.abs(lead.value * (1 + f) - lead.high) > 0.5) return null;
+  return `Its band of ${fmt(lead.low)}–${fmt(lead.high)} weeks is the engine's ±${fmt(Math.round(f * 100))}% band around a supplied value; the library default for a transformer is ${fmt(t.default_weeks)} weeks in a band of ${fmt(t.default_band_weeks[0])}–${fmt(t.default_band_weeks[1])}.`;
+}
+
+/** The sentence about the date-setting lead time's provenance and class. Built only from the pack's label; it names no source the pack does not. */
+export function leadProvenance(s: Scenario): string {
+  const label = s.time.leadTimeSourceLabel;
+  return `${label ? `The pack records its source as “${label}”` : "The pack does not record its source"}; the engine classes any lead time, supplied or library, as E0, an assumption and not a quotation.`;
+}
+
 /** A lead time in a sentence: the value, its band and its class. */
 export const fmtLead = (q: Qty): string =>
   `${fmt(q.value)} weeks${q.low !== null && q.high !== null ? ` (band ${fmt(q.low)}–${fmt(q.high)}, ${q.evidence.slice(0, 2)})` : ` (${q.evidence.slice(0, 2)})`}`;
@@ -561,7 +651,7 @@ export function faqItems(m: GuideModel): QA[] {
   if (transformer && t.dateLabel && m.zero.length) {
     items.push({
       q: "Which relief should be started first?",
-      a: `The one with the longest lead time, which is not the limit that binds first. In the example that is ${lc(transformer.name)} at ${fmtLead(transformer.lead)}, an assumed library figure and not a quotation. It adds no racks while a gate is still at zero, so starting it early shortens the programme without changing the order. The model dates the whole programme as "${t.dateLabel}".`,
+      a: `The one with the longest lead time, which is not the limit that binds first. In the example that is ${lc(transformer.name)} at ${fmtLead(transformer.lead)}. ${leadProvenanceFor(m.scenario, transformer.name)} It adds no racks while a gate is still at zero, so starting it early shortens the programme without changing the order. The model dates the whole programme as "${t.dateLabel}".`,
     });
   }
   items.push({
@@ -570,7 +660,7 @@ export function faqItems(m: GuideModel): QA[] {
   });
   items.push({
     q: "Are these figures measured?",
-    a: `No. The hall is invented, the platform figures are held in the library as assumptions from cited sources, and every lead time is an assumption (E0). The calibration record reports ${m.calibration ? `${fmt(m.calibration.observations)} reconciled observations across ${fmt(m.calibration.sites)} sites` : "its state on the evidence page"}.`,
+    a: `No. The hall is invented, the platform figures are held in the library as assumptions from cited sources, and every lead time is an assumption (E0), whether supplied in the synthetic intake or taken from the library. The calibration record reports ${m.calibration ? `${fmt(m.calibration.observations)} reconciled observations across ${fmt(m.calibration.sites)} sites` : "its state on the evidence page"}.`,
   });
   return items;
 }

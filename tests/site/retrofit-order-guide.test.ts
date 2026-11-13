@@ -20,6 +20,7 @@ import { renderToStaticMarkup } from "react-dom/server";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import sitemap from "@/app/sitemap";
 import { PAGE_CARDS } from "@/lib/page-cards";
+import K from "@/lib/engineering-constants.json";
 import { PRODUCT_PAGES } from "@/lib/product-pages";
 import { PRODUCTS, eurFromCents } from "@/lib/products";
 import { pageablePlatforms } from "@/lib/platform-pages";
@@ -231,6 +232,15 @@ describe("drift: no figure on the page is typed", () => {
       for (const p of lib) allowed.add(norm(f1(kw * (1 - p.liquid_fraction))));
     }
     allowed.add(norm(f1((m.pack.hall.tapoffA * gb300.rack_kW) / gb300.rack_feed_current_A)));
+    // the library's band on the feed current (lib/engineering-constants.json, drift-tested against the engine), recomputed here
+    const frac = K.rack_feed.library_feed_current_band_fraction;
+    for (const kw of m.band!.rows.map((r) => r.kw)) {
+      const a = (gb300.rack_feed_current_A * kw) / gb300.rack_kW;
+      for (const v of [a * (1 - frac), a * (1 + frac)]) allowed.add(norm(String(Math.round(v))));
+    }
+    allowed.add(norm(f1((m.pack.hall.tapoffA * gb300.rack_kW) / (gb300.rack_feed_current_A * (1 - frac)))));
+    for (const x of [K.transformer_lead_time.supplied_band_fraction, K.rack_feed.library_feed_current_band_fraction]) allowed.add(String(Math.round(x * 100))); // bands shown as percentages
+    for (const t of tokens(JSON.stringify(K))) allowed.add(t); // the engine's published constants: the supplied-value band and the library default for a transformer
     for (const p of lib) allowed.add(norm(f1(m.pack.hall.residualAirKw.value / (1 - p.liquid_fraction))));
     allowed.add(norm(String(gb300.rack_kW / gb300.residual_air_kW))); // "about 10 times lower"
     for (const p of lib) allowed.add(String(Math.round(p.liquid_fraction * 100))); // the liquid share as a percentage
@@ -459,7 +469,7 @@ describe("the order and its helpers", () => {
   });
 
   it("reads a gate that passes as no count, one that fails as zero, and says so", () => {
-    const base = { id: "x", name: "X", domain: "thermal", basis: "b" };
+    const base = { id: "x", name: "X", domain: "thermal", basis: "b", relief: null };
     expect(limitState({ ...base, gate: true, racks: null })).toBe("passes");
     expect(limitState({ ...base, gate: true, racks: 0 })).toBe("fails");
     expect(limitState({ ...base, gate: false, racks: null })).toBe("not_applicable");
@@ -603,6 +613,7 @@ describe("structure, metadata and accessibility", () => {
     const productSlugs = new Set(PRODUCT_PAGES.map((p) => p.slug));
     const bad: string[] = [];
     for (const h of hrefs) {
+      if (h.startsWith("#")) continue; // an in-page anchor: tests/site/retrofit-order-guide-review.test.ts checks that each resolves to an id
       if (!h.startsWith("/")) {
         bad.push(`${h}: not site-relative`);
         continue;
