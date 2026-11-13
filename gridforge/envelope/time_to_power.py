@@ -202,6 +202,42 @@ class DateBasis:
 
 
 NO_DATE = DateBasis(DATE_BASIS_NONE, None, None, "no date: nothing is deployable or a lead time on the path is missing")
+#: The two causes NO_DATE names, for a ladder that knows which one is true (``no_date_cause``). The generic NO_DATE stays for a stored state or a
+#: change note, which carries no ladder to say which.
+NO_DATE_NOT_DEPLOYABLE = DateBasis(DATE_BASIS_NONE, None, None, "no date: nothing is deployable in this scenario")
+NO_DATE_LEAD_TIME_MISSING = DateBasis(DATE_BASIS_NONE, None, None, "no date: a lead time on the path is missing")
+
+CAUSE_NOT_DEPLOYABLE = "not_deployable"
+CAUSE_LEAD_TIME_MISSING = "lead_time_missing"
+CAUSE_CURVE_INCOMPLETE = "curve_incomplete"
+
+
+def no_date_cause(ladder: HeadroomLadder, ttp: "TimeToPower | None" = None) -> str | None:
+    """Why a ladder has no time-to-full-capacity date, or None when it has one: ``not_deployable`` (no rack is deployable, so there is nothing to
+    date), ``lead_time_missing`` (racks are deployable but a lead time on the path is missing: an equipment bank was not declared, or a taken relief
+    has none), or ``curve_incomplete`` (the energisation curve never reaches the full envelope). Chosen in that order; it is the same test as
+    ``full_capacity_band``, so a ladder has a cause exactly when it has no date."""
+    ttp = ttp if ttp is not None else schedule(ladder)
+    if not ttp.max_racks:
+        return CAUSE_NOT_DEPLOYABLE
+    if not schedule_complete(ladder):
+        return CAUSE_LEAD_TIME_MISSING
+    if full_capacity_band(ladder, ttp) is None:
+        return CAUSE_CURVE_INCOMPLETE
+    return None
+
+
+def no_date_reason(ladder: HeadroomLadder, ttp: "TimeToPower | None" = None) -> str | None:
+    """The cause of ``no_date_cause`` as a sentence a reader can act on (None when the ladder has a date). Carries no number of weeks, so it is
+    safe on the public tier."""
+    cause = no_date_cause(ladder, ttp)
+    if cause is None:
+        return None
+    if cause == CAUSE_NOT_DEPLOYABLE:
+        return "No rack is deployable in this scenario, so there is nothing to date."
+    if cause == CAUSE_LEAD_TIME_MISSING:
+        return "No defensible date: " + ladder.incomplete_reason + "."
+    return "The energisation curve never reaches the full envelope."
 
 
 def date_basis(ladder: HeadroomLadder, ttp: "TimeToPower | None" = None) -> DateBasis:
@@ -212,7 +248,9 @@ def date_basis(ladder: HeadroomLadder, ttp: "TimeToPower | None" = None) -> Date
     ttp = ttp if ttp is not None else schedule(ladder)
     got = full_capacity_band(ladder, ttp)
     if got is None:
-        return NO_DATE
+        cause = no_date_cause(ladder, ttp)
+        return (NO_DATE_NOT_DEPLOYABLE if cause == CAUSE_NOT_DEPLOYABLE
+                else NO_DATE_LEAD_TIME_MISSING if cause == CAUSE_LEAD_TIME_MISSING else NO_DATE)
     item = ttp.critical_item if ttp.critical_item and ttp.critical_item != "—" else None
     return date_basis_of(got[3], item)
 

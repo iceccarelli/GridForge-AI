@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 from ..calibration import accuracy_block, constraint_key
-from ..envelope.time_to_power import date_basis, schedule
+from ..envelope.time_to_power import date_basis, full_capacity_band, no_date_reason, schedule
 from ..intake.loader import Intake
 from ..intake.schema import FIELD_BY_PATH
 from ..power.plausibility import intake_warnings
@@ -98,7 +98,11 @@ def qualify_payload(intake: Intake, results: list[ScenarioResult],
             "racks": rec.unlocked_racks,
             "architecture": rec.spec.name,
             "then_binds_on": rec.ladder.final.binding.name if rec.ladder.final else None,
-            "sets_the_date": t.critical_item,
+            # The item that sets the date, only when there IS a date (the same test /v1/compare applies: a complete schedule that reaches the
+            # full envelope). With no date no item sets it: the longest KNOWN lead time is a lower bound, not the one that decides, so it is
+            # not named, and `sets_the_date_reason` says why there is no date.
+            "sets_the_date": t.critical_item if full_capacity_band(rec.ladder, t) is not None else None,
+            "sets_the_date_reason": no_date_reason(rec.ladder, t),
             # What the date rests on (no number of weeks: safe on the public tier). "assumed" means the item that
             # sets it carries an assumed lead time: it is not a date.
             **date_basis(rec.ladder, t).to_dict(),

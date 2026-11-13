@@ -1721,9 +1721,12 @@ def _mcp_summary(name: str, result: dict) -> str:
     try:
         if name == "gridforge_qualify":
             a, b = result["as_found"], result["after_relief"]
+            # Follows the payload: an item is named only when the payload names one; with no date the sentence says so and why.
+            no_date = str(b.get("sets_the_date_reason") or b.get("date_label") or "No date can be given.").rstrip(".") + ". "
+            sets = f"{b['sets_the_date']} sets the date. " if b.get("sets_the_date") else no_date
             return (f"{a['racks']} racks as found, {b['racks']} after relief. "
                     f"Binds first on {a['binding_constraint']}. "
-                    f"{b['sets_the_date']} sets the date. "
+                    f"{sets}"
                     f"Calibration: {result['calibration']['state']}.")
         if name == "gridforge_portfolio":
             top = result["halls"][0]
