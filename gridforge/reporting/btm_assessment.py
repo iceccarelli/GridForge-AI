@@ -339,7 +339,28 @@ def _next_action_core(load_profile_report, assessments: list[ArchitectureAssessm
 
 
 class DeploymentRequestError(ValueError):
-    pass
+    """A deployment request the engine refuses. ``extra`` is the structured part of the refusal (the offending ``field`` and the ``allowed`` values),
+    which the HTTP layer returns beside the message in the same shape every other refusal uses."""
+
+    def __init__(self, message: str, **extra) -> None:
+        super().__init__(message)
+        self.extra = extra
+
+
+def _redundancy(raw) -> Redundancy:
+    """The redundancy scheme of a request. Case and whitespace are ignored (`n+1`, ` N + 1 ` are N+1); anything else is refused naming the field and
+    the values the enum really holds, never a raw `ValueError: '3N' is not a valid Redundancy`. Absent or null is the default, N."""
+    if raw is None:
+        return Redundancy.N
+    allowed = [r.value for r in Redundancy]
+    if isinstance(raw, str):
+        key = "".join(raw.split()).upper()
+        for r in Redundancy:
+            if r.value == key:
+                return r
+    raise DeploymentRequestError(
+        f"redundancy {raw!r} is not a redundancy scheme: it must be one of {', '.join(allowed)} (case and spaces are ignored)",
+        field="redundancy", allowed=allowed)
 
 
 #: Plausibility ceilings for the numbers a deployment request carries, taken from the intake loader's own (PLAUSIBLE_MAX) where it has one, so the two
@@ -450,7 +471,7 @@ def deployment_request(doc: dict) -> dict:
         raise DeploymentRequestError(f"missing required field: {exc}") from exc
     ride_through_hours = (V(_number(doc["ride_through_hours"], "ride_through_hours", _MAX_HOURS, "h"), "h", "ride-through window", ASSUMED)
                           if doc.get("ride_through_hours") is not None else None)
-    redundancy = Redundancy(doc.get("redundancy", Redundancy.N.value))
+    redundancy = _redundancy(doc.get("redundancy"))
     interconnection = doc.get("interconnection") if isinstance(doc.get("interconnection"), dict) else None
     permitting = doc.get("permitting") if isinstance(doc.get("permitting"), dict) else None
     try:
@@ -458,7 +479,7 @@ def deployment_request(doc: dict) -> dict:
     except ValueError as exc:
         raise DeploymentRequestError(
             f"unknown objective {doc.get('objective')!r} — one of "
-            f"{[o.value for o in Objective]}") from exc
+            f"{[o.value for o in Objective]}", field="objective", allowed=[o.value for o in Objective]) from exc
     return dict(load_profile=load_profile, grid_firm_MW=grid_firm_MW, generation=generation,
                bess=bess, target_MW=target_MW, ride_through_hours=ride_through_hours,
                redundancy=redundancy, interconnection=interconnection, permitting=permitting,
