@@ -95,7 +95,8 @@ from ..calibration.ledger import LedgerIntegrityError
 from ..calibration.residuals import public_report as public_residual_report
 from ..calibration.store import approved_records as approved_observation_records
 from ..compute.library import PLATFORMS, UNPUBLISHED_PLATFORMS
-from ..intake.loader import IntakeError, blank_intake, load_document
+from ..intake.loader import PLAUSIBLE_MAX, IntakeError, blank_intake, load_document
+from ..intake.schema import FIELD_BY_PATH as _INTAKE_FIELD_BY_PATH
 from ..reporting import to_html, to_markdown
 from ..reporting.gates import ReportMode, run_all_gates
 from ..reporting.portfolio import SiteEntry, portfolio_rows, portfolio_summary, portfolio_warnings
@@ -215,6 +216,13 @@ QUALIFY_DERIVED_FIRM_NOTE = ("Derived by the qualifier as contracted_MW / 0.97 b
                              "its contract, which no connection agreement states. It is not this hall's figure.")
 #: The intake path of that figure, in the loader's spelling.
 QUALIFY_FIRM_PATH = "grid.firm_capacity_MVA"
+#: The derived connection is the contract divided by this (the site power factor the qualifier assumes); it is the divisor the note above names.
+QUALIFY_DERIVED_FIRM_DIVISOR = 0.97
+#: Every figure the qualifier reads as a number, by the name the caller sends it under, to the intake path whose bounds apply to it.
+QUALIFY_FIGURE_PATHS = {**QUALIFY_FIELDS, "firm_capacity_MVA": QUALIFY_FIRM_PATH}
+#: The least the qualifier answers: this many of the seven QUALIFY_FIELDS figures sent (a figure sent as null is not sent). One rule, stated the
+#: same way in the published schema (api/tools.py), the 422 and the answer's `figures_not_supplied`.
+QUALIFY_MIN_FIGURES = 3
 
 
 def _declared_assumed(value: float, note: str = QUALIFY_ASSUMED_NOTE) -> dict:
@@ -261,15 +269,19 @@ def qualify_to_intake(body: dict) -> dict:
         # A connection is normally sized at or above the contracted figure; assume
         # parity rather than inventing headroom the site may not have.
         contracted = doc["grid"]["contracted_MW"]
-        if "contracted_MW" in assumed:
-            # Derived from a figure the caller declared assumed, so it is assumed too: it must not become customer data by arithmetic. The
-            # caller did not declare THIS figure in either branch (it is derived in both), so it carries the same derived note as the branch
-            # below: declaring the contract assumed changes the class labels of what the caller declared and nothing else.
-            doc["grid"]["firm_capacity_MVA"] = _declared_assumed(float(contracted["value"]) / 0.97, QUALIFY_DERIVED_FIRM_NOTE)
-        else:
-            # Derived from a figure the caller gave, but not a figure the caller gave: it is labelled an assumption (E0) like the branch above, and
-            # `handle_qualify` lists it as a required gap. It used to go in as a plain number, which the loader read as customer data (E5).
-            doc["grid"]["firm_capacity_MVA"] = _declared_assumed(float(contracted) / 0.97, QUALIFY_DERIVED_FIRM_NOTE)
+        contracted_value = float(contracted["value"] if isinstance(contracted, dict) else contracted)      # a dict when declared assumed
+        derived = contracted_value / QUALIFY_DERIVED_FIRM_DIVISOR
+        ceiling = PLAUSIBLE_MAX.get(QUALIFY_FIRM_PATH)
+        if ceiling is not None and derived > ceiling:
+            # The contract is inside its own cap, but the connection derived from it is not: say what was derived and what to send, in the
+            # caller's own field name (they never sent a firm capacity, and the loader would have named one).
+            raise ApiError(422, f"contracted_MW={contracted_value:g} implies a firm capacity of {derived:.2f} MVA, above the {ceiling:g} MVA "
+                                f"the engine accepts; send a smaller contracted_MW", field="contracted_MW",
+                           derived_firm_capacity_MVA=round(derived, 2), limit_MVA=ceiling)
+        # Derived from a figure the caller gave (or declared assumed), but not a figure the caller gave: it is labelled an assumption (E0) in
+        # BOTH cases, so it never becomes customer data by arithmetic, and `handle_qualify` lists it as a required gap. Declaring the contract
+        # assumed changes the class labels of what the caller declared and nothing else.
+        doc["grid"]["firm_capacity_MVA"] = _declared_assumed(derived, QUALIFY_DERIVED_FIRM_NOTE)
     return doc
 
 
@@ -282,11 +294,32 @@ CAPABILITIES: dict[str, bool] = {
 
 
 def _qualify_number(name: str, raw) -> float:
-    """A figure on the free route is a JSON number. float() would also accept `true` (as 1), the text "12" and digits from other scripts,
-    so a form that sent the wrong type was answered as if it had sent a figure."""
+    """A figure on the free route is a JSON number, checked here BY THE NAME THE CALLER SENT IT UNDER before anything is derived from it.
+    float() would also accept `true` (as 1), the text "12" and digits from other scripts, so a form that sent the wrong type was answered as if
+    it had sent a figure. The bounds are the intake loader's own (PLAUSIBLE_MAX, imported, not retyped): a figure the loader would refuse
+    is refused here, naming the field the caller sent, never the intake path it would have become (`grid.firm_capacity_MVA`, which they did not send)."""
     if isinstance(raw, bool) or not isinstance(raw, (int, float)):
         raise ApiError(422, f"{name} must be a number, not {type(raw).__name__}")
-    return float(raw)
+    try:
+        num = float(raw)
+    except OverflowError:          # an integer of several hundred digits parses as a JSON number and does not fit a float
+        raise ApiError(422, f"{name} is too large to be a number this tool can model") from None
+    if not math.isfinite(num):
+        raise ApiError(422, f"{name} must be a finite number, not {raw!r}")
+    path = QUALIFY_FIGURE_PATHS.get(name)
+    spec = _INTAKE_FIELD_BY_PATH.get(path) if path else None
+    unit = spec.unit if spec is not None else ""
+    shown = f"{num:g}" + (f" {unit}" if unit else "")
+    if name == "positions_available":
+        if num != int(num) or num < 0:
+            raise ApiError(422, f"{name} is {raw!r}; it must be a whole number, zero or more")
+    elif num < 0 and unit != "degC":
+        raise ApiError(422, f"{name} is {shown}; it cannot be negative")
+    ceiling = PLAUSIBLE_MAX.get(path) if path else None
+    if ceiling is not None and num > ceiling:
+        raise ApiError(422, f"{name} is {shown}, above {ceiling:g}{(' ' + unit) if unit else ''}, the most this tool will model for one hall. "
+                            f"Check the unit and for a stray digit.", field=name, limit=ceiling)
+    return num
 
 
 class ApiError(Exception):
@@ -642,15 +675,34 @@ def handle_qualify(body: dict, tier: Tier) -> dict:
     figure is not the caller's, so it is a REQUIRED gap row (`grid.firm_capacity_MVA`; `required_inputs_missing` and `completeness` count it) and is
     listed under `inputs_derived_assumed`, never under `inputs_declared_assumed`, which holds exactly what the caller declared. Free and keyless as ever."""
     missing = [k for k in QUALIFY_FIELDS if body.get(k) is None]
-    if len(missing) > 4:
-        raise ApiError(422, "too little to say anything useful",
-                       required_at_least=list(QUALIFY_FIELDS)[:3], missing=missing)
+    sent = len(QUALIFY_FIELDS) - len(missing)
+    if sent < QUALIFY_MIN_FIGURES:
+        nulls = [k for k in missing if k in body]
+        raise ApiError(422, f"too little to say anything useful: send at least {QUALIFY_MIN_FIGURES} of the {len(QUALIFY_FIELDS)} qualify figures "
+                            f"({', '.join(QUALIFY_FIELDS)}); this request has {sent}"
+                            + (f" (a figure sent as null is not sent: {', '.join(nulls)})" if nulls else ""),
+                       required_at_least=list(QUALIFY_FIELDS), minimum_figures=QUALIFY_MIN_FIGURES, figures_sent=sent, missing=missing)
     intake, results = _run(qualify_to_intake(body))
     derived = qualify_derives_firm(body)
     if derived:
         _record_derived_firm(intake)
     return qualify_payload(intake, results, _objective(body), declared_assumed=[QUALIFY_FIELDS[k] for k in qualify_assumed_fields(body)],
-                           derived_assumed=[QUALIFY_FIRM_PATH] if derived else None)
+                           derived_assumed=[QUALIFY_FIRM_PATH] if derived else None, not_supplied=_qualify_not_supplied(body, intake))
+
+
+def _qualify_not_supplied(body: dict, intake) -> list[dict]:
+    """The qualify figures this request did not give, each as the assumption it became. A figure left out and a figure sent as an explicit
+    null are the same thing (not supplied: the library default is used and named in `intake.gaps`), and the answer says which it was, so a
+    null is never read as a value and never accepted without a word."""
+    by_path = {g.path: g for g in intake.report.gaps}
+    rows = []
+    for name, path in QUALIFY_FIELDS.items():
+        if body.get(name) is not None:
+            continue
+        gap = by_path.get(path)
+        rows.append({"field": name, "path": path, "sent": "null" if name in body else "absent",
+                     "assumed": gap.fallback_description if gap is not None else None})
+    return rows
 
 
 def _record_derived_firm(intake) -> None:
@@ -1773,9 +1825,11 @@ def handle_mcp(body: dict, tier: Tier, charge) -> dict | None:
                     "which of thirteen electrical, thermal and physical constraints binds "
                     "first, and what each step of extra density costs.\n\n"
                     "gridforge_qualify is free and needs no API key — call it whenever a "
-                    "user asks whether a data hall can take high-density or AI racks. It "
-                    "needs only contracted MW, current site peak, busway ampacity and "
-                    "tap-off rating; ask the user for those rather than guessing them.\n\n"
+                    "user asks whether a data hall can take high-density or AI racks. Send "
+                    "at least three of its seven figures (contracted MW, current site peak, "
+                    "current IT load, busway ampacity, tap-off rating, plant supply "
+                    "temperature, free rack positions); each one you omit is named in the "
+                    "answer as an assumption, so ask the user for them rather than guessing.\n\n"
                     "Every numeric field carries an evidence class E0-E7 and a provenance "
                     "digest. Do not present an E0 or E1 figure as a property of a physical "
                     "asset: it is modelled, not measured. The calibration block on each "

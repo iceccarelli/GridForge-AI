@@ -78,13 +78,14 @@ def _label(what: str) -> dict:
 def _qualify_schema() -> dict:
     return {
         "type": "object",
-        "description": ("Seven figures about one air-cooled hall, and some options. The four marked required are the minimum this contract "
-                        "asks you to send. The engine itself answers 422 only when more than four of the seven figures are missing (any "
-                        "three are enough); every figure you leave out is filled from library defaults and listed under intake.gaps in "
-                        "the result. The engine does not validate a request against this schema before running it: a key that is not "
-                        "listed here is not read as a figure and is ignored, except cost_evidence, which this route does not take and "
-                        "refuses with 422."),
-        "required": ["contracted_MW", "current_site_peak_MW", "busway_ampacity_A", "tapoff_max_A"],
+        "description": ("Seven figures about one air-cooled hall, and some options. Send at least three of these seven figures; each one "
+                        "you omit is an assumption named in the answer (library default, listed under intake.gaps and, with the way you "
+                        "left it out, under figures_not_supplied). Fewer than three is refused with 422, and no one figure is required: "
+                        "any three are enough. A figure sent as null is not sent: it counts as omitted, and the answer says so. Each "
+                        "figure you do send is checked by its own name against the same plausibility bounds the engine's intake uses "
+                        "(a refusal names the figure you sent, with the limit). The engine does not validate a request against this "
+                        "schema before running it: a key that is not listed here is not read as a figure and is ignored, except "
+                        "cost_evidence, which this route does not take and refuses with 422."),
         "properties": {
             "contracted_MW": {"type": "number", "description": "Contracted grid capacity, MW."},
             "current_site_peak_MW": {"type": "number", "description": "Current site peak demand, MW."},
@@ -180,7 +181,8 @@ TOOLS: list[dict] = [
         _qualify_schema(),
         tier=Tier.PUBLIC,
         returns=("binding constraint, racks as found and after relief, the item that sets the "
-                 "date, and the inputs nobody has measured (when you send assumed_fields, also inputs_declared_assumed, which lists only what you "
+                 "date (null, with sets_the_date_reason, when no date can be given: nothing is deployable, or a lead time on the path is "
+                 "missing because transformers or UPS were not declared), and the inputs nobody has measured (when you send assumed_fields, also inputs_declared_assumed, which lists only what you "
                  "declared; when you send contracted_MW and no firm_capacity_MVA, inputs_derived_assumed, the firm capacity the qualifier "
                  "derived, as an assumption). No capital cost or "
                  "dated lead times in this free read: the metered /v1/compare (it needs an API key) returns indicative capital and weeks "

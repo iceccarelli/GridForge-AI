@@ -43,6 +43,9 @@ QUALIFY_SCHEMA = QUALIFY_TOOL["inputSchema"]
 PROPS = QUALIFY_SCHEMA["properties"]
 HALL = json.loads((ROOT / "public" / "reference" / "examples" / "qualify-request.json").read_text())
 KEY = "sk_published_contract"
+#: A thin but valid request: four of the seven figures. The published schema no longer marks any figure required (it says "send at least three of
+#: these seven"), so a test that wants the small request names it here.
+THIN = ("contracted_MW", "current_site_peak_MW", "busway_ampacity_A", "tapoff_max_A")
 
 #: A valid value for every documented qualify property: the one place the test needs to know what each means.
 VALID = {
@@ -150,7 +153,8 @@ def keys_the_handler_reads(body: dict) -> set[str]:
 
 def test_the_documented_figures_are_the_engines_own_seven_in_the_order_it_asks_them():
     assert list(QUALIFY_FIGURES) == list(S.QUALIFY_FIELDS)
-    assert set(QUALIFY_SCHEMA["required"]) <= set(S.QUALIFY_FIELDS)
+    assert set(THIN) <= set(S.QUALIFY_FIELDS)
+    assert "required" not in QUALIFY_SCHEMA, "no figure is required: the rule is 'at least three of seven', stated in the description"
     assert PROPS["assumed_fields"]["items"]["enum"] == list(S.QUALIFY_FIELDS)
     assert PROPS["assumed_fields"]["maxItems"] == len(S.QUALIFY_FIELDS)
     assert PROPS["assumed_fields"]["uniqueItems"] is True
@@ -164,7 +168,7 @@ def test_every_key_the_handler_reads_from_the_body_is_a_published_property_and_e
     read_all = keys_the_handler_reads(VALID)
     assert read_all == set(PROPS), {"read_but_undocumented": sorted(read_all - set(PROPS)), "documented_but_never_read": sorted(set(PROPS) - read_all)}
     # and a thin request, which takes other branches, reads nothing outside the schema either
-    assert keys_the_handler_reads({k: HALL[k] for k in QUALIFY_SCHEMA["required"]}) <= set(PROPS)
+    assert keys_the_handler_reads({k: HALL[k] for k in THIN}) <= set(PROPS)
 
 
 def test_the_only_other_body_key_the_route_reads_is_cost_evidence_and_the_route_refuses_it():
@@ -180,7 +184,7 @@ def test_the_only_other_body_key_the_route_reads_is_cost_evidence_and_the_route_
 
 @pytest.mark.parametrize("prop", sorted(PROPS))
 def test_each_documented_property_with_a_valid_example_is_accepted_over_http(base, prop):
-    body = {k: HALL[k] for k in QUALIFY_SCHEMA["required"]}
+    body = {k: HALL[k] for k in THIN}
     body[prop] = VALID[prop]
     if prop == "assumed_fields":
         assert set(VALID[prop]) <= set(body), "a figure can be declared assumed only if it is sent"
@@ -221,15 +225,15 @@ def test_every_objective_in_the_enum_is_accepted(base, objective):
 
 def test_any_three_of_the_seven_figures_are_enough_and_two_are_not_as_the_schema_says(base):
     figures = list(S.QUALIFY_FIELDS)
-    required = set(QUALIFY_SCHEMA["required"])
-    for chosen in (figures[:3], figures[-3:], [f for f in figures if f not in required][:3]):
+    for chosen in (figures[:3], figures[-3:], [f for f in figures if f not in THIN]):
         status, _, out = call(base, "/v1/qualify", {k: HALL[k] for k in chosen})
         assert status == 200, (chosen, out)
     status, _, out = call(base, "/v1/qualify", {k: HALL[k] for k in figures[:2]})
     assert status == 422 and "too little" in out["error"]
-    # so `required` is the minimum the contract asks for, not the minimum the engine enforces; the description says exactly that
-    assert "more than four of the seven figures are missing" in QUALIFY_SCHEMA["description"]
-    assert call(base, "/v1/qualify", {k: v for k, v in HALL.items() if k not in required})[0] == 200
+    # the schema states that rule, and no figure is marked required (the old schema marked four and the engine needed three of seven)
+    assert "send at least three of these seven figures" in QUALIFY_SCHEMA["description"].lower()
+    assert "required" not in QUALIFY_SCHEMA
+    assert call(base, "/v1/qualify", {k: v for k, v in HALL.items() if k not in THIN})[0] == 200
 
 
 @pytest.mark.parametrize("figure", list(S.QUALIFY_FIELDS))

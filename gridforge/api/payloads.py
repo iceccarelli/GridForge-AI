@@ -71,7 +71,7 @@ def _declared_assumed_inputs(intake: Intake, paths: list[str]) -> list[dict]:
 
 def qualify_payload(intake: Intake, results: list[ScenarioResult],
                     objective: Objective = Objective.MAX_COMPUTE, *, declared_assumed: list[str] | None = None,
-                    derived_assumed: list[str] | None = None) -> dict:
+                    derived_assumed: list[str] | None = None, not_supplied: list[dict] | None = None) -> dict:
     """The website qualifier. Real engineering, no priced content.
 
     `declared_assumed` names (by the loader's intake path) the qualify fields the caller declared assumed (class E0). When it is empty the response is exactly what it was
@@ -132,6 +132,10 @@ def qualify_payload(intake: Intake, results: list[ScenarioResult],
                                                "assumed_count of them are assumptions (class E0), not customer data")
     if derived_assumed:
         out["inputs_derived_assumed"] = _declared_assumed_inputs(intake, derived_assumed)
+    if not_supplied is not None:
+        # The qualify figures the request did not give (left out, or sent as null: the same thing), each with the assumption it became. Top
+        # level, beside inputs_declared_assumed and inputs_derived_assumed, the other lists of what the answer assumed.
+        out["figures_not_supplied"] = not_supplied
     return out
 
 
