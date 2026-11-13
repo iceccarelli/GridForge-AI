@@ -384,19 +384,41 @@ create trigger project_completion_milestones_no_truncate
   for each statement execute function public.gf_append_only();
 alter table public.project_completion_milestones enable row level security;
 
--- Do the project's own supplier records (0018) show delivery still in flight at `p_observed_on`? A record (the current one of its line, not rejected by a
--- reviewer) that gives a purchase, dispatch, arrival or installation date but no energisation date, or an energisation date after the observed date.
--- A project with no supplier record is not in flight by this test: absence of a record is not a date.
+-- Do the project's own supplier records (0018) show delivery still in flight at `p_observed_on`? A LINE is one procurement package's chain of records: the
+-- initial one and each correction of it (0018: one initial and at most one correction per record; a correction is a whole new record of only the facts it
+-- supplies, nothing is inherited). The line's LATEST record that a reviewer has not rejected speaks for it:
+--   * it has an energisation date on or before the observed date: the line is delivered, not in flight (a correction that retracts or moves the date is the
+--     supplier's own, later word);
+--   * otherwise (no energisation date, or one after the observed date): the line is in flight if ANY record of its chain (not rejected) gives any date at all
+--     (purchase, dispatch, arrival, installation, energisation). A later record that carries a cost only, or any other fact but the energisation date, does
+--     not erase the dates of the records it corrects: it cannot be used to make an in-flight delivery look absent. To clear the line the correction must state
+--     the energisation date.
+-- A rejected record is ignored, as before. A project with no supplier record, or only records that carry no date, is not in flight by this test: absence
+-- of a date is not a date.
 create or replace function public.gf_project_delivery_in_flight(p_project uuid, p_observed_on date) returns boolean
 language sql stable as $$
+  with recursive chain as (
+    select a.id, a.package_id, 1 as depth, a.po_date, a.dispatch_date, a.on_site_date, a.install_complete_date, a.energised_date
+      from public.supplier_actuals a where a.project_id = p_project and a.supersedes_id is null
+    union all
+    select b.id, b.package_id, c.depth + 1, b.po_date, b.dispatch_date, b.on_site_date, b.install_complete_date, b.energised_date
+      from public.supplier_actuals b join chain c on b.supersedes_id = c.id
+     where b.project_id = p_project and c.depth < 1000
+  ),
+  live as (
+    select c.* from chain c
+     where not exists (select 1 from public.supplier_actual_reviews r where r.actual_id = c.id and r.decision = 'rejected')
+  ),
+  latest as (
+    select distinct on (l.package_id) l.* from live l order by l.package_id, l.depth desc
+  )
   select exists (
-    select 1 from public.supplier_actuals a
-     where a.project_id = p_project
-       and not exists (select 1 from public.supplier_actuals s where s.supersedes_id = a.id)
-       and not exists (select 1 from public.supplier_actual_reviews r where r.actual_id = a.id and r.decision = 'rejected')
-       and ((a.energised_date is null
-             and (a.po_date is not null or a.dispatch_date is not null or a.on_site_date is not null or a.install_complete_date is not null))
-            or a.energised_date > p_observed_on))
+    select 1 from latest h
+     where (h.energised_date is null or h.energised_date > p_observed_on)
+       and exists (select 1 from live l
+                    where l.package_id = h.package_id
+                      and (l.po_date is not null or l.dispatch_date is not null or l.on_site_date is not null
+                           or l.install_complete_date is not null or l.energised_date is not null)))
 $$;
 
 create or replace function public.gf_attest_completion_milestone(p jsonb, p_event jsonb) returns jsonb

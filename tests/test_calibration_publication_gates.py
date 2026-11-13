@@ -381,6 +381,65 @@ def test_an_energisation_dated_after_the_observation_is_in_flight_and_a_rejected
     assert submit(db, project=project, on="2026-06-30")[2].returncode == 0
 
 
+def correct_actual(db, project, pkg, proof, supersedes, **facts):
+    """A correction of a supplier record through the REAL function (0018), carrying only the facts given: it allows a correction of one fact, and nothing is inherited."""
+    p = {"project_id": project, "package_id": pkg, "supersedes_id": supersedes, "evidence_id": proof, "method": "invoice", "submitted_by": "x@a.example", **facts}
+    r = psql(db, f"set role service_role; select gf_submit_supplier_actual({reg.q(json.dumps(p))}::jsonb, '{GOOD % 'supplier_actual_submitted'}'::jsonb)")
+    return json.loads(r.stdout.strip().splitlines()[-1])["id"]
+
+
+COST_ONLY = {"actual_cost": 1000, "actual_cost_currency": "EUR", "cost_scope": "unknown"}
+
+
+def in_flight(db, project, on="2026-06-30"):
+    return scalar(db, f"select gf_project_delivery_in_flight('{project}', '{on}')") == "t"
+
+
+def test_a_cost_only_correction_does_not_make_a_delivery_in_flight_look_absent(db, ctx):
+    """D1 bypass: the check looked only at the latest record of a line, so a correction that supplied a cost and no date (0018 allows a one-fact correction)
+    left a latest record with no dates and the project looked delivered."""
+    project, proof = prepared(db, ctx)
+    pkg, resp = reg.seed_package(db, project)
+    actual = reg.seed_supplier_actual(db, project, pkg, resp, proof, po_date="2026-02-01", on_site_date="2026-04-01")
+    refused(submit(db, project=project)[2], "delivery still in flight")
+    correct_actual(db, project, pkg, proof, actual, **COST_ONLY)
+    assert in_flight(db, project)
+    refused(submit(db, project=project)[2], "delivery still in flight")
+    assert count(db, "project_observations", f"project_id = '{project}'") == 0
+
+
+def test_only_a_later_record_that_states_the_energisation_date_clears_a_line(db, ctx):
+    project, proof = prepared(db, ctx)
+    pkg, resp = reg.seed_package(db, project)
+    first = reg.seed_supplier_actual(db, project, pkg, resp, proof, po_date="2026-02-01", on_site_date="2026-04-01")
+    second = correct_actual(db, project, pkg, proof, first, on_site_date="2026-04-01", energised_date="2026-05-01")
+    assert not in_flight(db, project)                                        # the latest record says it was energised before the observed date
+    third = correct_actual(db, project, pkg, proof, second, **COST_ONLY)    # a later cost-only record: the energisation date is no longer the latest word
+    assert in_flight(db, project), "a record without the date must not clear what an earlier one said, either way"
+    correct_actual(db, project, pkg, proof, third, energised_date="2026-05-01", **COST_ONLY)
+    assert not in_flight(db, project)
+    assert submit(db, project=project)[2].returncode == 0
+
+
+def test_a_rejected_correction_leaves_the_dates_of_the_records_before_it_standing(db, ctx):
+    project, proof = prepared(db, ctx)
+    pkg, resp = reg.seed_package(db, project)
+    first = reg.seed_supplier_actual(db, project, pkg, resp, proof, po_date="2026-02-01", on_site_date="2026-04-01")
+    cost = correct_actual(db, project, pkg, proof, first, **COST_ONLY)
+    psql(db, f"insert into supplier_actual_reviews (actual_id, project_id, decision, verified_fields, reviewer, reason) values "
+             f"('{cost}', '{project}', 'rejected', '{{}}', 'r@desk.example', 'not our invoice')")
+    assert in_flight(db, project), "rejecting the cost-only correction must not erase the in-flight record it corrected"
+
+
+def test_a_line_whose_records_carry_no_date_at_all_is_not_in_flight(db, ctx):
+    project, proof = prepared(db, ctx)
+    pkg, resp = reg.seed_package(db, project)
+    first = reg.seed_supplier_actual(db, project, pkg, resp, proof, **COST_ONLY)
+    correct_actual(db, project, pkg, proof, first, **{**COST_ONLY, "actual_cost": 1200})
+    assert not in_flight(db, project)                                        # absence of a date is not a date
+    assert submit(db, project=project)[2].returncode == 0
+
+
 def test_the_view_applies_the_milestone_condition_by_itself(db, ctx):
     """Triggers off, organisation and consent set by hand: the row is recorded for a project with no milestone, and the view keeps it out until one is attested."""
     project, proof = prepared(db, ctx, milestone=False)
