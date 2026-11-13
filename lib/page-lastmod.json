@@ -11,7 +11,7 @@
     },
     "/constraints": {
       "lastmod": "2026-11-13",
-      "hash": "029c25bc88ea8eda9860e67b8c823e1812dc37e4e1b57d2bae51dd115e9093be"
+      "hash": "f9b7a5393e794fd2c3e88928efe81428c6e846b925a92de380c0c093193159fd"
     },
     "/constraints/achievable-facility-water-temperature": {
       "lastmod": "2026-11-13",
@@ -31,7 +31,7 @@
     },
     "/constraints/chilled-water-plant-capacity": {
       "lastmod": "2026-11-13",
-      "hash": "6b594b721d6e5443546e55bd4436376979fa9392f63ccfe79d12bfca5765f6d0"
+      "hash": "ba21262ef3443a77955d28d33f26c8ca5ac40a33f0319131b96f16f9b658c30b"
     },
     "/constraints/cooling-architecture-capability": {
       "lastmod": "2026-11-13",
@@ -83,31 +83,31 @@
     },
     "/for/advisors": {
       "lastmod": "2026-11-13",
-      "hash": "e3831df2f31f3b41f5eb071788e88cee6b32d7893a61017bcbe87f4059a9c5d9"
+      "hash": "f00188f44cae1168938345d81017a7231d97017c9cdd13bddff68ac8f170d602"
     },
     "/for/ai-operators": {
       "lastmod": "2026-11-13",
-      "hash": "e3831df2f31f3b41f5eb071788e88cee6b32d7893a61017bcbe87f4059a9c5d9"
+      "hash": "f00188f44cae1168938345d81017a7231d97017c9cdd13bddff68ac8f170d602"
     },
     "/for/colocation": {
       "lastmod": "2026-11-13",
-      "hash": "e3831df2f31f3b41f5eb071788e88cee6b32d7893a61017bcbe87f4059a9c5d9"
+      "hash": "f00188f44cae1168938345d81017a7231d97017c9cdd13bddff68ac8f170d602"
     },
     "/for/developers": {
       "lastmod": "2026-11-13",
-      "hash": "e3831df2f31f3b41f5eb071788e88cee6b32d7893a61017bcbe87f4059a9c5d9"
+      "hash": "f00188f44cae1168938345d81017a7231d97017c9cdd13bddff68ac8f170d602"
     },
     "/for/engineering-teams": {
       "lastmod": "2026-11-13",
-      "hash": "e3831df2f31f3b41f5eb071788e88cee6b32d7893a61017bcbe87f4059a9c5d9"
+      "hash": "f00188f44cae1168938345d81017a7231d97017c9cdd13bddff68ac8f170d602"
     },
     "/for/existing-owners": {
       "lastmod": "2026-11-13",
-      "hash": "e3831df2f31f3b41f5eb071788e88cee6b32d7893a61017bcbe87f4059a9c5d9"
+      "hash": "f00188f44cae1168938345d81017a7231d97017c9cdd13bddff68ac8f170d602"
     },
     "/for/investors": {
       "lastmod": "2026-11-13",
-      "hash": "e3831df2f31f3b41f5eb071788e88cee6b32d7893a61017bcbe87f4059a9c5d9"
+      "hash": "f00188f44cae1168938345d81017a7231d97017c9cdd13bddff68ac8f170d602"
     },
     "/guides/nameplate-vs-useful-compute": {
       "lastmod": "2026-11-13",
@@ -115,7 +115,7 @@
     },
     "/guides/retrofit-order-of-limits": {
       "lastmod": "2026-11-13",
-      "hash": "8ceba1d00a674931c9e36f14a76899347157c02a859a2c1218418236b5f360b7"
+      "hash": "a9773713a37e29c0a50b735b4781200fba0b1e6c0f4fad14364a2d709ed0ded7"
     },
     "/intelligence": {
       "lastmod": "2026-11-13",
@@ -123,7 +123,7 @@
     },
     "/lead-times": {
       "lastmod": "2026-11-13",
-      "hash": "9c78533fd8e4dabaeb5815b628b246dcbd589e3abe9ec98f69e50b26adb34aa9"
+      "hash": "3abd06671adba3027f0a8f3656bf62e0b3e812b7dc01ccf1b973c552e2d6cc00"
     },
     "/legal/privacy": {
       "lastmod": "2026-11-03",

@@ -195,11 +195,10 @@ CONSTRAINT_DOCS: tuple[ConstraintDoc, ...] = (
         slug="chilled-water-plant-capacity",
         headline="Direct liquid cooling does not remove the air load — it shrinks it, and the "
                  "remainder still needs the plant you already have.",
-        limits="Chilled-water capacity available for the heat the existing plant has to remove: "
-               "the whole rack load when the plant also carries the liquid (hybrid direct liquid "
-               "cooling, rear-door heat exchangers, retained air), or only the residual air load "
-               "when the liquid goes to a dedicated high-temperature loop (full direct liquid "
-               "cooling).",
+        limits="Chilled-water capacity for the heat the existing plant must remove: the whole "
+               "rack load when it also carries the liquid (hybrid direct liquid cooling, "
+               "rear-door, retained air), or the residual air load alone when the liquid goes to "
+               "a dedicated loop (full direct liquid cooling).",
         relation="Load on the plant per rack = rack kW (hybrid DLC, rear-door, retained air) or "
                  "residual air load = rack kW × (1 − liquid capture fraction) (full DLC). Racks "
                  "supported = plant headroom ÷ that load. At a 0.85 capture fraction a 132 kW "

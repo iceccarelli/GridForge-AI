@@ -75,7 +75,7 @@ export function routeSources() {
   routes["/products"] = ["app/products/page.tsx", "lib/product-pages.ts", "lib/products.ts"];
   for (const slug of productSlugs()) routes[`/products/${slug}`] = ["app/products/[slug]/page.tsx", "lib/product-pages.ts", "lib/products.ts"];
   routes["/guides/nameplate-vs-useful-compute"] = ["app/guides/nameplate-vs-useful-compute/page.tsx", "lib/guide-data.ts", "public/reference/model_pack.json", "components/diagrams/RackDensityChart.tsx", "lib/rack-math.ts"];
-  routes["/guides/retrofit-order-of-limits"] = ["app/guides/retrofit-order-of-limits/page.tsx", "lib/retrofit-order-data.ts", "components/diagrams/LadderBars.tsx", "public/reference/model_pack.json", "public/reference/platforms.json", "public/reference/constraints.json", "public/reference/calibration.json"];
+  routes["/guides/retrofit-order-of-limits"] = ["app/guides/retrofit-order-of-limits/page.tsx", "lib/retrofit-order-data.ts", "components/diagrams/LadderBars.tsx", "public/reference/model_pack.json", "public/reference/platforms.json", "public/reference/constraints.json", "public/reference/calibration.json", "public/reference/envelope_study.md"];
   routes["/for"] = ["app/for/page.tsx", "lib/audiences.ts"];
   for (const slug of audienceSlugs()) routes[`/for/${slug}`] = ["app/for/[slug]/page.tsx", "lib/audiences.ts", "lib/products.ts", "public/reference/constraints.json"];
   routes["/evidence"] = [...routes["/evidence"], "lib/market-evidence.ts", "lib/evidence-bands.ts"];
