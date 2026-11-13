@@ -372,7 +372,10 @@ describe("every number in the prose is derived from the catalogue", () => {
 
   it("/openapi.json states no price at all, so it cannot drift from one", async () => {
     const base = await renderWith(false);
-    expect(base.open).not.toMatch(/[\u20ac$]\s?\d|\bEUR\b|\b\d+\s?(?:euro|cents?) (?:a|per) unit/i);
+    // The example supplier bids carry `"currency":"EUR"`: a bid names the currency its price is in, and one without is disqualified. That is
+    // a currency CODE in an invented example, not a price; exactly that property is exempt and the broad pattern applies to everything else.
+    const text = base.open.replace(/"currency":\s?"EUR"/g, '"currency":"<code>"');
+    expect(text).not.toMatch(/[\u20ac$]\s?\d|\bEUR\b|\b\d+\s?(?:euro|cents?) (?:a|per) unit/i);
   });
 
   it("no source that writes these surfaces types a euro amount or the free allowance as a literal", () => {

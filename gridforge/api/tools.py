@@ -282,10 +282,12 @@ TOOLS: list[dict] = [
                         "client": {"type": "string", "maxLength": 120,
                                    "description": "the name printed on the rendered document (format md or html)"}},
          "additionalProperties": False},
-        returns="halls ranked against the objective, with the total deployable rack count; with format md or html, "
-                "also the rendered document and a model pack per hall.",
+        returns="halls ranked against the objective, each marked rankable or not (a hall with a required input missing or an equipment bank "
+                "undeclared is ranked on assumptions and kept out of the comparable total), with the comparable total of deployable racks, "
+                "an upper-bound total that counts halls on one connection once each, the halls left out and a constraint roll-up; with format "
+                "md or html, also the rendered document and a model pack per hall.",
         boundary=("Each hall is solved from its own intake in screening mode, so a ranking is only as good as those intakes; it is not a measured "
-                  "comparison of the sites."),
+                  "comparison of the sites, and a total that includes halls on a shared connection is an upper bound."),
     ),
     _tool(
         "gridforge_diff",
