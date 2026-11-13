@@ -177,13 +177,47 @@ describe("guard: the unconditional promise is typed nowhere in the site's own te
     return out;
   }
   const files = ["app", "components", "lib"].flatMap((d) => walk(d));
-  // The Density Screen -> Study promise, in the forms it was typed: "credits in full against", "Credits in full against the full study".
-  const PROMISE = /credits?\s+in\s+full\s+against/i;
+  // The Density Screen -> Study promise, in any spelling that reads "credit(s) in full". "credited in full against the agreed fee" (the Study
+  // DEPOSIT's own wording, which names its condition: it is credited against the agreed fee) does not match: "credited" is not "credits".
+  const PROMISE = /credits?\s+in\s+full/i;
 
-  it("'credits in full against' does not appear in any page, email, agent text or library string", () => {
-    // No exemption: the price ladder reads SCREEN_CREDIT_SHORT from lib/credits-terms.ts like every other surface.
-    const offenders = files.filter((f) => PROMISE.test(strip(read(f))));
-    expect(offenders, "an unconditional credit promise typed outside lib/credits-terms.ts").toEqual([]);
+  /**
+   * The text a reader of the rendered string would see: comments gone, string pieces joined across `+` (and across quote kinds), JSX `{" "}`
+   * spaces and escaped newlines read as spaces, then every run of whitespace (a line break included) one space. The earlier guard matched the
+   * raw source, so "credits " + `in full against...` split over two template literals in the follow-up mail was never seen.
+   */
+  const collapse = (src: string): string =>
+    strip(src)
+      .replace(/(["'`])\s*\+\s*(["'`])/g, "")
+      .replace(/\{\s*(["'`]) \1\s*\}/g, " ")
+      .replace(/&nbsp;|\\u00a0| /g, " ")
+      .replace(/\\n/g, " ")
+      .replace(/\s+/g, " ");
+
+  it("the scanner sees the shapes the promise was typed in (so a pass means something): concatenation, template pieces, JSX, line breaks", () => {
+    const shapes = [
+      '"... and it credits " + "in full against the full Envelope Study"',
+      "`and it credits ` +\n    `in full against the full Envelope Study`",
+      "'it credits' +\n  \" in full\"",
+      '<p>The fee credits{" "}in full against a Study</p>',
+      "<p>The fee credits\n        in full against a Study</p>",
+      '"The fee for this screen credits\\nin full"',
+      '"Credits in full against the full study"',
+    ];
+    for (const sh of shapes) expect(PROMISE.test(collapse(sh)), sh).toBe(true);
+    // ...and it does not read a comment, nor the deposit's own conditioned wording, as the promise.
+    expect(PROMISE.test(collapse("// it credits in full against the Study\nconst x = 1;"))).toBe(false);
+    expect(PROMISE.test(collapse('"A deposit on commissioning, credited in full against the agreed fee."'))).toBe(false);
+  });
+
+  it("'credits in full' is typed nowhere in app/, lib/ or components/, however the string is split (no exemption: lib/credits-terms.ts needs none)", () => {
+    const offenders = files.filter((f) => PROMISE.test(collapse(read(f))));
+    expect(offenders, "an unconditional credit promise typed outside the shared sentence").toEqual([]);
+  });
+
+  it("every 'in full' credit phrase left is the deposit's own, and it names its condition", () => {
+    const hits = files.flatMap((f) => [...collapse(read(f)).matchAll(/credit(?:s|ed|ing)?\s+in\s+full[^.;"'`]{0,40}/gi)].map((m) => `${f}: ${m[0]}`));
+    for (const h of hits) expect(h, "an 'in full' credit with no stated condition").toMatch(/credited in full against (?:the agreed fee|it\b)/i);
   });
 
   it("the shared constant is imported by every file that prints it, and defined once", () => {
