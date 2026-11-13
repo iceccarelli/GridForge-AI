@@ -8,13 +8,17 @@ The two most commonly missed, and therefore the two most commercially valuable:
 """
 from __future__ import annotations
 
+import math
+from dataclasses import dataclass
+
 from ..common import ASSUMED, ESTIMATED, SIMULATED, V
 from ..costs import cdu_cost, cost, scaled_cost
 from ..constraints import (ConstraintResult, EnvelopeContext, ReliefOption, constraint, floor_racks,
                            gate_racks)
+from ..numerics import leq
 from ..thermal.library import ARCH_RACK_CAPABILITY_kW, implied_delta_T_K
 from ..thermal.schema import Architecture
-from ..validation import Quantity
+from ..validation import Provenance, Quantity
 
 
 def _effective_units(units: int, redundancy: str) -> int:
@@ -52,6 +56,60 @@ def _liquid_load_to_plant(ctx: EnvelopeContext) -> bool:
                                 Architecture.RETAINED_AIR)
 
 
+@dataclass(frozen=True)
+class FacilityWaterSupply:
+    """The facility-water temperature a context's liquid loop can hold, and where it comes from."""
+    #: The temperature, as the quantity it is built from (the plant's own supply setpoint, or dry bulb plus the dry-cooler approach).
+    temperature: Quantity
+    #: "trim_chiller" | "dry_coolers" | "existing_plant"
+    source: str
+    #: The mechanism in words, for a basis sentence.
+    mechanism: str
+
+
+def facility_water_supply(ctx: EnvelopeContext) -> FacilityWaterSupply:
+    """The ONE facility-water supply temperature of this context, read by every constraint that needs it (``cdu_capacity`` derates against
+    it, ``tcs_supply_achievable`` compares it with the temperature the CDU needs).
+
+    * a proposed trim chiller (the tcs relief set ``trim_chiller_installed``): the plant's supply setpoint, an ASSUMPTION about an asset
+      that is not installed (its capacity is not modelled);
+    * full DLC with a dry-cooler approach: design dry bulb plus that approach, the water the dedicated high-temperature loop can deliver
+      without mechanical cooling;
+    * otherwise the existing chilled-water plant's supply setpoint (retained air, rear door, hybrid DLC, and a full-DLC context with no
+      dry-cooler approach).
+
+    Before this helper existed ``cdu_capacity`` always derated against the legacy plant's setpoint (a 6 degC chiller) while the gate
+    one constraint later used the dry-cooler water: under full DLC the CDU was credited an approach of 24 K on water that was 25 degC."""
+    t = ctx.thermal
+    if t.trim_chiller_installed:
+        return FacilityWaterSupply(t.plant.design_supply_C, "trim_chiller", "a proposed trim chiller (capacity not assessed)")
+    if ctx.architecture == Architecture.FULL_DLC and t.plant.dry_cooler_approach_K is not None:
+        water = (ctx.site.design_drybulb_C + t.plant.dry_cooler_approach_K).relabel(
+            "facility water temperature achievable by dry coolers at design dry bulb",
+            "thermal.dry_cooler_fws", step_evidence=SIMULATED)
+        return FacilityWaterSupply(water, "dry_coolers", "dry coolers at design dry-bulb")
+    return FacilityWaterSupply(t.plant.design_supply_C, "existing_plant", "existing chilled-water plant")
+
+
+def _required_fws(t) -> Quantity:
+    """The warmest facility water that still lets a CDU hold the TCS target: the target less the CDU approach."""
+    return (t.tcs_target_supply_C - t.cdu_approach_K).relabel(
+        "facility water supply temperature required", "thermal.required_fws", step_evidence=ESTIMATED)
+
+
+def _floor(x: float) -> int | float:
+    """Whole racks for a basis sentence: floor of a finite figure, the figure itself (inf, nan) otherwise."""
+    return math.floor(x) if math.isfinite(x) else x
+
+
+def _lesser(label: str, model_id: str, a: Quantity, b: Quantity) -> Quantity:
+    """The smaller of two rack limits, carrying the weakest evidence of BOTH. (``qmin`` keeps only the winner's lineage, so a limit that
+    happens not to be the lower one would silently drop its own evidence class.) Band: the lower of each end."""
+    prov = Provenance.derive(label, model_id, [a.prov, b.prov], step_evidence=ESTIMATED)
+    (alo, ahi), (blo, bhi) = a.band, b.band
+    return Quantity(min(a.value, b.value), a.unit, prov, min(alo, blo), min(ahi, bhi))
+
+
 @constraint
 def architecture_capability(ctx: EnvelopeContext) -> ConstraintResult:
     """Can this cooling architecture carry a rack of this platform at all?
@@ -67,7 +125,7 @@ def architecture_capability(ctx: EnvelopeContext) -> ConstraintResult:
         declared = True
     need = ctx.cluster.platform.rack_kW
     peak = ctx.cluster.platform.peak_rack_kW
-    ok = need.value <= capability.value
+    ok = leq(need.value, capability.value)          # a rack exactly at the architecture's capability passes (numerics.LIMIT_REL_TOL)
     racks = gate_racks(ok, "racks permitted by the chosen cooling architecture", need, capability)
     return ConstraintResult(
         "architecture_capability", "thermal",
@@ -96,11 +154,16 @@ def cdu_capacity(ctx: EnvelopeContext) -> ConstraintResult:
                                        if ctx.architecture in (Architecture.RETAINED_AIR, Architecture.RDHX)
                                        else "no CDU schedule declared: CDU capacity was not assessed, so this "
                                             "does not limit the hall here and has not been shown adequate"))
-    fws_supply = t.plant.design_supply_C
+    fws = facility_water_supply(ctx)             # the SAME water temperature tcs_supply_achievable tests (one source of truth)
+    fws_supply = fws.temperature
     available_approach = (t.tcs_target_supply_C - fws_supply).relabel(
         "available CDU approach (TCS target minus facility water supply)",
         "thermal.available_approach", step_evidence=ESTIMATED)
     total = None
+    # A CDU flow is a limit only when EVERY CDU in the schedule declared one: summing the declared flows alone would understate the bank's
+    # flow and refuse racks it can carry. An undeclared flow is a library placeholder that nothing reads (and a named gap at load).
+    flow_declared = all(c.rated_flow_declared for c in t.cdus)
+    flow_total = None
     for c in t.cdus:
         n = _effective_units(c.units, c.redundancy)
         # Vendor ratings are stated AT a specific approach. Derate linearly, capped at rated.
@@ -116,7 +179,21 @@ def cdu_capacity(ctx: EnvelopeContext) -> ConstraintResult:
         cap = (c.rated_capacity_kW * derate * V(float(n), "1", f"{c.id} usable units ({c.redundancy})", ASSUMED)
                ).relabel(f"{c.id} usable capacity at site conditions", "thermal.cdu_usable")
         total = cap if total is None else total + cap
-    racks = total / ctx.cluster.platform.liquid_kW()
+        if flow_declared:
+            flow = (c.rated_flow_l_per_min * V(float(n), "1", f"{c.id} usable units ({c.redundancy})", ASSUMED)
+                    ).relabel(f"{c.id} usable CDU flow", "thermal.cdu_flow_usable")
+            flow_total = flow if flow_total is None else flow_total + flow
+    plat = ctx.cluster.platform
+    racks = total / plat.liquid_kW()
+    flow_text = ""
+    if flow_declared:
+        # Usable units x declared rated flow, over the platform's published flow per rack (a vendor figure, E0): the limit carries the
+        # weakest evidence of both limits it is the lesser of.
+        flow_racks = (flow_total / plat.flow_l_per_min_per_rack).relabel(
+            "racks permitted by declared CDU flow", "thermal.cdu_flow_limit", step_evidence=ESTIMATED)
+        racks = _lesser("racks permitted by CDU heat capacity and CDU flow", "thermal.cdu_limit", racks, flow_racks)
+        flow_text = (f"; flow {flow_total.render()} usable (declared rated flow x usable units) against {plat.flow_l_per_min_per_rack.render()} "
+                     f"per rack permits {_floor(flow_racks.value)} racks")
 
     def _apply(c: EnvelopeContext) -> EnvelopeContext:
         c = c.copy()
@@ -128,22 +205,37 @@ def cdu_capacity(ctx: EnvelopeContext) -> ConstraintResult:
     added_units = sum(_units_per_relief_step(c.redundancy) for c in t.cdus)
     cdu_capex, cdu_kind, cdu_scope, cdu_unpriced, cdu_extra, cdu_limited, cdu_note = cdu_cost(
         added_units, "additional CDU")
+    relief = ReliefOption(
+        description="Add CDU capacity (one further unit per bank)",
+        capex_eur=cdu_capex, cost_kind=cdu_kind, scope=cdu_scope, unpriced=cdu_unpriced,
+        extra_cost_keys=cdu_extra, quantity=float(added_units), quantity_unit="unit", limited=cdu_limited,
+        basis_note=cdu_note,
+        cost_key="cdu.addition",
+        lead_time_weeks=V(26, "weeks", "CDU lead time", ASSUMED, band=(16, 40)),
+        apply=_apply,
+    )
+    notes = ("TCS water quality per OCP: conductivity <1500 uS/cm, pH 8.0-10.5, 50 um inline "
+             "filtration, sidestream <5 um at 10% of flow.",)
+
+    # No approach at all on dry-cooler water that the gate has already refused. Adding CDU units cannot help (0 x n = 0) and the two
+    # zero-rack constraints tie, so the first in evaluation order would be "binding" and the ladder would end at zero racks with the
+    # trim chiller that relieves BOTH never reached. The gate holds the hall at zero and owns the relief; the CDU is assessed once the
+    # water is. (The relief stays on this row: the assumed CDU kit's lead time is read from it.)
+    if (fws.source == "dry_coolers" and available_approach.value <= 0
+            and not leq(fws_supply.value, _required_fws(t).value)):
+        return ConstraintResult(
+            "cdu_capacity", "thermal", "CDU capacity (derated to site water temperature)",
+            V(float("inf"), "racks", "CDU capacity: not assessed until the water-temperature gate is relieved", ESTIMATED),
+            basis=(f"not assessed here: the facility water the dry coolers can supply ({fws_supply.render()}) is at or above the TCS "
+                   f"target ({t.tcs_target_supply_C.render()}), so a CDU has no approach to work with, and the water-temperature gate "
+                   f"(tcs_supply_achievable) already holds this hall at zero racks. CDU capacity is assessed once that gate is relieved"),
+            relief=relief, notes=notes)
     return ConstraintResult(
         "cdu_capacity", "thermal", "CDU capacity (derated to site water temperature)",
         floor_racks(racks),
-        basis=(f"{total.render()} usable against {ctx.cluster.platform.liquid_kW().render()} of liquid load "
-               f"per rack; {available_approach.render()} approach available"),
-        relief=ReliefOption(
-            description="Add CDU capacity (one further unit per bank)",
-            capex_eur=cdu_capex, cost_kind=cdu_kind, scope=cdu_scope, unpriced=cdu_unpriced,
-            extra_cost_keys=cdu_extra, quantity=float(added_units), quantity_unit="unit", limited=cdu_limited,
-            basis_note=cdu_note,
-            cost_key="cdu.addition",
-            lead_time_weeks=V(26, "weeks", "CDU lead time", ASSUMED, band=(16, 40)),
-            apply=_apply,
-        ),
-        notes=("TCS water quality per OCP: conductivity <1500 uS/cm, pH 8.0-10.5, 50 um inline "
-               "filtration, sidestream <5 um at 10% of flow.",),
+        basis=(f"{total.render()} usable against {plat.liquid_kW().render()} of liquid load "
+               f"per rack; {available_approach.render()} approach available" + flow_text),
+        relief=relief, notes=notes,
     )
 
 
@@ -165,11 +257,31 @@ def plant_capacity(ctx: EnvelopeContext) -> ConstraintResult:
         headroom = Quantity(max(net.value, 0.0), net.unit, net.prov, max(lo, 0.0), max(hi, 0.0))
     racks = headroom / per_rack
 
+    # Heat rejection of the DEDICATED high-temperature loop (full DLC), when the client declared its dry-cooler capacity. Read as a
+    # nameplate: the conditions it is rated at (water and ambient temperature) are not known, so NO derating for the site's design dry
+    # bulb is applied and the figure is not claimed at site conditions. Undeclared (or zero: none installed), there is no limit here.
+    dry = t.plant.dry_cooler_capacity_kW
+    heat_rejection = None
+    dry_binds = False
+    if ctx.architecture == Architecture.FULL_DLC and dry is not None and dry.value > 0:
+        heat_rejection = (dry / plat.liquid_kW()).relabel(
+            "racks permitted by dry-cooler heat rejection on the dedicated loop", "thermal.heat_rejection_limit",
+            step_evidence=ESTIMATED)
+        dry_binds = _floor(heat_rejection.value) < _floor(racks.value)       # a tie keeps the chilled-water relief, as before
+        racks = _lesser("racks permitted by chilled-water headroom and dry-cooler heat rejection", "thermal.plant_limit",
+                        racks, heat_rejection)
+
     def _apply(c: EnvelopeContext) -> EnvelopeContext:
         c = c.copy()
         c.thermal.plant.chilled_water_capacity_kW = (
             c.thermal.plant.chilled_water_capacity_kW *
             V(PLANT_UPRATE, "1", "plant uprate factor", ASSUMED))
+        return c
+
+    def _apply_dry_coolers(c: EnvelopeContext) -> EnvelopeContext:
+        c = c.copy()
+        c.thermal.plant.dry_cooler_capacity_kW = (
+            c.thermal.plant.dry_cooler_capacity_kW * V(PLANT_UPRATE, "1", "dry-cooler uprate factor", ASSUMED))
         return c
 
     added_kW = t.plant.chilled_water_capacity_kW.value * (PLANT_UPRATE - 1.0)
@@ -189,21 +301,46 @@ def plant_capacity(ctx: EnvelopeContext) -> ConstraintResult:
                  f"{existing.render()} IT load less {other_heat.render()} of other heat the existing hall already puts on the plant "
                  f"(never below zero), against {per_rack.render()} per rack — {route}. Modelling limit: plant redundancy and condenser derating "
                  f"are not modelled, and only the other heat the client gave is subtracted; a plant uprate scales the capacity, not that heat")
+    relief = ReliefOption(
+        description="Uprate chilled-water plant (+50%) or add a dedicated high-temperature loop",
+        capex_eur=price.capex, cost_kind=price.kind, scope=price.scope,
+        quantity=price.quantity, quantity_unit=price.quantity_unit, limited=price.limited,
+        basis_note=price.note,
+        cost_key="plant.uprate",
+        lead_time_weeks=V(44, "weeks", "chiller / dry cooler lead time", ASSUMED, band=(30, 70)),
+        apply=_apply,
+        risk="A dedicated high-temperature loop is usually cheaper to run and should be compared "
+             "against uprating legacy low-temperature plant.",
+    )
+    notes: tuple[str, ...] = ()
+    if ctx.architecture == Architecture.FULL_DLC:
+        if heat_rejection is not None:
+            basis += (f". Heat rejection on the dedicated loop: {dry.render()} declared dry-cooler capacity against "
+                      f"{plat.liquid_kW().render()} of liquid load per rack permits {_floor(heat_rejection.value)} racks. No derating for the "
+                      f"design dry bulb ({ctx.site.design_drybulb_C.render()}) or for the conditions the nameplate is rated at was applied: "
+                      f"neither is known, so this is the nameplate figure, class E0 as a rack count")
+            notes = ("Dry-cooler output falls as ambient temperature rises toward the water temperature; this limit applies no such "
+                     "derating (the rating conditions of the declared figure are not known). Confirm the capacity at the site's design "
+                     "dry bulb before relying on it.",)
+            if dry_binds:
+                # The declared dry coolers are the lesser limit: the relief is more of them. Neither its price nor its lead time exists in
+                # the library, so both are unknown and reported as such (never zero): the capex becomes a lower bound.
+                relief = ReliefOption(
+                    description="Add dry-cooler capacity on the dedicated high-temperature loop (+50%, a screening assumption)",
+                    capex_eur=None, lead_time_weeks=None, apply=_apply_dry_coolers,
+                    risk="Dry-cooler capacity, its pumps and pipework are not priced or dated by this engine; obtain quotations.")
+        else:
+            notes = ("The heat rejection of the dedicated high-temperature loop (dry coolers) is not sized or limited here: "
+                     "thermal.plant.dry_cooler_capacity_kW "
+                     + ("was declared as zero (none installed; the loop is what this scenario buys)"
+                        if dry is not None else "was not declared")
+                     + ". The loop is an unpriced component of the capex.",)
     return ConstraintResult(
         "plant_capacity", "thermal", "Chilled-water plant capacity",
         floor_racks(racks),
         basis=basis,
-        relief=ReliefOption(
-            description="Uprate chilled-water plant (+50%) or add a dedicated high-temperature loop",
-            capex_eur=price.capex, cost_kind=price.kind, scope=price.scope,
-            quantity=price.quantity, quantity_unit=price.quantity_unit, limited=price.limited,
-            basis_note=price.note,
-            cost_key="plant.uprate",
-            lead_time_weeks=V(44, "weeks", "chiller / dry cooler lead time", ASSUMED, band=(30, 70)),
-            apply=_apply,
-            risk="A dedicated high-temperature loop is usually cheaper to run and should be compared "
-                 "against uprating legacy low-temperature plant.",
-        ),
+        relief=relief,
+        notes=notes,
     )
 
 
@@ -319,7 +456,8 @@ def residual_air_removal(ctx: EnvelopeContext) -> ConstraintResult:
     need = plat.residual_air_kW() if ctx.architecture in (
         Architecture.HYBRID_DLC, Architecture.FULL_DLC) else plat.rack_kW
     have = ctx.thermal.residual_air_capacity_kW_per_rack
-    ok = need.value <= have.value
+    # leq, not <=: 100 x (1 - 0.85) is 15.000000000000002 in binary, so a hall that removes exactly 15 kW per position failed a 15 kW need.
+    ok = leq(need.value, have.value)
     racks = gate_racks(ok, "racks permitted by per-position air removal capacity", need, have)
 
     def _apply(c: EnvelopeContext) -> EnvelopeContext:
@@ -351,26 +489,23 @@ def residual_air_removal(ctx: EnvelopeContext) -> ConstraintResult:
 def tcs_supply_achievable(ctx: EnvelopeContext) -> ConstraintResult:
     """Can the facility side actually deliver water cold enough to hit the TCS target?"""
     t = ctx.thermal
-    required_fws = (t.tcs_target_supply_C - t.cdu_approach_K).relabel(
-        "facility water supply temperature required", "thermal.required_fws", step_evidence=ESTIMATED)
-    if t.trim_chiller_installed:
-        achievable = t.plant.design_supply_C.relabel(
+    required_fws = _required_fws(t)
+    fws = facility_water_supply(ctx)              # the SAME temperature cdu_capacity derates against
+    mech = fws.mechanism
+    if fws.source == "trim_chiller":
+        achievable = fws.temperature.relabel(
             "facility water temperature assumed achievable with a proposed trim chiller on the high-temperature loop",
             "thermal.trim_chiller_fws", step_evidence=ASSUMED)
         # A trim chiller exists in this context only because the relief proposed it. Its capacity, power draw and cost scaling are not
         # modelled, so the temperature is an ASSUMPTION about an asset that is not installed, never a delivered figure.
-        mech = "a proposed trim chiller (capacity not assessed)"
-    elif ctx.architecture == Architecture.FULL_DLC and t.plant.dry_cooler_approach_K is not None:
-        achievable = (ctx.site.design_drybulb_C + t.plant.dry_cooler_approach_K).relabel(
-            "facility water temperature achievable by dry coolers at design dry bulb",
-            "thermal.dry_cooler_fws", step_evidence=SIMULATED)
-        mech = "dry coolers at design dry-bulb"
+    elif fws.source == "dry_coolers":
+        achievable = fws.temperature
     else:
-        achievable = t.plant.design_supply_C.relabel(
+        achievable = fws.temperature.relabel(
             "facility water temperature achievable by existing plant", "thermal.plant_fws",
             step_evidence=ESTIMATED)
-        mech = "existing chilled-water plant"
-    ok = achievable.value <= required_fws.value
+    # leq, not <=: a plant at exactly the required temperature passes (27.9 - 5.1 is 22.799999999999997 in binary, not 22.8).
+    ok = leq(achievable.value, required_fws.value)
     racks = gate_racks(ok, "racks permitted by achievable water temperature", achievable, required_fws)
 
     def _apply(c: EnvelopeContext) -> EnvelopeContext:

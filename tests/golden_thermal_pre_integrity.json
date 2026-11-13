@@ -1,0 +1,2998 @@
+{
+ "dublin_hall/full_dlc": {
+  "as_found_racks": 0,
+  "binding": "tcs_supply_achievable",
+  "capex": 4358000.0,
+  "capex_complete": false,
+  "constraints": {
+   "architecture_capability": {
+    "basis": "c669d11e4f",
+    "class": "E0_ASSUMPTION",
+    "racks": "inf"
+   },
+   "busway_ampacity": {
+    "basis": "c5755529a1",
+    "class": "E0_ASSUMPTION",
+    "racks": 31
+   },
+   "cdu_capacity": {
+    "basis": "5c8691c976",
+    "class": "E0_ASSUMPTION",
+    "racks": 22
+   },
+   "floor_loading": {
+    "basis": "216257c501",
+    "class": "E0_ASSUMPTION",
+    "racks": "inf"
+   },
+   "floor_space": {
+    "basis": "30ef65ebfa",
+    "class": "E3_ENGINEERING_ESTIMATE",
+    "racks": 260
+   },
+   "grid_firm_capacity": {
+    "basis": "100391cf63",
+    "class": "E0_ASSUMPTION",
+    "racks": 24
+   },
+   "hydraulic_flow": {
+    "basis": "8939ce7fb3",
+    "class": "E0_ASSUMPTION",
+    "racks": 107
+   },
+   "plant_capacity": {
+    "basis": "5213f2af02",
+    "class": "E0_ASSUMPTION",
+    "racks": 251
+   },
+   "rack_feed_tapoff": {
+    "basis": "60ebd3b22c",
+    "class": "E0_ASSUMPTION",
+    "racks": "inf"
+   },
+   "residual_air_removal": {
+    "basis": "9dd4af8cd6",
+    "class": "E0_ASSUMPTION",
+    "racks": "inf"
+   },
+   "tcs_supply_achievable": {
+    "basis": "f84b78ab01",
+    "class": "E0_ASSUMPTION",
+    "racks": 0.0
+   },
+   "transformer_capacity": {
+    "basis": "7f1ab44f17",
+    "class": "E0_ASSUMPTION",
+    "racks": 16
+   },
+   "ups_capacity": {
+    "basis": "5dca57d857",
+    "class": "E0_ASSUMPTION",
+    "racks": 13
+   }
+  },
+  "critical_path_weeks": 160.0,
+  "final_binding": "grid_firm_capacity",
+  "steps": [
+   [
+    "tcs_supply_achievable",
+    0,
+    13,
+    true,
+    "Adiabatic assist plus trim chiller on the high-temperature loop",
+    350000
+   ],
+   [
+    "ups_capacity",
+    13,
+    16,
+    true,
+    "Add UPS modules / new UPS block",
+    768000.0
+   ],
+   [
+    "transformer_capacity",
+    16,
+    22,
+    true,
+    "Replace / add transformer capacity (uprate ~60%)",
+    1200000.0
+   ],
+   [
+    "cdu_capacity",
+    22,
+    24,
+    true,
+    "Add CDU capacity (one further unit per bank)",
+    180000.0
+   ],
+   [
+    "grid_firm_capacity",
+    24,
+    24,
+    false,
+    "Grid reinforcement / new connection capacity from the DSO",
+    2500000
+   ]
+  ],
+  "unlocked": 24,
+  "unpriced": [
+   "cdu.commissioning",
+   "cdu.integration"
+  ]
+ },
+ "dublin_hall/full_dlc_btm": {
+  "as_found_racks": 0,
+  "binding": "tcs_supply_achievable",
+  "capex": 19349500.0,
+  "capex_complete": false,
+  "constraints": {
+   "architecture_capability": {
+    "basis": "c669d11e4f",
+    "class": "E0_ASSUMPTION",
+    "racks": "inf"
+   },
+   "busway_ampacity": {
+    "basis": "c5755529a1",
+    "class": "E0_ASSUMPTION",
+    "racks": 31
+   },
+   "cdu_capacity": {
+    "basis": "5c8691c976",
+    "class": "E0_ASSUMPTION",
+    "racks": 22
+   },
+   "floor_loading": {
+    "basis": "216257c501",
+    "class": "E0_ASSUMPTION",
+    "racks": "inf"
+   },
+   "floor_space": {
+    "basis": "30ef65ebfa",
+    "class": "E3_ENGINEERING_ESTIMATE",
+    "racks": 260
+   },
+   "grid_firm_capacity": {
+    "basis": "100391cf63",
+    "class": "E0_ASSUMPTION",
+    "racks": 24
+   },
+   "hydraulic_flow": {
+    "basis": "8939ce7fb3",
+    "class": "E0_ASSUMPTION",
+    "racks": 107
+   },
+   "plant_capacity": {
+    "basis": "5213f2af02",
+    "class": "E0_ASSUMPTION",
+    "racks": 251
+   },
+   "rack_feed_tapoff": {
+    "basis": "60ebd3b22c",
+    "class": "E0_ASSUMPTION",
+    "racks": "inf"
+   },
+   "residual_air_removal": {
+    "basis": "9dd4af8cd6",
+    "class": "E0_ASSUMPTION",
+    "racks": "inf"
+   },
+   "tcs_supply_achievable": {
+    "basis": "f84b78ab01",
+    "class": "E0_ASSUMPTION",
+    "racks": 0.0
+   },
+   "transformer_capacity": {
+    "basis": "7f1ab44f17",
+    "class": "E0_ASSUMPTION",
+    "racks": 16
+   },
+   "ups_capacity": {
+    "basis": "5dca57d857",
+    "class": "E0_ASSUMPTION",
+    "racks": 13
+   }
+  },
+  "critical_path_weeks": 160.0,
+  "final_binding": "grid_firm_capacity",
+  "steps": [
+   [
+    "tcs_supply_achievable",
+    0,
+    13,
+    true,
+    "Adiabatic assist plus trim chiller on the high-temperature loop",
+    350000
+   ],
+   [
+    "ups_capacity",
+    13,
+    16,
+    true,
+    "Add UPS modules / new UPS block",
+    768000.0
+   ],
+   [
+    "transformer_capacity",
+    16,
+    22,
+    true,
+    "Replace / add transformer capacity (uprate ~60%)",
+    1200000.0
+   ],
+   [
+    "cdu_capacity",
+    22,
+    24,
+    true,
+    "Add CDU capacity (one further unit per bank)",
+    180000.0
+   ],
+   [
+    "grid_firm_capacity",
+    24,
+    31,
+    true,
+    "Behind-the-meter supply: GEN-8MW (gas_engine, 8 MW)",
+    6560000.0
+   ],
+   [
+    "ups_capacity",
+    31,
+    31,
+    true,
+    "Add UPS modules / new UPS block",
+    768000.0
+   ],
+   [
+    "busway_ampacity",
+    31,
+    33,
+    true,
+    "Replace busway with 800-1000 A and new tap-off units",
+    562500.0
+   ],
+   [
+    "cdu_capacity",
+    33,
+    39,
+    true,
+    "Add CDU capacity (one further unit per bank)",
+    180000.0
+   ],
+   [
+    "busway_ampacity",
+    39,
+    44,
+    true,
+    "Add two further busway runs (needs riser and routing space)",
+    112500.0
+   ],
+   [
+    "cdu_capacity",
+    44,
+    47,
+    true,
+    "Add CDU capacity (one further unit per bank)",
+    180000.0
+   ],
+   [
+    "busway_ampacity",
+    47,
+    48,
+    true,
+    "Add two further busway runs (needs riser and routing space)",
+    112500.0
+   ],
+   [
+    "transformer_capacity",
+    48,
+    48,
+    true,
+    "Replace / add transformer capacity (uprate ~60%)",
+    1920000.0
+   ],
+   [
+    "ups_capacity",
+    48,
+    55,
+    true,
+    "Add UPS modules / new UPS block",
+    768000.0
+   ],
+   [
+    "busway_ampacity",
+    55,
+    55,
+    true,
+    "Add two further busway runs (needs riser and routing space)",
+    112500.0
+   ],
+   [
+    "cdu_capacity",
+    55,
+    63,
+    true,
+    "Add CDU capacity (one further unit per bank)",
+    180000.0
+   ],
+   [
+    "busway_ampacity",
+    63,
+    66,
+    true,
+    "Add two further busway runs (needs riser and routing space)",
+    112500.0
+   ],
+   [
+    "ups_capacity",
+    66,
+    66,
+    true,
+    "Add UPS modules / new UPS block",
+    768000.0
+   ],
+   [
+    "cdu_capacity",
+    66,
+    69,
+    true,
+    "Add CDU capacity (one further unit per bank)",
+    180000.0
+   ],
+   [
+    "grid_firm_capacity",
+    69,
+    69,
+    false,
+    "Grid reinforcement / new connection capacity from the DSO",
+    2500000
+   ]
+  ],
+  "unlocked": 69,
+  "unpriced": [
+   "cdu.commissioning",
+   "cdu.integration"
+  ]
+ },
+ "dublin_hall/hybrid_dlc": {
+  "as_found_racks": 13,
+  "binding": "ups_capacity",
+  "capex": 3718000.0,
+  "capex_complete": false,
+  "constraints": {
+   "architecture_capability": {
+    "basis": "d5a6b91deb",
+    "class": "E0_ASSUMPTION",
+    "racks": "inf"
+   },
+   "busway_ampacity": {
+    "basis": "c5755529a1",
+    "class": "E0_ASSUMPTION",
+    "racks": 31
+   },
+   "cdu_capacity": {
+    "basis": "5c8691c976",
+    "class": "E0_ASSUMPTION",
+    "racks": 22
+   },
+   "floor_loading": {
+    "basis": "216257c501",
+    "class": "E0_ASSUMPTION",
+    "racks": "inf"
+   },
+   "floor_space": {
+    "basis": "30ef65ebfa",
+    "class": "E3_ENGINEERING_ESTIMATE",
+    "racks": 260
+   },
+   "grid_firm_capacity": {
+    "basis": "474986d348",
+    "class": "E0_ASSUMPTION",
+    "racks": 22
+   },
+   "hydraulic_flow": {
+    "basis": "8939ce7fb3",
+    "class": "E0_ASSUMPTION",
+    "racks": 107
+   },
+   "plant_capacity": {
+    "basis": "14f606480c",
+    "class": "E0_ASSUMPTION",
+    "racks": 25
+   },
+   "rack_feed_tapoff": {
+    "basis": "60ebd3b22c",
+    "class": "E0_ASSUMPTION",
+    "racks": "inf"
+   },
+   "residual_air_removal": {
+    "basis": "9dd4af8cd6",
+    "class": "E0_ASSUMPTION",
+    "racks": "inf"
+   },
+   "tcs_supply_achievable": {
+    "basis": "11eef50436",
+    "class": "E0_ASSUMPTION",
+    "racks": "inf"
+   },
+   "transformer_capacity": {
+    "basis": "7f1ab44f17",
+    "class": "E0_ASSUMPTION",
+    "racks": 14
+   },
+   "ups_capacity": {
+    "basis": "5dca57d857",
+    "class": "E0_ASSUMPTION",
+    "racks": 13
+   }
+  },
+  "critical_path_weeks": 160.0,
+  "final_binding": "grid_firm_capacity",
+  "steps": [
+   [
+    "ups_capacity",
+    13,
+    14,
+    true,
+    "Add UPS modules / new UPS block",
+    768000.0
+   ],
+   [
+    "transformer_capacity",
+    14,
+    22,
+    true,
+    "Replace / add transformer capacity (uprate ~60%)",
+    1200000.0
+   ],
+   [
+    "grid_firm_capacity",
+    22,
+    22,
+    false,
+    "Grid reinforcement / new connection capacity from the DSO",
+    2500000
+   ]
+  ],
+  "unlocked": 22,
+  "unpriced": [
+   "cdu.commissioning",
+   "cdu.integration"
+  ]
+ },
+ "dublin_hall/rdhx": {
+  "as_found_racks": 0,
+  "binding": "architecture_capability",
+  "capex": 0.0,
+  "capex_complete": false,
+  "constraints": {
+   "architecture_capability": {
+    "basis": "b97ae0fdf3",
+    "class": "E0_ASSUMPTION",
+    "racks": 0.0
+   },
+   "busway_ampacity": {
+    "basis": "c5755529a1",
+    "class": "E0_ASSUMPTION",
+    "racks": 31
+   },
+   "cdu_capacity": {
+    "basis": "186fd56865",
+    "class": "E3_ENGINEERING_ESTIMATE",
+    "racks": "inf"
+   },
+   "floor_loading": {
+    "basis": "216257c501",
+    "class": "E0_ASSUMPTION",
+    "racks": "inf"
+   },
+   "floor_space": {
+    "basis": "30ef65ebfa",
+    "class": "E3_ENGINEERING_ESTIMATE",
+    "racks": 260
+   },
+   "grid_firm_capacity": {
+    "basis": "6086e78961",
+    "class": "E0_ASSUMPTION",
+    "racks": 21
+   },
+   "hydraulic_flow": {
+    "basis": "cb2e70be83",
+    "class": "E0_ASSUMPTION",
+    "racks": 107
+   },
+   "plant_capacity": {
+    "basis": "14f606480c",
+    "class": "E0_ASSUMPTION",
+    "racks": 25
+   },
+   "rack_feed_tapoff": {
+    "basis": "60ebd3b22c",
+    "class": "E0_ASSUMPTION",
+    "racks": "inf"
+   },
+   "residual_air_removal": {
+    "basis": "e79d961c32",
+    "class": "E0_ASSUMPTION",
+    "racks": 0.0
+   },
+   "tcs_supply_achievable": {
+    "basis": "11eef50436",
+    "class": "E0_ASSUMPTION",
+    "racks": "inf"
+   },
+   "transformer_capacity": {
+    "basis": "7f1ab44f17",
+    "class": "E0_ASSUMPTION",
+    "racks": 14
+   },
+   "ups_capacity": {
+    "basis": "5dca57d857",
+    "class": "E0_ASSUMPTION",
+    "racks": 13
+   }
+  },
+  "critical_path_weeks": 0.0,
+  "final_binding": "architecture_capability",
+  "steps": [],
+  "unlocked": 0,
+  "unpriced": []
+ },
+ "dublin_hall/retained_air": {
+  "as_found_racks": 0,
+  "binding": "architecture_capability",
+  "capex": 0.0,
+  "capex_complete": false,
+  "constraints": {
+   "architecture_capability": {
+    "basis": "4ced6fe10a",
+    "class": "E0_ASSUMPTION",
+    "racks": 0.0
+   },
+   "busway_ampacity": {
+    "basis": "c5755529a1",
+    "class": "E0_ASSUMPTION",
+    "racks": 31
+   },
+   "cdu_capacity": {
+    "basis": "186fd56865",
+    "class": "E3_ENGINEERING_ESTIMATE",
+    "racks": "inf"
+   },
+   "floor_loading": {
+    "basis": "216257c501",
+    "class": "E0_ASSUMPTION",
+    "racks": "inf"
+   },
+   "floor_space": {
+    "basis": "30ef65ebfa",
+    "class": "E3_ENGINEERING_ESTIMATE",
+    "racks": 260
+   },
+   "grid_firm_capacity": {
+    "basis": "4795c9346e",
+    "class": "E0_ASSUMPTION",
+    "racks": 19
+   },
+   "hydraulic_flow": {
+    "basis": "c7212f49ec",
+    "class": "E3_ENGINEERING_ESTIMATE",
+    "racks": "inf"
+   },
+   "plant_capacity": {
+    "basis": "14f606480c",
+    "class": "E0_ASSUMPTION",
+    "racks": 25
+   },
+   "rack_feed_tapoff": {
+    "basis": "60ebd3b22c",
+    "class": "E0_ASSUMPTION",
+    "racks": "inf"
+   },
+   "residual_air_removal": {
+    "basis": "e79d961c32",
+    "class": "E0_ASSUMPTION",
+    "racks": 0.0
+   },
+   "tcs_supply_achievable": {
+    "basis": "11eef50436",
+    "class": "E0_ASSUMPTION",
+    "racks": "inf"
+   },
+   "transformer_capacity": {
+    "basis": "7f1ab44f17",
+    "class": "E0_ASSUMPTION",
+    "racks": 13
+   },
+   "ups_capacity": {
+    "basis": "5dca57d857",
+    "class": "E0_ASSUMPTION",
+    "racks": 13
+   }
+  },
+  "critical_path_weeks": 0.0,
+  "final_binding": "architecture_capability",
+  "steps": [],
+  "unlocked": 0,
+  "unpriced": []
+ },
+ "london_hall/full_dlc": {
+  "as_found_racks": 0,
+  "binding": "rack_feed_tapoff",
+  "capex": 1864166.67,
+  "capex_complete": false,
+  "constraints": {
+   "architecture_capability": {
+    "basis": "c669d11e4f",
+    "class": "E0_ASSUMPTION",
+    "racks": "inf"
+   },
+   "busway_ampacity": {
+    "basis": "33702dbd48",
+    "class": "E0_ASSUMPTION",
+    "racks": 5
+   },
+   "cdu_capacity": {
+    "basis": "3d3be99fa0",
+    "class": "E0_ASSUMPTION",
+    "racks": 22
+   },
+   "floor_loading": {
+    "basis": "3d147d2b3d",
+    "class": "E0_ASSUMPTION",
+    "racks": 0.0
+   },
+   "floor_space": {
+    "basis": "beb08d7fbe",
+    "class": "E3_ENGINEERING_ESTIMATE",
+    "racks": 60
+   },
+   "grid_firm_capacity": {
+    "basis": "8a2b947ce4",
+    "class": "E0_ASSUMPTION",
+    "racks": 6
+   },
+   "hydraulic_flow": {
+    "basis": "8dfd34dd66",
+    "class": "E0_ASSUMPTION",
+    "racks": 53
+   },
+   "plant_capacity": {
+    "basis": "848aa4e1d0",
+    "class": "E0_ASSUMPTION",
+    "racks": 29
+   },
+   "rack_feed_tapoff": {
+    "basis": "0ce0f14e28",
+    "class": "E0_ASSUMPTION",
+    "racks": 0.0
+   },
+   "residual_air_removal": {
+    "basis": "f3a1b30728",
+    "class": "E0_ASSUMPTION",
+    "racks": 0.0
+   },
+   "tcs_supply_achievable": {
+    "basis": "8711a5afb6",
+    "class": "E0_ASSUMPTION",
+    "racks": 0.0
+   },
+   "transformer_capacity": {
+    "basis": "b401b949fa",
+    "class": "E0_ASSUMPTION",
+    "racks": 17
+   },
+   "ups_capacity": {
+    "basis": "79ddfd488c",
+    "class": "E3_ENGINEERING_ESTIMATE",
+    "racks": "inf"
+   }
+  },
+  "critical_path_weeks": 36,
+  "final_binding": "grid_firm_capacity",
+  "steps": [
+   [
+    "rack_feed_tapoff",
+    0,
+    0,
+    true,
+    "Higher-rated tap-off units (and busway if ampacity does not allow)",
+    36000.0
+   ],
+   [
+    "floor_loading",
+    0,
+    0,
+    true,
+    "Load spreading / remove raised floor and deploy on slab",
+    216666.67
+   ],
+   [
+    "residual_air_removal",
+    0,
+    0,
+    true,
+    "Add in-row cooling or rear-door heat exchangers for the residual air load",
+    54000.0
+   ],
+   [
+    "tcs_supply_achievable",
+    0,
+    5,
+    true,
+    "Adiabatic assist plus trim chiller on the high-temperature loop",
+    350000
+   ],
+   [
+    "busway_ampacity",
+    5,
+    6,
+    true,
+    "Replace busway with 800-1000 A and new tap-off units",
+    337500.0
+   ],
+   [
+    "grid_firm_capacity",
+    6,
+    6,
+    false,
+    "Grid reinforcement / new connection capacity from the DSO",
+    2500000
+   ]
+  ],
+  "unlocked": 6,
+  "unpriced": [
+   "cdu.commissioning",
+   "cdu.integration"
+  ]
+ },
+ "london_hall/full_dlc_btm": {
+  "as_found_racks": 0,
+  "binding": "rack_feed_tapoff",
+  "capex": 1864166.67,
+  "capex_complete": false,
+  "constraints": {
+   "architecture_capability": {
+    "basis": "c669d11e4f",
+    "class": "E0_ASSUMPTION",
+    "racks": "inf"
+   },
+   "busway_ampacity": {
+    "basis": "33702dbd48",
+    "class": "E0_ASSUMPTION",
+    "racks": 5
+   },
+   "cdu_capacity": {
+    "basis": "3d3be99fa0",
+    "class": "E0_ASSUMPTION",
+    "racks": 22
+   },
+   "floor_loading": {
+    "basis": "3d147d2b3d",
+    "class": "E0_ASSUMPTION",
+    "racks": 0.0
+   },
+   "floor_space": {
+    "basis": "beb08d7fbe",
+    "class": "E3_ENGINEERING_ESTIMATE",
+    "racks": 60
+   },
+   "grid_firm_capacity": {
+    "basis": "8a2b947ce4",
+    "class": "E0_ASSUMPTION",
+    "racks": 6
+   },
+   "hydraulic_flow": {
+    "basis": "8dfd34dd66",
+    "class": "E0_ASSUMPTION",
+    "racks": 53
+   },
+   "plant_capacity": {
+    "basis": "848aa4e1d0",
+    "class": "E0_ASSUMPTION",
+    "racks": 29
+   },
+   "rack_feed_tapoff": {
+    "basis": "0ce0f14e28",
+    "class": "E0_ASSUMPTION",
+    "racks": 0.0
+   },
+   "residual_air_removal": {
+    "basis": "f3a1b30728",
+    "class": "E0_ASSUMPTION",
+    "racks": 0.0
+   },
+   "tcs_supply_achievable": {
+    "basis": "8711a5afb6",
+    "class": "E0_ASSUMPTION",
+    "racks": 0.0
+   },
+   "transformer_capacity": {
+    "basis": "b401b949fa",
+    "class": "E0_ASSUMPTION",
+    "racks": 17
+   },
+   "ups_capacity": {
+    "basis": "79ddfd488c",
+    "class": "E3_ENGINEERING_ESTIMATE",
+    "racks": "inf"
+   }
+  },
+  "critical_path_weeks": 36,
+  "final_binding": "grid_firm_capacity",
+  "steps": [
+   [
+    "rack_feed_tapoff",
+    0,
+    0,
+    true,
+    "Higher-rated tap-off units (and busway if ampacity does not allow)",
+    36000.0
+   ],
+   [
+    "floor_loading",
+    0,
+    0,
+    true,
+    "Load spreading / remove raised floor and deploy on slab",
+    216666.67
+   ],
+   [
+    "residual_air_removal",
+    0,
+    0,
+    true,
+    "Add in-row cooling or rear-door heat exchangers for the residual air load",
+    54000.0
+   ],
+   [
+    "tcs_supply_achievable",
+    0,
+    5,
+    true,
+    "Adiabatic assist plus trim chiller on the high-temperature loop",
+    350000
+   ],
+   [
+    "busway_ampacity",
+    5,
+    6,
+    true,
+    "Replace busway with 800-1000 A and new tap-off units",
+    337500.0
+   ],
+   [
+    "grid_firm_capacity",
+    6,
+    6,
+    false,
+    "Grid reinforcement / new connection capacity from the DSO",
+    2500000
+   ]
+  ],
+  "unlocked": 6,
+  "unpriced": [
+   "cdu.commissioning",
+   "cdu.integration"
+  ]
+ },
+ "london_hall/hybrid_dlc": {
+  "as_found_racks": 0,
+  "binding": "rack_feed_tapoff",
+  "capex": 2070049.02,
+  "capex_complete": false,
+  "constraints": {
+   "architecture_capability": {
+    "basis": "d5a6b91deb",
+    "class": "E0_ASSUMPTION",
+    "racks": "inf"
+   },
+   "busway_ampacity": {
+    "basis": "33702dbd48",
+    "class": "E0_ASSUMPTION",
+    "racks": 5
+   },
+   "cdu_capacity": {
+    "basis": "3d3be99fa0",
+    "class": "E0_ASSUMPTION",
+    "racks": 22
+   },
+   "floor_loading": {
+    "basis": "3d147d2b3d",
+    "class": "E0_ASSUMPTION",
+    "racks": 0.0
+   },
+   "floor_space": {
+    "basis": "beb08d7fbe",
+    "class": "E3_ENGINEERING_ESTIMATE",
+    "racks": 60
+   },
+   "grid_firm_capacity": {
+    "basis": "fcfe2b1840",
+    "class": "E0_ASSUMPTION",
+    "racks": 6
+   },
+   "hydraulic_flow": {
+    "basis": "8dfd34dd66",
+    "class": "E0_ASSUMPTION",
+    "racks": 53
+   },
+   "plant_capacity": {
+    "basis": "9ae0ce80a3",
+    "class": "E0_ASSUMPTION",
+    "racks": 2
+   },
+   "rack_feed_tapoff": {
+    "basis": "0ce0f14e28",
+    "class": "E0_ASSUMPTION",
+    "racks": 0.0
+   },
+   "residual_air_removal": {
+    "basis": "f3a1b30728",
+    "class": "E0_ASSUMPTION",
+    "racks": 0.0
+   },
+   "tcs_supply_achievable": {
+    "basis": "1851d22b1e",
+    "class": "E0_ASSUMPTION",
+    "racks": "inf"
+   },
+   "transformer_capacity": {
+    "basis": "b401b949fa",
+    "class": "E0_ASSUMPTION",
+    "racks": 16
+   },
+   "ups_capacity": {
+    "basis": "79ddfd488c",
+    "class": "E3_ENGINEERING_ESTIMATE",
+    "racks": "inf"
+   }
+  },
+  "critical_path_weeks": 44,
+  "final_binding": "grid_firm_capacity",
+  "steps": [
+   [
+    "rack_feed_tapoff",
+    0,
+    0,
+    true,
+    "Higher-rated tap-off units (and busway if ampacity does not allow)",
+    36000.0
+   ],
+   [
+    "floor_loading",
+    0,
+    0,
+    true,
+    "Load spreading / remove raised floor and deploy on slab",
+    216666.67
+   ],
+   [
+    "residual_air_removal",
+    0,
+    2,
+    true,
+    "Add in-row cooling or rear-door heat exchangers for the residual air load",
+    54000.0
+   ],
+   [
+    "plant_capacity",
+    2,
+    5,
+    true,
+    "Uprate chilled-water plant (+50%) or add a dedicated high-temperature loop",
+    555882.35
+   ],
+   [
+    "busway_ampacity",
+    5,
+    6,
+    true,
+    "Replace busway with 800-1000 A and new tap-off units",
+    337500.0
+   ],
+   [
+    "grid_firm_capacity",
+    6,
+    6,
+    false,
+    "Grid reinforcement / new connection capacity from the DSO",
+    2500000
+   ]
+  ],
+  "unlocked": 6,
+  "unpriced": [
+   "cdu.commissioning",
+   "cdu.integration"
+  ]
+ },
+ "london_hall/rdhx": {
+  "as_found_racks": 0,
+  "binding": "rack_feed_tapoff",
+  "capex": 0.0,
+  "capex_complete": false,
+  "constraints": {
+   "architecture_capability": {
+    "basis": "b97ae0fdf3",
+    "class": "E0_ASSUMPTION",
+    "racks": 0.0
+   },
+   "busway_ampacity": {
+    "basis": "33702dbd48",
+    "class": "E0_ASSUMPTION",
+    "racks": 5
+   },
+   "cdu_capacity": {
+    "basis": "186fd56865",
+    "class": "E3_ENGINEERING_ESTIMATE",
+    "racks": "inf"
+   },
+   "floor_loading": {
+    "basis": "3d147d2b3d",
+    "class": "E0_ASSUMPTION",
+    "racks": 0.0
+   },
+   "floor_space": {
+    "basis": "beb08d7fbe",
+    "class": "E3_ENGINEERING_ESTIMATE",
+    "racks": 60
+   },
+   "grid_firm_capacity": {
+    "basis": "6bf2462e93",
+    "class": "E0_ASSUMPTION",
+    "racks": 6
+   },
+   "hydraulic_flow": {
+    "basis": "d74d6150b2",
+    "class": "E0_ASSUMPTION",
+    "racks": 53
+   },
+   "plant_capacity": {
+    "basis": "9ae0ce80a3",
+    "class": "E0_ASSUMPTION",
+    "racks": 2
+   },
+   "rack_feed_tapoff": {
+    "basis": "0ce0f14e28",
+    "class": "E0_ASSUMPTION",
+    "racks": 0.0
+   },
+   "residual_air_removal": {
+    "basis": "bc6ba7936f",
+    "class": "E0_ASSUMPTION",
+    "racks": 0.0
+   },
+   "tcs_supply_achievable": {
+    "basis": "1851d22b1e",
+    "class": "E0_ASSUMPTION",
+    "racks": "inf"
+   },
+   "transformer_capacity": {
+    "basis": "b401b949fa",
+    "class": "E0_ASSUMPTION",
+    "racks": 15
+   },
+   "ups_capacity": {
+    "basis": "79ddfd488c",
+    "class": "E3_ENGINEERING_ESTIMATE",
+    "racks": "inf"
+   }
+  },
+  "critical_path_weeks": 0.0,
+  "final_binding": "architecture_capability",
+  "steps": [
+   [
+    "rack_feed_tapoff",
+    0,
+    0,
+    false,
+    "Higher-rated tap-off units (and busway if ampacity does not allow)",
+    6000.0
+   ],
+   [
+    "floor_loading",
+    0,
+    0,
+    false,
+    "Load spreading / remove raised floor and deploy on slab",
+    216666.67
+   ]
+  ],
+  "unlocked": 0,
+  "unpriced": []
+ },
+ "london_hall/retained_air": {
+  "as_found_racks": 0,
+  "binding": "rack_feed_tapoff",
+  "capex": 0.0,
+  "capex_complete": false,
+  "constraints": {
+   "architecture_capability": {
+    "basis": "4ced6fe10a",
+    "class": "E0_ASSUMPTION",
+    "racks": 0.0
+   },
+   "busway_ampacity": {
+    "basis": "33702dbd48",
+    "class": "E0_ASSUMPTION",
+    "racks": 5
+   },
+   "cdu_capacity": {
+    "basis": "186fd56865",
+    "class": "E3_ENGINEERING_ESTIMATE",
+    "racks": "inf"
+   },
+   "floor_loading": {
+    "basis": "3d147d2b3d",
+    "class": "E0_ASSUMPTION",
+    "racks": 0.0
+   },
+   "floor_space": {
+    "basis": "beb08d7fbe",
+    "class": "E3_ENGINEERING_ESTIMATE",
+    "racks": 60
+   },
+   "grid_firm_capacity": {
+    "basis": "8a504a9e43",
+    "class": "E0_ASSUMPTION",
+    "racks": 5
+   },
+   "hydraulic_flow": {
+    "basis": "c7212f49ec",
+    "class": "E3_ENGINEERING_ESTIMATE",
+    "racks": "inf"
+   },
+   "plant_capacity": {
+    "basis": "9ae0ce80a3",
+    "class": "E0_ASSUMPTION",
+    "racks": 2
+   },
+   "rack_feed_tapoff": {
+    "basis": "0ce0f14e28",
+    "class": "E0_ASSUMPTION",
+    "racks": 0.0
+   },
+   "residual_air_removal": {
+    "basis": "bc6ba7936f",
+    "class": "E0_ASSUMPTION",
+    "racks": 0.0
+   },
+   "tcs_supply_achievable": {
+    "basis": "1851d22b1e",
+    "class": "E0_ASSUMPTION",
+    "racks": "inf"
+   },
+   "transformer_capacity": {
+    "basis": "b401b949fa",
+    "class": "E0_ASSUMPTION",
+    "racks": 14
+   },
+   "ups_capacity": {
+    "basis": "79ddfd488c",
+    "class": "E3_ENGINEERING_ESTIMATE",
+    "racks": "inf"
+   }
+  },
+  "critical_path_weeks": 0.0,
+  "final_binding": "architecture_capability",
+  "steps": [
+   [
+    "rack_feed_tapoff",
+    0,
+    0,
+    false,
+    "Higher-rated tap-off units (and busway if ampacity does not allow)",
+    6000.0
+   ],
+   [
+    "floor_loading",
+    0,
+    0,
+    false,
+    "Load spreading / remove raised floor and deploy on slab",
+    216666.67
+   ]
+  ],
+  "unlocked": 0,
+  "unpriced": []
+ },
+ "nordic_hall/full_dlc": {
+  "as_found_racks": 0,
+  "binding": "tcs_supply_achievable",
+  "capex": 20903000.0,
+  "capex_complete": false,
+  "constraints": {
+   "architecture_capability": {
+    "basis": "c669d11e4f",
+    "class": "E0_ASSUMPTION",
+    "racks": "inf"
+   },
+   "busway_ampacity": {
+    "basis": "52b58b297a",
+    "class": "E0_ASSUMPTION",
+    "racks": 47
+   },
+   "cdu_capacity": {
+    "basis": "c49681e31b",
+    "class": "E0_ASSUMPTION",
+    "racks": 22
+   },
+   "floor_loading": {
+    "basis": "b7cabbb953",
+    "class": "E0_ASSUMPTION",
+    "racks": "inf"
+   },
+   "floor_space": {
+    "basis": "301009f1a5",
+    "class": "E3_ENGINEERING_ESTIMATE",
+    "racks": 300
+   },
+   "grid_firm_capacity": {
+    "basis": "ff6e67da4e",
+    "class": "E0_ASSUMPTION",
+    "racks": 111
+   },
+   "hydraulic_flow": {
+    "basis": "41236eac19",
+    "class": "E0_ASSUMPTION",
+    "racks": 169
+   },
+   "plant_capacity": {
+    "basis": "229696f725",
+    "class": "E0_ASSUMPTION",
+    "racks": 259
+   },
+   "rack_feed_tapoff": {
+    "basis": "206929acfb",
+    "class": "E0_ASSUMPTION",
+    "racks": "inf"
+   },
+   "residual_air_removal": {
+    "basis": "f6c4ceddc2",
+    "class": "E0_ASSUMPTION",
+    "racks": "inf"
+   },
+   "tcs_supply_achievable": {
+    "basis": "37c26d2cca",
+    "class": "E0_ASSUMPTION",
+    "racks": 0.0
+   },
+   "transformer_capacity": {
+    "basis": "3aafecfee8",
+    "class": "E0_ASSUMPTION",
+    "racks": 4
+   },
+   "ups_capacity": {
+    "basis": "49de21c233",
+    "class": "E0_ASSUMPTION",
+    "racks": 3
+   }
+  },
+  "critical_path_weeks": 160.0,
+  "final_binding": "grid_firm_capacity",
+  "steps": [
+   [
+    "tcs_supply_achievable",
+    0,
+    3,
+    true,
+    "Adiabatic assist plus trim chiller on the high-temperature loop",
+    350000
+   ],
+   [
+    "ups_capacity",
+    3,
+    4,
+    true,
+    "Add UPS modules / new UPS block",
+    768000.0
+   ],
+   [
+    "transformer_capacity",
+    4,
+    21,
+    true,
+    "Replace / add transformer capacity (uprate ~60%)",
+    1200000.0
+   ],
+   [
+    "ups_capacity",
+    21,
+    22,
+    true,
+    "Add UPS modules / new UPS block",
+    768000.0
+   ],
+   [
+    "cdu_capacity",
+    22,
+    33,
+    true,
+    "Add CDU capacity (one further unit per bank)",
+    180000.0
+   ],
+   [
+    "cdu_capacity",
+    33,
+    36,
+    true,
+    "Add CDU capacity (one further unit per bank)",
+    180000.0
+   ],
+   [
+    "transformer_capacity",
+    36,
+    39,
+    true,
+    "Replace / add transformer capacity (uprate ~60%)",
+    1920000.0
+   ],
+   [
+    "ups_capacity",
+    39,
+    44,
+    true,
+    "Add UPS modules / new UPS block",
+    768000.0
+   ],
+   [
+    "cdu_capacity",
+    44,
+    47,
+    true,
+    "Add CDU capacity (one further unit per bank)",
+    180000.0
+   ],
+   [
+    "busway_ampacity",
+    47,
+    55,
+    true,
+    "Add two further busway runs (needs riser and routing space)",
+    112500.0
+   ],
+   [
+    "busway_ampacity",
+    55,
+    55,
+    true,
+    "Add two further busway runs (needs riser and routing space)",
+    112500.0
+   ],
+   [
+    "cdu_capacity",
+    55,
+    57,
+    true,
+    "Add CDU capacity (one further unit per bank)",
+    180000.0
+   ],
+   [
+    "ups_capacity",
+    57,
+    63,
+    true,
+    "Add UPS modules / new UPS block",
+    768000.0
+   ],
+   [
+    "busway_ampacity",
+    63,
+    66,
+    true,
+    "Add two further busway runs (needs riser and routing space)",
+    112500.0
+   ],
+   [
+    "cdu_capacity",
+    66,
+    71,
+    true,
+    "Add CDU capacity (one further unit per bank)",
+    180000.0
+   ],
+   [
+    "busway_ampacity",
+    71,
+    74,
+    true,
+    "Add two further busway runs (needs riser and routing space)",
+    112500.0
+   ],
+   [
+    "ups_capacity",
+    74,
+    77,
+    true,
+    "Add UPS modules / new UPS block",
+    768000.0
+   ],
+   [
+    "cdu_capacity",
+    77,
+    79,
+    true,
+    "Add CDU capacity (one further unit per bank)",
+    180000.0
+   ],
+   [
+    "busway_ampacity",
+    79,
+    87,
+    true,
+    "Add two further busway runs (needs riser and routing space)",
+    112500.0
+   ],
+   [
+    "busway_ampacity",
+    87,
+    88,
+    true,
+    "Add two further busway runs (needs riser and routing space)",
+    112500.0
+   ],
+   [
+    "transformer_capacity",
+    88,
+    88,
+    true,
+    "Replace / add transformer capacity (uprate ~60%)",
+    3072000.0
+   ],
+   [
+    "cdu_capacity",
+    88,
+    92,
+    true,
+    "Add CDU capacity (one further unit per bank)",
+    180000.0
+   ],
+   [
+    "ups_capacity",
+    92,
+    95,
+    true,
+    "Add UPS modules / new UPS block",
+    768000.0
+   ],
+   [
+    "busway_ampacity",
+    95,
+    100,
+    true,
+    "Add two further busway runs (needs riser and routing space)",
+    112500.0
+   ],
+   [
+    "cdu_capacity",
+    100,
+    103,
+    true,
+    "Add CDU capacity (one further unit per bank)",
+    180000.0
+   ],
+   [
+    "busway_ampacity",
+    103,
+    110,
+    true,
+    "Add two further busway runs (needs riser and routing space)",
+    112500.0
+   ],
+   [
+    "ups_capacity",
+    110,
+    111,
+    true,
+    "Add UPS modules / new UPS block",
+    768000.0
+   ],
+   [
+    "grid_firm_capacity",
+    111,
+    111,
+    false,
+    "Grid reinforcement / new connection capacity from the DSO",
+    2500000
+   ]
+  ],
+  "unlocked": 111,
+  "unpriced": [
+   "cdu.commissioning",
+   "cdu.integration"
+  ]
+ },
+ "nordic_hall/full_dlc_btm": {
+  "as_found_racks": 0,
+  "binding": "tcs_supply_achievable",
+  "capex": 20903000.0,
+  "capex_complete": false,
+  "constraints": {
+   "architecture_capability": {
+    "basis": "c669d11e4f",
+    "class": "E0_ASSUMPTION",
+    "racks": "inf"
+   },
+   "busway_ampacity": {
+    "basis": "52b58b297a",
+    "class": "E0_ASSUMPTION",
+    "racks": 47
+   },
+   "cdu_capacity": {
+    "basis": "c49681e31b",
+    "class": "E0_ASSUMPTION",
+    "racks": 22
+   },
+   "floor_loading": {
+    "basis": "b7cabbb953",
+    "class": "E0_ASSUMPTION",
+    "racks": "inf"
+   },
+   "floor_space": {
+    "basis": "301009f1a5",
+    "class": "E3_ENGINEERING_ESTIMATE",
+    "racks": 300
+   },
+   "grid_firm_capacity": {
+    "basis": "ff6e67da4e",
+    "class": "E0_ASSUMPTION",
+    "racks": 111
+   },
+   "hydraulic_flow": {
+    "basis": "41236eac19",
+    "class": "E0_ASSUMPTION",
+    "racks": 169
+   },
+   "plant_capacity": {
+    "basis": "229696f725",
+    "class": "E0_ASSUMPTION",
+    "racks": 259
+   },
+   "rack_feed_tapoff": {
+    "basis": "206929acfb",
+    "class": "E0_ASSUMPTION",
+    "racks": "inf"
+   },
+   "residual_air_removal": {
+    "basis": "f6c4ceddc2",
+    "class": "E0_ASSUMPTION",
+    "racks": "inf"
+   },
+   "tcs_supply_achievable": {
+    "basis": "37c26d2cca",
+    "class": "E0_ASSUMPTION",
+    "racks": 0.0
+   },
+   "transformer_capacity": {
+    "basis": "3aafecfee8",
+    "class": "E0_ASSUMPTION",
+    "racks": 4
+   },
+   "ups_capacity": {
+    "basis": "49de21c233",
+    "class": "E0_ASSUMPTION",
+    "racks": 3
+   }
+  },
+  "critical_path_weeks": 160.0,
+  "final_binding": "grid_firm_capacity",
+  "steps": [
+   [
+    "tcs_supply_achievable",
+    0,
+    3,
+    true,
+    "Adiabatic assist plus trim chiller on the high-temperature loop",
+    350000
+   ],
+   [
+    "ups_capacity",
+    3,
+    4,
+    true,
+    "Add UPS modules / new UPS block",
+    768000.0
+   ],
+   [
+    "transformer_capacity",
+    4,
+    21,
+    true,
+    "Replace / add transformer capacity (uprate ~60%)",
+    1200000.0
+   ],
+   [
+    "ups_capacity",
+    21,
+    22,
+    true,
+    "Add UPS modules / new UPS block",
+    768000.0
+   ],
+   [
+    "cdu_capacity",
+    22,
+    33,
+    true,
+    "Add CDU capacity (one further unit per bank)",
+    180000.0
+   ],
+   [
+    "cdu_capacity",
+    33,
+    36,
+    true,
+    "Add CDU capacity (one further unit per bank)",
+    180000.0
+   ],
+   [
+    "transformer_capacity",
+    36,
+    39,
+    true,
+    "Replace / add transformer capacity (uprate ~60%)",
+    1920000.0
+   ],
+   [
+    "ups_capacity",
+    39,
+    44,
+    true,
+    "Add UPS modules / new UPS block",
+    768000.0
+   ],
+   [
+    "cdu_capacity",
+    44,
+    47,
+    true,
+    "Add CDU capacity (one further unit per bank)",
+    180000.0
+   ],
+   [
+    "busway_ampacity",
+    47,
+    55,
+    true,
+    "Add two further busway runs (needs riser and routing space)",
+    112500.0
+   ],
+   [
+    "busway_ampacity",
+    55,
+    55,
+    true,
+    "Add two further busway runs (needs riser and routing space)",
+    112500.0
+   ],
+   [
+    "cdu_capacity",
+    55,
+    57,
+    true,
+    "Add CDU capacity (one further unit per bank)",
+    180000.0
+   ],
+   [
+    "ups_capacity",
+    57,
+    63,
+    true,
+    "Add UPS modules / new UPS block",
+    768000.0
+   ],
+   [
+    "busway_ampacity",
+    63,
+    66,
+    true,
+    "Add two further busway runs (needs riser and routing space)",
+    112500.0
+   ],
+   [
+    "cdu_capacity",
+    66,
+    71,
+    true,
+    "Add CDU capacity (one further unit per bank)",
+    180000.0
+   ],
+   [
+    "busway_ampacity",
+    71,
+    74,
+    true,
+    "Add two further busway runs (needs riser and routing space)",
+    112500.0
+   ],
+   [
+    "ups_capacity",
+    74,
+    77,
+    true,
+    "Add UPS modules / new UPS block",
+    768000.0
+   ],
+   [
+    "cdu_capacity",
+    77,
+    79,
+    true,
+    "Add CDU capacity (one further unit per bank)",
+    180000.0
+   ],
+   [
+    "busway_ampacity",
+    79,
+    87,
+    true,
+    "Add two further busway runs (needs riser and routing space)",
+    112500.0
+   ],
+   [
+    "busway_ampacity",
+    87,
+    88,
+    true,
+    "Add two further busway runs (needs riser and routing space)",
+    112500.0
+   ],
+   [
+    "transformer_capacity",
+    88,
+    88,
+    true,
+    "Replace / add transformer capacity (uprate ~60%)",
+    3072000.0
+   ],
+   [
+    "cdu_capacity",
+    88,
+    92,
+    true,
+    "Add CDU capacity (one further unit per bank)",
+    180000.0
+   ],
+   [
+    "ups_capacity",
+    92,
+    95,
+    true,
+    "Add UPS modules / new UPS block",
+    768000.0
+   ],
+   [
+    "busway_ampacity",
+    95,
+    100,
+    true,
+    "Add two further busway runs (needs riser and routing space)",
+    112500.0
+   ],
+   [
+    "cdu_capacity",
+    100,
+    103,
+    true,
+    "Add CDU capacity (one further unit per bank)",
+    180000.0
+   ],
+   [
+    "busway_ampacity",
+    103,
+    110,
+    true,
+    "Add two further busway runs (needs riser and routing space)",
+    112500.0
+   ],
+   [
+    "ups_capacity",
+    110,
+    111,
+    true,
+    "Add UPS modules / new UPS block",
+    768000.0
+   ],
+   [
+    "grid_firm_capacity",
+    111,
+    111,
+    false,
+    "Grid reinforcement / new connection capacity from the DSO",
+    2500000
+   ]
+  ],
+  "unlocked": 111,
+  "unpriced": [
+   "cdu.commissioning",
+   "cdu.integration"
+  ]
+ },
+ "nordic_hall/hybrid_dlc": {
+  "as_found_racks": 3,
+  "binding": "ups_capacity",
+  "capex": 22155441.18,
+  "capex_complete": false,
+  "constraints": {
+   "architecture_capability": {
+    "basis": "d5a6b91deb",
+    "class": "E0_ASSUMPTION",
+    "racks": "inf"
+   },
+   "busway_ampacity": {
+    "basis": "52b58b297a",
+    "class": "E0_ASSUMPTION",
+    "racks": 47
+   },
+   "cdu_capacity": {
+    "basis": "c49681e31b",
+    "class": "E0_ASSUMPTION",
+    "racks": 22
+   },
+   "floor_loading": {
+    "basis": "b7cabbb953",
+    "class": "E0_ASSUMPTION",
+    "racks": "inf"
+   },
+   "floor_space": {
+    "basis": "301009f1a5",
+    "class": "E3_ENGINEERING_ESTIMATE",
+    "racks": 300
+   },
+   "grid_firm_capacity": {
+    "basis": "b3413354cb",
+    "class": "E0_ASSUMPTION",
+    "racks": 102
+   },
+   "hydraulic_flow": {
+    "basis": "41236eac19",
+    "class": "E0_ASSUMPTION",
+    "racks": 169
+   },
+   "plant_capacity": {
+    "basis": "0fa02fb5bd",
+    "class": "E0_ASSUMPTION",
+    "racks": 25
+   },
+   "rack_feed_tapoff": {
+    "basis": "206929acfb",
+    "class": "E0_ASSUMPTION",
+    "racks": "inf"
+   },
+   "residual_air_removal": {
+    "basis": "f6c4ceddc2",
+    "class": "E0_ASSUMPTION",
+    "racks": "inf"
+   },
+   "tcs_supply_achievable": {
+    "basis": "435b076ddf",
+    "class": "E0_ASSUMPTION",
+    "racks": "inf"
+   },
+   "transformer_capacity": {
+    "basis": "3aafecfee8",
+    "class": "E0_ASSUMPTION",
+    "racks": 4
+   },
+   "ups_capacity": {
+    "basis": "49de21c233",
+    "class": "E0_ASSUMPTION",
+    "racks": 3
+   }
+  },
+  "critical_path_weeks": 160.0,
+  "final_binding": "grid_firm_capacity",
+  "steps": [
+   [
+    "ups_capacity",
+    3,
+    4,
+    true,
+    "Add UPS modules / new UPS block",
+    768000.0
+   ],
+   [
+    "transformer_capacity",
+    4,
+    21,
+    true,
+    "Replace / add transformer capacity (uprate ~60%)",
+    1200000.0
+   ],
+   [
+    "ups_capacity",
+    21,
+    22,
+    true,
+    "Add UPS modules / new UPS block",
+    768000.0
+   ],
+   [
+    "cdu_capacity",
+    22,
+    25,
+    true,
+    "Add CDU capacity (one further unit per bank)",
+    180000.0
+   ],
+   [
+    "plant_capacity",
+    25,
+    33,
+    true,
+    "Uprate chilled-water plant (+50%) or add a dedicated high-temperature loop",
+    1191176.47
+   ],
+   [
+    "cdu_capacity",
+    33,
+    34,
+    true,
+    "Add CDU capacity (one further unit per bank)",
+    180000.0
+   ],
+   [
+    "transformer_capacity",
+    34,
+    39,
+    true,
+    "Replace / add transformer capacity (uprate ~60%)",
+    1920000.0
+   ],
+   [
+    "ups_capacity",
+    39,
+    44,
+    true,
+    "Add UPS modules / new UPS block",
+    768000.0
+   ],
+   [
+    "cdu_capacity",
+    44,
+    47,
+    true,
+    "Add CDU capacity (one further unit per bank)",
+    180000.0
+   ],
+   [
+    "busway_ampacity",
+    47,
+    55,
+    true,
+    "Add two further busway runs (needs riser and routing space)",
+    112500.0
+   ],
+   [
+    "busway_ampacity",
+    55,
+    55,
+    true,
+    "Add two further busway runs (needs riser and routing space)",
+    112500.0
+   ],
+   [
+    "cdu_capacity",
+    55,
+    57,
+    true,
+    "Add CDU capacity (one further unit per bank)",
+    180000.0
+   ],
+   [
+    "ups_capacity",
+    57,
+    59,
+    true,
+    "Add UPS modules / new UPS block",
+    768000.0
+   ],
+   [
+    "plant_capacity",
+    59,
+    63,
+    true,
+    "Uprate chilled-water plant (+50%) or add a dedicated high-temperature loop",
+    1786764.71
+   ],
+   [
+    "busway_ampacity",
+    63,
+    66,
+    true,
+    "Add two further busway runs (needs riser and routing space)",
+    112500.0
+   ],
+   [
+    "cdu_capacity",
+    66,
+    71,
+    true,
+    "Add CDU capacity (one further unit per bank)",
+    180000.0
+   ],
+   [
+    "busway_ampacity",
+    71,
+    74,
+    true,
+    "Add two further busway runs (needs riser and routing space)",
+    112500.0
+   ],
+   [
+    "ups_capacity",
+    74,
+    77,
+    true,
+    "Add UPS modules / new UPS block",
+    768000.0
+   ],
+   [
+    "cdu_capacity",
+    77,
+    79,
+    true,
+    "Add CDU capacity (one further unit per bank)",
+    180000.0
+   ],
+   [
+    "busway_ampacity",
+    79,
+    81,
+    true,
+    "Add two further busway runs (needs riser and routing space)",
+    112500.0
+   ],
+   [
+    "transformer_capacity",
+    81,
+    87,
+    true,
+    "Replace / add transformer capacity (uprate ~60%)",
+    3072000.0
+   ],
+   [
+    "busway_ampacity",
+    87,
+    88,
+    true,
+    "Add two further busway runs (needs riser and routing space)",
+    112500.0
+   ],
+   [
+    "cdu_capacity",
+    88,
+    92,
+    true,
+    "Add CDU capacity (one further unit per bank)",
+    180000.0
+   ],
+   [
+    "ups_capacity",
+    92,
+    95,
+    true,
+    "Add UPS modules / new UPS block",
+    768000.0
+   ],
+   [
+    "busway_ampacity",
+    95,
+    100,
+    true,
+    "Add two further busway runs (needs riser and routing space)",
+    112500.0
+   ],
+   [
+    "cdu_capacity",
+    100,
+    102,
+    true,
+    "Add CDU capacity (one further unit per bank)",
+    180000.0
+   ],
+   [
+    "grid_firm_capacity",
+    102,
+    102,
+    false,
+    "Grid reinforcement / new connection capacity from the DSO",
+    2500000
+   ]
+  ],
+  "unlocked": 102,
+  "unpriced": [
+   "cdu.commissioning",
+   "cdu.integration"
+  ]
+ },
+ "nordic_hall/rdhx": {
+  "as_found_racks": 0,
+  "binding": "architecture_capability",
+  "capex": 0.0,
+  "capex_complete": false,
+  "constraints": {
+   "architecture_capability": {
+    "basis": "b97ae0fdf3",
+    "class": "E0_ASSUMPTION",
+    "racks": 0.0
+   },
+   "busway_ampacity": {
+    "basis": "52b58b297a",
+    "class": "E0_ASSUMPTION",
+    "racks": 47
+   },
+   "cdu_capacity": {
+    "basis": "186fd56865",
+    "class": "E3_ENGINEERING_ESTIMATE",
+    "racks": "inf"
+   },
+   "floor_loading": {
+    "basis": "b7cabbb953",
+    "class": "E0_ASSUMPTION",
+    "racks": "inf"
+   },
+   "floor_space": {
+    "basis": "301009f1a5",
+    "class": "E3_ENGINEERING_ESTIMATE",
+    "racks": 300
+   },
+   "grid_firm_capacity": {
+    "basis": "d639745d0d",
+    "class": "E0_ASSUMPTION",
+    "racks": 98
+   },
+   "hydraulic_flow": {
+    "basis": "8a4c3b30f8",
+    "class": "E0_ASSUMPTION",
+    "racks": 169
+   },
+   "plant_capacity": {
+    "basis": "0fa02fb5bd",
+    "class": "E0_ASSUMPTION",
+    "racks": 25
+   },
+   "rack_feed_tapoff": {
+    "basis": "206929acfb",
+    "class": "E0_ASSUMPTION",
+    "racks": "inf"
+   },
+   "residual_air_removal": {
+    "basis": "a346b5dd7e",
+    "class": "E0_ASSUMPTION",
+    "racks": 0.0
+   },
+   "tcs_supply_achievable": {
+    "basis": "435b076ddf",
+    "class": "E0_ASSUMPTION",
+    "racks": "inf"
+   },
+   "transformer_capacity": {
+    "basis": "3aafecfee8",
+    "class": "E0_ASSUMPTION",
+    "racks": 4
+   },
+   "ups_capacity": {
+    "basis": "49de21c233",
+    "class": "E0_ASSUMPTION",
+    "racks": 3
+   }
+  },
+  "critical_path_weeks": 0.0,
+  "final_binding": "architecture_capability",
+  "steps": [],
+  "unlocked": 0,
+  "unpriced": []
+ },
+ "nordic_hall/retained_air": {
+  "as_found_racks": 0,
+  "binding": "architecture_capability",
+  "capex": 0.0,
+  "capex_complete": false,
+  "constraints": {
+   "architecture_capability": {
+    "basis": "4ced6fe10a",
+    "class": "E0_ASSUMPTION",
+    "racks": 0.0
+   },
+   "busway_ampacity": {
+    "basis": "52b58b297a",
+    "class": "E0_ASSUMPTION",
+    "racks": 47
+   },
+   "cdu_capacity": {
+    "basis": "186fd56865",
+    "class": "E3_ENGINEERING_ESTIMATE",
+    "racks": "inf"
+   },
+   "floor_loading": {
+    "basis": "b7cabbb953",
+    "class": "E0_ASSUMPTION",
+    "racks": "inf"
+   },
+   "floor_space": {
+    "basis": "301009f1a5",
+    "class": "E3_ENGINEERING_ESTIMATE",
+    "racks": 300
+   },
+   "grid_firm_capacity": {
+    "basis": "d1cbbd3af3",
+    "class": "E0_ASSUMPTION",
+    "racks": 91
+   },
+   "hydraulic_flow": {
+    "basis": "c7212f49ec",
+    "class": "E3_ENGINEERING_ESTIMATE",
+    "racks": "inf"
+   },
+   "plant_capacity": {
+    "basis": "0fa02fb5bd",
+    "class": "E0_ASSUMPTION",
+    "racks": 25
+   },
+   "rack_feed_tapoff": {
+    "basis": "206929acfb",
+    "class": "E0_ASSUMPTION",
+    "racks": "inf"
+   },
+   "residual_air_removal": {
+    "basis": "a346b5dd7e",
+    "class": "E0_ASSUMPTION",
+    "racks": 0.0
+   },
+   "tcs_supply_achievable": {
+    "basis": "435b076ddf",
+    "class": "E0_ASSUMPTION",
+    "racks": "inf"
+   },
+   "transformer_capacity": {
+    "basis": "3aafecfee8",
+    "class": "E0_ASSUMPTION",
+    "racks": 3
+   },
+   "ups_capacity": {
+    "basis": "49de21c233",
+    "class": "E0_ASSUMPTION",
+    "racks": 3
+   }
+  },
+  "critical_path_weeks": 0.0,
+  "final_binding": "architecture_capability",
+  "steps": [],
+  "unlocked": 0,
+  "unpriced": []
+ },
+ "reference_hall/full_dlc": {
+  "as_found_racks": 0,
+  "binding": "rack_feed_tapoff",
+  "capex": 6216000.0,
+  "capex_complete": false,
+  "constraints": {
+   "architecture_capability": {
+    "basis": "c669d11e4f",
+    "class": "E0_ASSUMPTION",
+    "racks": "inf"
+   },
+   "busway_ampacity": {
+    "basis": "b9be0080a3",
+    "class": "E0_ASSUMPTION",
+    "racks": 12
+   },
+   "cdu_capacity": {
+    "basis": "3d3be99fa0",
+    "class": "E0_ASSUMPTION",
+    "racks": 22
+   },
+   "floor_loading": {
+    "basis": "d64b0b21ff",
+    "class": "E0_ASSUMPTION",
+    "racks": "inf"
+   },
+   "floor_space": {
+    "basis": "dd7369b54f",
+    "class": "E3_ENGINEERING_ESTIMATE",
+    "racks": 180
+   },
+   "grid_firm_capacity": {
+    "basis": "1d10932f81",
+    "class": "E0_ASSUMPTION",
+    "racks": 28
+   },
+   "hydraulic_flow": {
+    "basis": "6e3b5e6438",
+    "class": "E0_ASSUMPTION",
+    "racks": 69
+   },
+   "plant_capacity": {
+    "basis": "c908e197d1",
+    "class": "E0_ASSUMPTION",
+    "racks": 140
+   },
+   "rack_feed_tapoff": {
+    "basis": "653cfd2189",
+    "class": "E0_ASSUMPTION",
+    "racks": 0.0
+   },
+   "residual_air_removal": {
+    "basis": "5a14fffe84",
+    "class": "E0_ASSUMPTION",
+    "racks": 0.0
+   },
+   "tcs_supply_achievable": {
+    "basis": "7e46fe3d9c",
+    "class": "E0_ASSUMPTION",
+    "racks": 0.0
+   },
+   "transformer_capacity": {
+    "basis": "941f6ea508",
+    "class": "E0_ASSUMPTION",
+    "racks": 8
+   },
+   "ups_capacity": {
+    "basis": "2c0db38f9a",
+    "class": "E0_ASSUMPTION",
+    "racks": 8
+   }
+  },
+  "critical_path_weeks": 160.0,
+  "final_binding": "grid_firm_capacity",
+  "steps": [
+   [
+    "rack_feed_tapoff",
+    0,
+    0,
+    true,
+    "Higher-rated tap-off units (and busway if ampacity does not allow)",
+    168000.0
+   ],
+   [
+    "residual_air_removal",
+    0,
+    0,
+    true,
+    "Add in-row cooling or rear-door heat exchangers for the residual air load",
+    252000.0
+   ],
+   [
+    "tcs_supply_achievable",
+    0,
+    8,
+    true,
+    "Adiabatic assist plus trim chiller on the high-temperature loop",
+    350000
+   ],
+   [
+    "transformer_capacity",
+    8,
+    8,
+    true,
+    "Replace / add transformer capacity (uprate ~60%)",
+    1200000.0
+   ],
+   [
+    "ups_capacity",
+    8,
+    12,
+    true,
+    "Add UPS modules / new UPS block",
+    768000.0
+   ],
+   [
+    "busway_ampacity",
+    12,
+    22,
+    true,
+    "Replace busway with 800-1000 A and new tap-off units",
+    450000.0
+   ],
+   [
+    "cdu_capacity",
+    22,
+    25,
+    true,
+    "Add CDU capacity (one further unit per bank)",
+    180000.0
+   ],
+   [
+    "ups_capacity",
+    25,
+    28,
+    true,
+    "Add UPS modules / new UPS block",
+    768000.0
+   ],
+   [
+    "grid_firm_capacity",
+    28,
+    28,
+    false,
+    "Grid reinforcement / new connection capacity from the DSO",
+    2500000
+   ]
+  ],
+  "unlocked": 28,
+  "unpriced": [
+   "cdu.commissioning",
+   "cdu.integration"
+  ]
+ },
+ "reference_hall/full_dlc_btm": {
+  "as_found_racks": 0,
+  "binding": "rack_feed_tapoff",
+  "capex": 18842000.0,
+  "capex_complete": false,
+  "constraints": {
+   "architecture_capability": {
+    "basis": "c669d11e4f",
+    "class": "E0_ASSUMPTION",
+    "racks": "inf"
+   },
+   "busway_ampacity": {
+    "basis": "b9be0080a3",
+    "class": "E0_ASSUMPTION",
+    "racks": 12
+   },
+   "cdu_capacity": {
+    "basis": "3d3be99fa0",
+    "class": "E0_ASSUMPTION",
+    "racks": 22
+   },
+   "floor_loading": {
+    "basis": "d64b0b21ff",
+    "class": "E0_ASSUMPTION",
+    "racks": "inf"
+   },
+   "floor_space": {
+    "basis": "dd7369b54f",
+    "class": "E3_ENGINEERING_ESTIMATE",
+    "racks": 180
+   },
+   "grid_firm_capacity": {
+    "basis": "1d10932f81",
+    "class": "E0_ASSUMPTION",
+    "racks": 28
+   },
+   "hydraulic_flow": {
+    "basis": "6e3b5e6438",
+    "class": "E0_ASSUMPTION",
+    "racks": 69
+   },
+   "plant_capacity": {
+    "basis": "c908e197d1",
+    "class": "E0_ASSUMPTION",
+    "racks": 140
+   },
+   "rack_feed_tapoff": {
+    "basis": "653cfd2189",
+    "class": "E0_ASSUMPTION",
+    "racks": 0.0
+   },
+   "residual_air_removal": {
+    "basis": "5a14fffe84",
+    "class": "E0_ASSUMPTION",
+    "racks": 0.0
+   },
+   "tcs_supply_achievable": {
+    "basis": "7e46fe3d9c",
+    "class": "E0_ASSUMPTION",
+    "racks": 0.0
+   },
+   "transformer_capacity": {
+    "basis": "941f6ea508",
+    "class": "E0_ASSUMPTION",
+    "racks": 8
+   },
+   "ups_capacity": {
+    "basis": "2c0db38f9a",
+    "class": "E0_ASSUMPTION",
+    "racks": 8
+   }
+  },
+  "critical_path_weeks": 160.0,
+  "final_binding": "grid_firm_capacity",
+  "steps": [
+   [
+    "rack_feed_tapoff",
+    0,
+    0,
+    true,
+    "Higher-rated tap-off units (and busway if ampacity does not allow)",
+    372000.0
+   ],
+   [
+    "residual_air_removal",
+    0,
+    0,
+    true,
+    "Add in-row cooling or rear-door heat exchangers for the residual air load",
+    558000.0
+   ],
+   [
+    "tcs_supply_achievable",
+    0,
+    8,
+    true,
+    "Adiabatic assist plus trim chiller on the high-temperature loop",
+    350000
+   ],
+   [
+    "transformer_capacity",
+    8,
+    8,
+    true,
+    "Replace / add transformer capacity (uprate ~60%)",
+    1200000.0
+   ],
+   [
+    "ups_capacity",
+    8,
+    12,
+    true,
+    "Add UPS modules / new UPS block",
+    768000.0
+   ],
+   [
+    "busway_ampacity",
+    12,
+    22,
+    true,
+    "Replace busway with 800-1000 A and new tap-off units",
+    450000.0
+   ],
+   [
+    "cdu_capacity",
+    22,
+    25,
+    true,
+    "Add CDU capacity (one further unit per bank)",
+    180000.0
+   ],
+   [
+    "ups_capacity",
+    25,
+    28,
+    true,
+    "Add UPS modules / new UPS block",
+    768000.0
+   ],
+   [
+    "grid_firm_capacity",
+    28,
+    31,
+    true,
+    "Behind-the-meter supply: BESS-2MW-8MWh (bess, 2 MW)",
+    1800000.0
+   ],
+   [
+    "busway_ampacity",
+    31,
+    33,
+    true,
+    "Add two further busway runs (needs riser and routing space)",
+    112500.0
+   ],
+   [
+    "cdu_capacity",
+    33,
+    34,
+    true,
+    "Add CDU capacity (one further unit per bank)",
+    180000.0
+   ],
+   [
+    "grid_firm_capacity",
+    34,
+    39,
+    true,
+    "Behind-the-meter supply: GEN-5MW (gas_engine, 5 MW)",
+    4000000.0
+   ],
+   [
+    "busway_ampacity",
+    39,
+    40,
+    true,
+    "Add two further busway runs (needs riser and routing space)",
+    112500.0
+   ],
+   [
+    "transformer_capacity",
+    40,
+    43,
+    true,
+    "Replace / add transformer capacity (uprate ~60%)",
+    1920000.0
+   ],
+   [
+    "ups_capacity",
+    43,
+    44,
+    true,
+    "Add UPS modules / new UPS block",
+    768000.0
+   ],
+   [
+    "cdu_capacity",
+    44,
+    47,
+    true,
+    "Add CDU capacity (one further unit per bank)",
+    180000.0
+   ],
+   [
+    "busway_ampacity",
+    47,
+    55,
+    true,
+    "Add two further busway runs (needs riser and routing space)",
+    112500.0
+   ],
+   [
+    "busway_ampacity",
+    55,
+    55,
+    true,
+    "Add two further busway runs (needs riser and routing space)",
+    112500.0
+   ],
+   [
+    "cdu_capacity",
+    55,
+    61,
+    true,
+    "Add CDU capacity (one further unit per bank)",
+    180000.0
+   ],
+   [
+    "ups_capacity",
+    61,
+    62,
+    true,
+    "Add UPS modules / new UPS block",
+    768000.0
+   ],
+   [
+    "grid_firm_capacity",
+    62,
+    62,
+    false,
+    "Grid reinforcement / new connection capacity from the DSO",
+    2500000
+   ]
+  ],
+  "unlocked": 62,
+  "unpriced": [
+   "cdu.commissioning",
+   "cdu.integration"
+  ]
+ },
+ "reference_hall/hybrid_dlc": {
+  "as_found_racks": 0,
+  "binding": "rack_feed_tapoff",
+  "capex": 6626000.0,
+  "capex_complete": false,
+  "constraints": {
+   "architecture_capability": {
+    "basis": "d5a6b91deb",
+    "class": "E0_ASSUMPTION",
+    "racks": "inf"
+   },
+   "busway_ampacity": {
+    "basis": "b9be0080a3",
+    "class": "E0_ASSUMPTION",
+    "racks": 12
+   },
+   "cdu_capacity": {
+    "basis": "3d3be99fa0",
+    "class": "E0_ASSUMPTION",
+    "racks": 22
+   },
+   "floor_loading": {
+    "basis": "d64b0b21ff",
+    "class": "E0_ASSUMPTION",
+    "racks": "inf"
+   },
+   "floor_space": {
+    "basis": "dd7369b54f",
+    "class": "E3_ENGINEERING_ESTIMATE",
+    "racks": 180
+   },
+   "grid_firm_capacity": {
+    "basis": "bf2bdf61d9",
+    "class": "E0_ASSUMPTION",
+    "racks": 26
+   },
+   "hydraulic_flow": {
+    "basis": "6e3b5e6438",
+    "class": "E0_ASSUMPTION",
+    "racks": 69
+   },
+   "plant_capacity": {
+    "basis": "0cf389c2a3",
+    "class": "E0_ASSUMPTION",
+    "racks": 14
+   },
+   "rack_feed_tapoff": {
+    "basis": "653cfd2189",
+    "class": "E0_ASSUMPTION",
+    "racks": 0.0
+   },
+   "residual_air_removal": {
+    "basis": "5a14fffe84",
+    "class": "E0_ASSUMPTION",
+    "racks": 0.0
+   },
+   "tcs_supply_achievable": {
+    "basis": "1851d22b1e",
+    "class": "E0_ASSUMPTION",
+    "racks": "inf"
+   },
+   "transformer_capacity": {
+    "basis": "941f6ea508",
+    "class": "E0_ASSUMPTION",
+    "racks": 7
+   },
+   "ups_capacity": {
+    "basis": "2c0db38f9a",
+    "class": "E0_ASSUMPTION",
+    "racks": 8
+   }
+  },
+  "critical_path_weeks": 160.0,
+  "final_binding": "grid_firm_capacity",
+  "steps": [
+   [
+    "rack_feed_tapoff",
+    0,
+    0,
+    true,
+    "Higher-rated tap-off units (and busway if ampacity does not allow)",
+    156000.0
+   ],
+   [
+    "residual_air_removal",
+    0,
+    7,
+    true,
+    "Add in-row cooling or rear-door heat exchangers for the residual air load",
+    234000.0
+   ],
+   [
+    "transformer_capacity",
+    7,
+    8,
+    true,
+    "Replace / add transformer capacity (uprate ~60%)",
+    1200000.0
+   ],
+   [
+    "ups_capacity",
+    8,
+    12,
+    true,
+    "Add UPS modules / new UPS block",
+    768000.0
+   ],
+   [
+    "busway_ampacity",
+    12,
+    14,
+    true,
+    "Replace busway with 800-1000 A and new tap-off units",
+    450000.0
+   ],
+   [
+    "plant_capacity",
+    14,
+    22,
+    true,
+    "Uprate chilled-water plant (+50%) or add a dedicated high-temperature loop",
+    900000.0
+   ],
+   [
+    "cdu_capacity",
+    22,
+    25,
+    true,
+    "Add CDU capacity (one further unit per bank)",
+    180000.0
+   ],
+   [
+    "ups_capacity",
+    25,
+    26,
+    true,
+    "Add UPS modules / new UPS block",
+    768000.0
+   ],
+   [
+    "grid_firm_capacity",
+    26,
+    26,
+    false,
+    "Grid reinforcement / new connection capacity from the DSO",
+    2500000
+   ]
+  ],
+  "unlocked": 26,
+  "unpriced": [
+   "cdu.commissioning",
+   "cdu.integration"
+  ]
+ },
+ "reference_hall/rdhx": {
+  "as_found_racks": 0,
+  "binding": "rack_feed_tapoff",
+  "capex": 0.0,
+  "capex_complete": false,
+  "constraints": {
+   "architecture_capability": {
+    "basis": "b97ae0fdf3",
+    "class": "E0_ASSUMPTION",
+    "racks": 0.0
+   },
+   "busway_ampacity": {
+    "basis": "b9be0080a3",
+    "class": "E0_ASSUMPTION",
+    "racks": 12
+   },
+   "cdu_capacity": {
+    "basis": "186fd56865",
+    "class": "E3_ENGINEERING_ESTIMATE",
+    "racks": "inf"
+   },
+   "floor_loading": {
+    "basis": "d64b0b21ff",
+    "class": "E0_ASSUMPTION",
+    "racks": "inf"
+   },
+   "floor_space": {
+    "basis": "dd7369b54f",
+    "class": "E3_ENGINEERING_ESTIMATE",
+    "racks": 180
+   },
+   "grid_firm_capacity": {
+    "basis": "f18e8edc7c",
+    "class": "E0_ASSUMPTION",
+    "racks": 25
+   },
+   "hydraulic_flow": {
+    "basis": "49ccf4b13a",
+    "class": "E0_ASSUMPTION",
+    "racks": 69
+   },
+   "plant_capacity": {
+    "basis": "0cf389c2a3",
+    "class": "E0_ASSUMPTION",
+    "racks": 14
+   },
+   "rack_feed_tapoff": {
+    "basis": "653cfd2189",
+    "class": "E0_ASSUMPTION",
+    "racks": 0.0
+   },
+   "residual_air_removal": {
+    "basis": "cd58d25379",
+    "class": "E0_ASSUMPTION",
+    "racks": 0.0
+   },
+   "tcs_supply_achievable": {
+    "basis": "1851d22b1e",
+    "class": "E0_ASSUMPTION",
+    "racks": "inf"
+   },
+   "transformer_capacity": {
+    "basis": "941f6ea508",
+    "class": "E0_ASSUMPTION",
+    "racks": 7
+   },
+   "ups_capacity": {
+    "basis": "2c0db38f9a",
+    "class": "E0_ASSUMPTION",
+    "racks": 8
+   }
+  },
+  "critical_path_weeks": 0.0,
+  "final_binding": "architecture_capability",
+  "steps": [
+   [
+    "rack_feed_tapoff",
+    0,
+    0,
+    false,
+    "Higher-rated tap-off units (and busway if ampacity does not allow)",
+    6000.0
+   ]
+  ],
+  "unlocked": 0,
+  "unpriced": []
+ },
+ "reference_hall/retained_air": {
+  "as_found_racks": 0,
+  "binding": "rack_feed_tapoff",
+  "capex": 0.0,
+  "capex_complete": false,
+  "constraints": {
+   "architecture_capability": {
+    "basis": "4ced6fe10a",
+    "class": "E0_ASSUMPTION",
+    "racks": 0.0
+   },
+   "busway_ampacity": {
+    "basis": "b9be0080a3",
+    "class": "E0_ASSUMPTION",
+    "racks": 12
+   },
+   "cdu_capacity": {
+    "basis": "186fd56865",
+    "class": "E3_ENGINEERING_ESTIMATE",
+    "racks": "inf"
+   },
+   "floor_loading": {
+    "basis": "d64b0b21ff",
+    "class": "E0_ASSUMPTION",
+    "racks": "inf"
+   },
+   "floor_space": {
+    "basis": "dd7369b54f",
+    "class": "E3_ENGINEERING_ESTIMATE",
+    "racks": 180
+   },
+   "grid_firm_capacity": {
+    "basis": "a6841c80d8",
+    "class": "E0_ASSUMPTION",
+    "racks": 23
+   },
+   "hydraulic_flow": {
+    "basis": "c7212f49ec",
+    "class": "E3_ENGINEERING_ESTIMATE",
+    "racks": "inf"
+   },
+   "plant_capacity": {
+    "basis": "0cf389c2a3",
+    "class": "E0_ASSUMPTION",
+    "racks": 14
+   },
+   "rack_feed_tapoff": {
+    "basis": "653cfd2189",
+    "class": "E0_ASSUMPTION",
+    "racks": 0.0
+   },
+   "residual_air_removal": {
+    "basis": "cd58d25379",
+    "class": "E0_ASSUMPTION",
+    "racks": 0.0
+   },
+   "tcs_supply_achievable": {
+    "basis": "1851d22b1e",
+    "class": "E0_ASSUMPTION",
+    "racks": "inf"
+   },
+   "transformer_capacity": {
+    "basis": "941f6ea508",
+    "class": "E0_ASSUMPTION",
+    "racks": 6
+   },
+   "ups_capacity": {
+    "basis": "2c0db38f9a",
+    "class": "E0_ASSUMPTION",
+    "racks": 8
+   }
+  },
+  "critical_path_weeks": 0.0,
+  "final_binding": "architecture_capability",
+  "steps": [
+   [
+    "rack_feed_tapoff",
+    0,
+    0,
+    false,
+    "Higher-rated tap-off units (and busway if ampacity does not allow)",
+    6000.0
+   ]
+  ],
+  "unlocked": 0,
+  "unpriced": []
+ }
+}

@@ -6,6 +6,7 @@ from ..common import ASSUMED, ESTIMATED, V
 from ..costs import scaled_cost
 from ..constraints import (ConstraintResult, EnvelopeContext, ReliefOption, constraint, floor_racks,
                            gate_racks)
+from ..numerics import leq
 from .schema import FloorType
 
 KPA_TO_KG_PER_M2 = 101.97
@@ -23,7 +24,7 @@ def floor_loading(ctx: EnvelopeContext) -> ConstraintResult:
         assumptions=["Pitch-averaged, not point load. Structural engineer sign-off is required "
                      "before any deployment; this is a screening check only."])
     capacity = hall.floor_loading_kPa.convert(KPA_TO_KG_PER_M2, "kg/m2", "hall floor loading capacity")
-    ok = imposed.value <= capacity.value
+    ok = leq(imposed.value, capacity.value)         # a hall exactly at the limit passes (see numerics.LIMIT_REL_TOL)
     racks = gate_racks(ok, "racks permitted by floor loading", imposed, capacity)
 
     def _apply(c: EnvelopeContext) -> EnvelopeContext:

@@ -11,7 +11,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field, replace
 
 from ..common import ASSUMED, ESTIMATED, MODELLED, V
-from ..costs import AACE_BY_EVIDENCE, BAND_BY_EVIDENCE, cdu_cost, cost, library
+from ..costs import AACE_BY_EVIDENCE, ARCHITECTURE_UNPRICED, BAND_BY_EVIDENCE, cdu_cost, cost, library
 from ..envelope.solver import EnvelopeResult, HeadroomLadder, rack_evidence
 from ..validation import EvidenceClass, Quantity
 
@@ -314,6 +314,12 @@ def evaluate(res: EnvelopeResult, lad: HeadroomLadder, utilisation: Quantity) ->
             unpriced.append({"where": "initial CDU kit (no CDU schedule was supplied)", "component": what,
                              "key": key, "unit": unit, "quantity": qty, "scope": kit_scope})
         capex_complete = capex_complete and not kit_unpriced
+    # Components the architecture itself needs and nothing prices (full DLC's dedicated heat-rejection loop): named, so the total is a lower bound.
+    if res.max_racks > 0 and ctx_f is not None:
+        for key, what, unit, qty in ARCHITECTURE_UNPRICED.get(ctx_f.architecture.value, ()):
+            unpriced.append({"where": f"{ctx_f.architecture.value} architecture (the scenario needs it; the library has no price for it)",
+                             "component": what, "key": key, "unit": unit, "quantity": qty, "scope": "one per hall"})
+            capex_complete = False
     total = conv + relief
     if kit is not None:
         total = total + kit

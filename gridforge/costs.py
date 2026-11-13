@@ -632,6 +632,16 @@ CDU_COMPONENTS = (
 )
 
 
+#: Components an ARCHITECTURE needs that the engine has NO price for, by the architecture's value (this kernel module imports no domain).
+#: Full DLC rejects the liquid load on a dedicated high-temperature loop, and the only thermal-plant step on its ladder is the trim-chiller
+#: lump: the loop itself (dry coolers, pumps, pipework) is priced nowhere. Naming it here makes every deployable full-DLC capex say so, as a
+#: LOWER BOUND, instead of reading as the cost of the architecture. No library line or quotation exists, so no figure is invented.
+#: (library key, what it is, unit, quantity it applies to)
+ARCHITECTURE_UNPRICED = {
+    "full_dlc": (("loop.ht_heat_rejection", "dedicated heat-rejection loop (dry coolers, pumps, pipework)", "EUR/loop", 1.0),),
+}
+
+
 def cdu_cost(units: int, label: str):
     """Price ``units`` CDUs completely or say what is missing.
 

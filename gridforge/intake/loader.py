@@ -26,6 +26,7 @@ from ..thermal.library import (CDU_L2L_APPROACH_K, PUE_BY_ARCHITECTURE,
 from ..thermal.schema import Architecture, CDUSpec, PlantSpec, RDHxSpec, ThermalInput
 from ..validation import EvidenceClass, Quantity, Source
 from .schema import FIELD_BY_PATH, INTAKE_FIELDS, DataGap, IntakeReport, SuppliedSource
+from . import thermal_inputs
 
 _EVIDENCE_BY_NAME = {e.short: e for e in EvidenceClass}
 #: The canonical enum names (E0_ASSUMPTION ... E7_DEPLOYED), read from the enum: our own model pack and reference files carry them, so a client who
@@ -102,6 +103,9 @@ PLAUSIBLE_MAX: dict[str, float] = {
     "thermal.plant.available_head_kPa": 2_000, "thermal.plant.free_cooling_hours_per_year": 8_760,
     "thermal.plant.design_supply_C": 40, "thermal.plant.design_return_C": 60,
     "thermal.residual_air_capacity_kW_per_rack": 100,
+    # TCS supply target and approaches: a typo or a unit slip, not a product claim (the platform's own W45 bound is checked after this one)
+    "thermal.tcs_target_supply_C": 80, "thermal.cdu_approach_K": 50, "thermal.cdus.rated_approach_K": 50,
+    "thermal.cdus.rated_flow_l_per_min": 100_000, "thermal.plant.dry_cooler_capacity_kW": 2_000_000,
     # list items, by key
     "transformers.units": 50, "transformers.unit_rating_MVA": 1_000, "transformers.replacement_lead_time_weeks": 520,
     "ups.units": 200, "ups.unit_rating_kW": 20_000,
@@ -1102,18 +1106,35 @@ def _load_document(doc: dict) -> Intake:
     )
 
     cdus = []
+    approach_omitted = flow_omitted = False
     for c in _equipment_list(r.raw("thermal.cdus", []) or [], "thermal.cdus"):
+        approach_given, flow_given = "rated_approach_K" in c, "rated_flow_l_per_min" in c
+        approach_omitted, flow_omitted = approach_omitted or not approach_given, flow_omitted or not flow_given
+        approach = _pos_max(c.get("rated_approach_K", 5), "thermal.cdus.rated_approach_K", "rated_approach_K", "K")
+        problem = thermal_inputs.approach_problem(f"thermal.cdus.rated_approach_K ({c.get('id', 'CDU')})", approach) if approach_given else None
+        if problem:
+            raise IntakeError(problem)
         cdus.append(CDUSpec(
             id=str(c.get("id", "CDU")),
             rated_capacity_kW=V(_pos_max(c["rated_capacity_kW"], "thermal.cdus.rated_capacity_kW", "rated_capacity_kW", "kW"), "kW",
                                 f"{c.get('id','CDU')} rated capacity", CUSTOMER, band=0.1),
-            rated_approach_K=V(_pos(c.get("rated_approach_K", 5), 'rated_approach_K'), "K",
-                               f"{c.get('id','CDU')} rated approach", ASSUMED),
-            rated_flow_l_per_min=V(_pos(c.get("rated_flow_l_per_min", 2000), 'rated_flow_l_per_min'), "l/min",
-                                   f"{c.get('id','CDU')} rated flow", ASSUMED),
+            # A declared rating is the client's figure (a nameplate, E5); an omitted one is the library placeholder (E0) and a named gap.
+            rated_approach_K=V(approach, "K", f"{c.get('id','CDU')} rated approach", CUSTOMER if approach_given else ASSUMED),
+            rated_flow_l_per_min=V(_pos_max(c.get("rated_flow_l_per_min", 2000), "thermal.cdus.rated_flow_l_per_min", "rated_flow_l_per_min", "l/min"),
+                                   "l/min", f"{c.get('id','CDU')} rated flow", CUSTOMER if flow_given else ASSUMED),
             units=_int_max(c.get("units", 1), "thermal.cdus.units", "CDU units"),
             redundancy=_redundancy(c.get("redundancy", "N+1"), "CDU"),
+            rated_flow_declared=flow_given,
         ))
+    if cdus:
+        for cdu_path, omitted, fallback in (
+                ("thermal.cdus.rated_approach_K", approach_omitted, "5 K assumed (library, E0)"),
+                ("thermal.cdus.rated_flow_l_per_min", flow_omitted,
+                 "no CDU flow limit applied (CDU flow is read only when every CDU declares it): CDU capacity rests on heat alone")):
+            if omitted:
+                r._gap(cdu_path, FIELD_BY_PATH.get(cdu_path), None, fallback)
+            else:
+                report.supplied.append(cdu_path)
 
     existing_flow_path = "thermal.plant.existing_flow_l_per_min"
     existing_flow = None
@@ -1130,6 +1151,12 @@ def _load_document(doc: dict) -> Intake:
                "0 kW, nothing subtracted (plant headroom is the plant capacity less the IT load only)")
     else:
         non_it_heat = r.q(non_it_path, "kW", "other heat the existing hall already puts on the plant")
+
+    # Optional: heat the dry coolers of the dedicated full-DLC loop can reject. Absent, full DLC has no heat-rejection limit (and the loop is an
+    # unpriced component); it is not a gap row because nothing is assumed in its place.
+    dry_cooler_path = "thermal.plant.dry_cooler_capacity_kW"
+    dry_cooler_capacity = (r.q(dry_cooler_path, "kW", "dry-cooler heat rejection on the dedicated loop")
+                           if _dig(doc, dry_cooler_path) is not None else None)
 
     thermal = ThermalInput(
         plant=PlantSpec(
@@ -1153,7 +1180,7 @@ def _load_document(doc: dict) -> Intake:
             free_cooling_hours_per_year=r.q(
                 "thermal.plant.free_cooling_hours_per_year", "h", "free cooling hours",
                 V(2500, "h", "assumed free cooling hours", ASSUMED, band=0.3)),
-            dry_cooler_capacity_kW=None,
+            dry_cooler_capacity_kW=dry_cooler_capacity,
             dry_cooler_approach_K=None,
             existing_flow_l_per_min=existing_flow,
             existing_non_it_heat_kW=non_it_heat,
@@ -1168,6 +1195,11 @@ def _load_document(doc: dict) -> Intake:
                                 band=(1.4, 1.5)),
         cdus=cdus,
     )
+    # Physical bounds (after the platform is resolved: its own maximum inlet temperature is the limit on the TCS target).
+    for problem in (thermal_inputs.tcs_target_problem(thermal.tcs_target_supply_C.value, platform),
+                    thermal_inputs.approach_problem("thermal.cdu_approach_K", thermal.cdu_approach_K.value)):
+        if problem:
+            raise IntakeError(problem)
     if existing_flow is not None:
         pump = thermal.plant.pump_flow_capacity_l_per_min
         if existing_flow.value > pump.value:
@@ -1284,6 +1316,16 @@ def _load_document(doc: dict) -> Intake:
         report.warnings.append("No behind-the-meter options declared: where the grid binds, the "
                                "study can only report that it binds.")
     _occupied_positions_disclosure(ctx, report, rack_total_supplied)          # after the long-standing warnings: none of them moves
+    # Thermal inputs nothing reads, keys that are not inputs at all, and a pump flow that cannot carry the existing hall (warnings only).
+    report.warnings.extend(thermal_inputs.unread_input_warnings(doc))
+    if {"thermal.plant.pump_flow_capacity_l_per_min", "thermal.plant.design_supply_C", "thermal.plant.design_return_C",
+            "grid.current_it_load_MW"} <= set(report.supplied):
+        balance = thermal_inputs.heat_balance_warning(
+            flow_l_per_min=thermal.plant.pump_flow_capacity_l_per_min.value, supply_C=thermal.plant.design_supply_C.value,
+            return_C=thermal.plant.design_return_C.value, existing_it_kW=ctx.power.current_it_load_MW.value * 1000.0,
+            existing_flow_declared=existing_flow is not None)
+        if balance:
+            report.warnings.append(balance)
 
     # The optional busway-load row goes LAST in the ledger: the deck's "What nobody has measured yet" slide shows the first eight gaps, and a
     # newer optional input must not displace the long-standing ones from it (tests/test_existing_load_input.py pins the first eight).
@@ -1293,6 +1335,7 @@ def _load_document(doc: dict) -> Intake:
         occ_path = "hall.occupied_positions"
         r._gap(occ_path, FIELD_BY_PATH[occ_path], None,
                "no occupied count; every position not free is read as occupied for the busway check only")
+    thermal_inputs.finish_optional_gaps(report, ctx)          # last: words the optional thermal / hall gaps and puts them at the end of the ledger
     scenarios = _scenario_set(doc.get("scenarios"))
     return Intake(project=project, context=ctx, scenarios=scenarios,
                   report=report, document=doc)
