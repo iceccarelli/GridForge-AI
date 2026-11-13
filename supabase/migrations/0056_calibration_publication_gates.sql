@@ -74,11 +74,20 @@
 --     its completion milestone (gf_attest_completion_milestone). Nothing in lib/ or app/ calls those functions yet and lib/project-observations.ts maps none of the
 --     codes, so applied before that exists every production submission fails closed. That is the intended direction (no observation is accepted without the gates),
 --     and one reason this is written and not applied. lib/calibration-gates.ts lists the view's conditions and must gain the three added here.
---   * Locks. The only change to an existing table is two nullable columns on project_observations (no rewrite; a short ACCESS EXCLUSIVE lock) and the event-type
---     check on project_events, which is rebuilt and re-validated once (see 0049). Run it in a session with `set lock_timeout = '5s';` and re-run it if it times out.
+--   * Locks. The only changes to an existing table are two nullable columns and one trigger on project_observations (no rewrite; a short ACCESS EXCLUSIVE lock) and
+--     the event-type check on project_events, added NOT VALID and then validated (see 0049). The file sets `lock_timeout = '5s'` (SET LOCAL) at its top and each of
+--     those statements sets it again for itself, so a reader that holds the table open makes the apply FAIL after five seconds instead of queueing behind it and
+--     blocking everyone else; re-run it when the table is quiet. Each is done only when it is not already in place, so a re-apply takes none of these locks. (The
+--     view is replaced with CREATE OR REPLACE, which does lock the view: a query that is reading calibration_ledger_rows at that moment also meets the timeout.)
 --   * Personal data. recorded_by and attested_by are e-mail addresses written to append-only tables (0049's note applies: erasure is the owner's decision).
 --
 -- Additive and idempotent. RLS on, no policies (service role only), like every table that holds a customer's material.
+
+-- Every lock wait in this file is bounded. LOCAL: it lasts to the end of the transaction the file runs in (the applier submits the file as ONE query, which is
+-- one transaction; so does `psql -1`). Run statement by statement (plain `psql -f`, autocommit) SET LOCAL has no effect and says so in a warning, which is why the
+-- statements below that take an ACCESS EXCLUSIVE lock on a table other sessions use also set the same bound for themselves, and why they take no lock at all when
+-- there is nothing to change (a re-apply).
+set local lock_timeout = '5s';
 
 -- ---------------------------------------------------------------------------
 -- 0. The history gains one event type: the list as it stands plus this one (see 0047)
@@ -93,9 +102,18 @@ begin
   select pg_get_constraintdef(c.oid) into cur from pg_constraint c
    where c.conrelid = 'public.project_events'::regclass and c.conname = 'project_events_event_type_check';
   select coalesce(array_agg(distinct m[1]), '{}') into have from regexp_matches(coalesce(cur, ''), '''([a-z_]+)''', 'g') as m;
+  -- Already holding every type it should (a re-apply): nothing to rebuild, so no lock is taken on the busiest table of the record.
+  if cur is not null and have @> (base || want) then
+    return;
+  end if;
+  perform set_config('lock_timeout', '5s', true);
   alter table public.project_events drop constraint if exists project_events_event_type_check;
+  -- NOT VALID takes the lock only to register the constraint (new rows are checked from now on, no scan under it); VALIDATE then reads the existing rows
+  -- under a lock that blocks neither readers nor writers. (Inside one transaction the first lock is held to its end all the same: the gain is that the
+  -- scan is not what holds it up, and that a re-apply takes no lock at all, above.)
   execute 'alter table public.project_events add constraint project_events_event_type_check check (event_type in ('
-    || (select string_agg(quote_literal(x), ', ' order by x) from (select distinct unnest(base || have || want) as x) u) || '))';
+    || (select string_agg(quote_literal(x), ', ' order by x) from (select distinct unnest(base || have || want) as x) u) || ')) not valid';
+  alter table public.project_events validate constraint project_events_event_type_check;
 end
 $$;
 
@@ -534,9 +552,18 @@ $$;
 -- ---------------------------------------------------------------------------
 -- F. The insert gate on observations (D1, D3) and the refusal to resurrect a withdrawn one (D5)
 -- ---------------------------------------------------------------------------
-alter table public.project_observations
-  add column if not exists organisation_id uuid references public.organisations (id),
-  add column if not exists consent_id uuid references public.calibration_consents (id);
+-- ADD COLUMN IF NOT EXISTS takes the ACCESS EXCLUSIVE lock BEFORE it looks, so a re-apply would queue behind (and block) every reader of the table: look first.
+do $$
+begin
+  if (select count(*) from information_schema.columns
+       where table_schema = 'public' and table_name = 'project_observations' and column_name in ('organisation_id', 'consent_id')) < 2 then
+    perform set_config('lock_timeout', '5s', true);
+    alter table public.project_observations
+      add column if not exists organisation_id uuid references public.organisations (id),
+      add column if not exists consent_id uuid references public.calibration_consents (id);
+  end if;
+end
+$$;
 comment on column public.project_observations.organisation_id is
   'The organisation the observation was recorded under: derived by the database from the project''s open hall attachment at insert, never supplied. '
   'NULL for rows written before 0056 and for rows that are not production. Only a production row with an organisation and a standing consent can be exported.';
@@ -593,10 +620,24 @@ begin
 end;
 $$;
 
-drop trigger if exists project_observations_publication_gates on public.project_observations;
-create trigger project_observations_publication_gates
-  before insert on public.project_observations
-  for each row execute function public.gf_observation_publication_gates();
+-- DROP TRIGGER takes an ACCESS EXCLUSIVE lock on project_observations; the trigger's body is the function above (replaced in place), so on a re-apply it is left
+-- alone, and only created when absent or switched back on when disabled.
+do $$
+declare st "char";
+begin
+  select t.tgenabled into st from pg_trigger t
+   where t.tgrelid = 'public.project_observations'::regclass and t.tgname = 'project_observations_publication_gates' and not t.tgisinternal;
+  if not found then
+    perform set_config('lock_timeout', '5s', true);
+    create trigger project_observations_publication_gates
+      before insert on public.project_observations
+      for each row execute function public.gf_observation_publication_gates();
+  elsif st <> 'O' then
+    perform set_config('lock_timeout', '5s', true);
+    alter table public.project_observations enable trigger project_observations_publication_gates;
+  end if;
+end
+$$;
 
 -- ---------------------------------------------------------------------------
 -- G. The FINAL ledger view: 0052's definition plus the three publication conditions

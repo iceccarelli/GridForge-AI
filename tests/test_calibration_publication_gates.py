@@ -1033,6 +1033,83 @@ def test_applying_0056_to_a_database_that_already_has_rows_changes_none_of_them_
         drop_database(name)
 
 
+# ---- C8: locks. A reader that holds a table open must make an apply fail fast, not queue behind it and block everyone else; a re-apply takes no such lock.
+
+def apply_0056(name, one_transaction):
+    """Apply the file the way an operator does, timed: statement by statement (plain psql -f) or as one transaction (psql -1, as the applier's single query is)."""
+    t0 = time.monotonic()
+    r = subprocess.run(rig._cmd(name) + (["-1"] if one_transaction else []) + ["-f", str(next(MIGRATIONS.glob("0056_*.sql")))], capture_output=True, text=True, timeout=120)
+    return r, time.monotonic() - t0
+
+
+def open_reader(name, tables, seconds):
+    """A session that has read `tables` and holds its transaction open (so holds ACCESS SHARE on them) for `seconds`; returns it once it is holding."""
+    tag = uuid.uuid4().hex
+    reads = "; ".join(f"select count(*) from {t}" for t in tables)
+    p = popen_psql(name, f"begin; {reads}; select pg_sleep({seconds}) /* reader-{tag} */; commit;")
+    assert wait_for_backend(name, f"reader-{tag}", "wait_event = 'PgSleep'", "the reader to be holding its tables", p)
+    return p
+
+
+@pytest.mark.parametrize("table", ["project_observations", "project_events"])
+@pytest.mark.parametrize("one_transaction", [False, True])
+def test_applying_0056_against_an_open_reader_fails_within_the_lock_timeout_instead_of_queueing(monkeypatch, table, one_transaction):
+    monkeypatch.setattr(rig, "UPTO", "0055")
+    name = make_database()
+    try:
+        reader = open_reader(name, [table], seconds=10)
+        try:
+            r, took = apply_0056(name, one_transaction)
+        finally:
+            still_open = reader.poll() is None
+        assert still_open, "the reader ended before the apply did: the apply waited for it instead of timing out"
+        assert r.returncode != 0 and "lock timeout" in r.stderr, r.stderr
+        assert took < 9, f"the apply took {took:.1f}s against a reader that holds the table for 10s: no lock timeout bounded it"
+        reader.communicate(timeout=60)
+        r, _ = apply_0056(name, one_transaction)                                              # the table is quiet now: the same file applies
+        assert r.returncode == 0, r.stderr
+        assert scalar(name, "select count(*) from information_schema.columns where table_name = 'project_observations' and column_name in ('organisation_id', 'consent_id')") == "2"
+    finally:
+        drop_database(name)
+
+
+@pytest.mark.parametrize("one_transaction", [False, True])
+def test_re_applying_0056_takes_no_lock_on_the_tables_other_sessions_use(db, one_transaction):
+    """With a reader holding project_observations and project_events open, a re-apply neither waits nor times out: the column, the event-type check and the
+    trigger are already in place and are left alone (ADD COLUMN IF NOT EXISTS and DROP TRIGGER IF EXISTS would each have taken an ACCESS EXCLUSIVE lock)."""
+    reader = open_reader(db, ["project_observations", "project_events"], seconds=5)
+    try:
+        r, took = apply_0056(db, one_transaction)
+        assert reader.poll() is None, "the reader ended before the re-apply did: it waited for the reader"
+    finally:
+        reader.communicate(timeout=60)
+    assert r.returncode == 0, r.stderr
+    assert took < 4, f"the re-apply took {took:.1f}s"
+    assert scalar(db, "select count(*) from pg_trigger where tgname = 'project_observations_publication_gates' and tgenabled = 'O'") == "1"
+    assert scalar(db, "select convalidated::text from pg_constraint where conname = 'project_events_event_type_check'") == "true"
+
+
+def test_re_applying_0056_switches_the_insert_trigger_back_on_if_it_was_disabled(fresh):
+    psql(fresh, "alter table public.project_observations disable trigger project_observations_publication_gates")
+    r, _ = apply_0056(fresh, one_transaction=True)
+    assert r.returncode == 0, r.stderr
+    assert scalar(fresh, "select tgenabled from pg_trigger where tgname = 'project_observations_publication_gates'") == "O"
+
+
+def test_the_event_type_check_is_rebuilt_not_valid_then_validated_when_a_type_is_missing(fresh):
+    """The one case in which the check IS rebuilt: an older list without the new type. It ends validated, still holds every earlier type, and refuses others."""
+    psql(fresh, "alter table public.project_events drop constraint project_events_event_type_check;"
+                "alter table public.project_events add constraint project_events_event_type_check check (event_type in ('project_created', 'share_issued'))")
+    r, _ = apply_0056(fresh, one_transaction=False)
+    assert r.returncode == 0, r.stderr
+    d = scalar(fresh, "select pg_get_constraintdef(oid) from pg_constraint where conname = 'project_events_event_type_check'")
+    for kept in ("completion_milestone_attested", "share_issued", "project_created", "observation_submitted", "supplier_actual_reviewed"):
+        assert f"'{kept}'" in d, (kept, d)
+    assert scalar(fresh, "select convalidated::text from pg_constraint where conname = 'project_events_event_type_check'") == "true"
+    r = psql(fresh, "insert into project_events (project_id, event_type, actor, payload) values (gen_random_uuid(), 'not_a_type', 'x', '{}')", check=False)
+    assert r.returncode != 0 and "project_events_event_type_check" in r.stderr, r.stderr
+
+
 def test_nothing_depends_on_the_ledger_view_so_it_can_be_dropped_and_rebuilt(fresh):
     """A view built on calibration_ledger_rows would make `drop view` fail (test_site_origin_gate drops it to replay an older definition)."""
     psql(fresh, "drop view public.calibration_ledger_rows")
