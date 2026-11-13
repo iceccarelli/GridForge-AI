@@ -230,3 +230,18 @@ def test_a_damaged_tombstone_file_is_not_overwritten_by_a_withdrawal(ledger):
     T.tombstone_path(ledger).write_text("{ not json")
     r = run_cli("calibrate", "withdraw", "a" * 64, "--ledger", str(ledger))
     assert r.returncode == 2 and T.tombstone_path(ledger).read_text() == "{ not json"
+
+
+def test_the_runbook_says_what_the_importer_the_proof_and_the_migration_now_do():
+    """The runbook is what an operator acts on: it must not still say the importer writes no side file, and it must carry the limits the proof states."""
+    from pathlib import Path
+    from gridforge.calibration import release as R
+    text = (Path(__file__).resolve().parent.parent / "docs" / "CALIBRATION_GATES_RUNBOOK.md").read_text()
+    assert "has no caller" not in text and "does not write an export" not in text
+    for needle in ("calibrate withdraw", "records them", "supersedes_id", "default privileges", "lock_timeout", "MAX_PROOF_ATOMS", "Tenant splitting",
+                   "do not carry an owner address", "stranger's project", "does not read this ledger", "organisation it was attested under"):
+        assert needle in text, needle
+    header = R.__doc__
+    for needle in ("TENANT SPLITTING", "A CONSENT GIVEN FOR A STRANGER'S PROJECT", "FIGURES THAT ARE NOT UNWEIGHTED SUMS", "MAX_COALITION", "WHAT RULE 3 PROVES"):
+        assert needle in header, needle
+    assert "an exact proof that no combination" not in (Path(__file__).resolve().parent.parent / "gridforge" / "calibration" / "publication.py").read_text()
