@@ -19,6 +19,7 @@ import { PRODUCTS, PRODUCT_BY_KIND, type DeliverableEndpoint } from "./products"
 import { engineFetch } from "@/lib/rate-limit";
 import { ENGINE_CALL_TIMEOUT_MS, claimMeta, generatingStampOf, isStaleGenerating } from "@/lib/engagement-state";
 import { parseSpecRelief } from "@/lib/project-spec-relief";
+import { portfolioRankingFile } from "@/lib/portfolio-ranking";
 
 export const DELIVERABLE_STATUSES = [
   "awaiting_intake",
@@ -903,12 +904,10 @@ async function renderPortfolio(base: string, key: string, doc: Record<string, un
     if (!html.document?.document || !md.document?.document || Object.keys(packs).length === 0) {
       return { ok: false, error: "The engine returned the portfolio without its document or its hall packs." };
     }
+    // Everything the engine said about the ranking travels with it (comparability, shared connections, warnings), not only the four
+    // figures this file started with: see lib/portfolio-ranking.ts.
     const working: Record<string, string> = {
-      [PORTFOLIO_RANKING]: JSON.stringify(
-        { objective: html.objective, halls: html.halls, total_racks: html.total_racks, total_racks_evidence: html.total_racks_evidence },
-        null,
-        2
-      ),
+      [PORTFOLIO_RANKING]: portfolioRankingFile(html as Record<string, unknown>),
     };
     for (const [stem, pack] of Object.entries(packs)) working[`${HALL_PACK_PREFIX}${stem.replace(/[^A-Za-z0-9._-]/g, "_")}.json`] = JSON.stringify(pack, null, 2);
     return {

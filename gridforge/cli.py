@@ -1191,8 +1191,21 @@ def cmd_portfolio(args) -> int:
         stem = f"{e.intake.context.site.id}_{e.intake.context.hall.id}".replace("/", "-")
         write_model_pack(out / f"model_pack_{stem}.json", e.intake, e.results)
         w.paths.append(out / f"model_pack_{stem}.json")
-    print(f"Portfolio Screen — {len(entries)} halls, "
-          f"{sum(e.racks for e in entries)} deployable racks in total.")
+    # The headline is the COMPARABLE total, never a bare sum: a hall with a required input missing or an equipment bank undeclared is
+    # ranked on assumptions, and a hall on a connection another hall shares is counted once per hall (reporting/portfolio.py).
+    from .reporting.portfolio import portfolio_summary, portfolio_warnings
+    summary = portfolio_summary(entries, objective)
+    left_out = len(summary["incomparable_halls"])
+    if summary["comparable_total_racks"] is None:
+        headline = (f"Portfolio Screen — {len(entries)} halls; none can be compared yet (a required input or an equipment bank is "
+                    "missing), so no portfolio total is stated.")
+    else:
+        headline = (f"Portfolio Screen — {len(entries)} halls, {summary['comparable_total_racks']} deployable racks across the "
+                    f"{len(entries) - left_out} comparable"
+                    + (f"; {left_out} not comparable and left out of that total." if left_out else "."))
+    print(headline)
+    for message in portfolio_warnings(entries, objective):
+        print("warning: " + message, file=sys.stderr)
     w.report()
     return 0
 
