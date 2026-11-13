@@ -19,7 +19,9 @@ from __future__ import annotations
 import hashlib
 import json
 
+from ..envelope.solver import rack_evidence
 from ..envelope.time_to_power import date_basis, date_record, full_capacity_band, schedule, schedule_complete
+from ..reporting.labels import rack_class
 from ..serialize import _q, economics_dict
 from ..scenario.objective import Objective
 from ..scenario.run import ScenarioResult
@@ -130,9 +132,11 @@ def _scenario(res: ScenarioResult, document: dict | None = None) -> dict:
         "name": res.spec.name,
         "architecture": res.envelope.architecture,
         "rationale": res.spec.rationale,
-        "as_found": {"racks": res.envelope.max_racks, "binding": res.envelope.binding.id,
-                     "binding_name": res.envelope.binding.name},
-        "after_ladder": {"racks": res.unlocked_racks,
+        # `racks_evidence`: the class (short code) of the rack count beside it, the weakest of the constraints that cap it: a bare integer carries
+        # no class of its own, and only it_load_kW had one.
+        "as_found": {"racks": res.envelope.max_racks, "racks_evidence": rack_evidence(res.envelope).short,
+                     "binding": res.envelope.binding.id, "binding_name": res.envelope.binding.name},
+        "after_ladder": {"racks": res.unlocked_racks, "racks_evidence": rack_class(res).short,
                          "binding": final.binding.id if final else None,
                          "binding_name": final.binding.name if final else None,
                          "it_load_kW": _q(final.it_load_kW if final else res.envelope.it_load_kW)},
@@ -148,6 +152,19 @@ def _scenario(res: ScenarioResult, document: dict | None = None) -> dict:
         "grade": _grade(date["status"], weakest, not res.ladder.critical_path_complete),
         "missing_inputs": missing,
     }
+
+
+def _baseline_has_no_date(base: dict) -> str:
+    """Why a dated scenario has no weeks difference: the BASELINE has no date. The baseline's own `reason` is written about itself ('No rack is
+    deployable in this scenario'), which read beside a scenario that deploys racks and has a date said the wrong thing about the wrong scenario."""
+    bd = base["time_to_power"]
+    who = f"the baseline ({base['id']})"
+    if bd["status"] == "no_deployable_racks":
+        return f"{who} deploys no racks, so it has no date to take this scenario's date away from."
+    if bd["status"] == "lead_time_missing":
+        detail = (bd["reason"] or "").removeprefix("No defensible date: ").rstrip(".")
+        return f"{who} has no defensible date ({detail}), so there is no date to take this scenario's date away from."
+    return f"{who} has no date ({(bd['reason'] or '').rstrip('.').lower()}), so there is no date to take this scenario's date away from."
 
 
 def _vs(base: dict, s: dict) -> dict:
@@ -174,7 +191,7 @@ def _vs(base: dict, s: dict) -> dict:
     return {"racks_delta": racks,
             "weeks_delta": weeks,
             "weeks_delta_unknown_reason": None if weeks is not None else (
-                sd["reason"] if sd["weeks"] is None else bd["reason"]),
+                sd["reason"] if sd["weeks"] is None else _baseline_has_no_date(base)),
             "capex_delta_eur": capex,
             "capex_delta_unknown_reason": None if capex is not None else capex_why,
             "why": why or ["no difference in the limit, the date or the racks"]}

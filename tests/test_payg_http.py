@@ -32,7 +32,7 @@ def test_estimate_of_a_free_endpoint_is_free(rig):
     assert b["billable"] is False and b["free"] is True
 
 
-@pytest.mark.parametrize("halls", [1, 2, 7, 40, 250])
+@pytest.mark.parametrize("halls", [1, 2, 7, 40, 50])      # 50 is the most one request may rank; over it the estimate is refused (tests/test_portfolio_rank_and_cap.py)
 def test_estimate_scales_a_portfolio_per_hall(rig, halls):
     s, b, _ = rig.get(f"/v1/estimate?endpoint=/v1/portfolio&hall_count={halls}")
     assert s == 200 and b["units"] == halls and b["estimated_cents"] == halls * 200

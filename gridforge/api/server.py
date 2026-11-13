@@ -13,8 +13,11 @@ Endpoints
     GET  /v1/version                    engine version and tier configuration
     GET  /v1/platforms                  the platform library, and what is deliberately absent
     GET  /v1/intake/template            blank intake document
+    GET  /v1/estimate?endpoint=...      what a call would cost, before spending anything (public; POST takes the same, with a body)
+    POST /v1/estimate                   the same, for a request body: units read exactly as the meter reads them (public)
     POST /v1/qualify                    seven fields -> binding constraint  (public)
     POST /v1/screen                     full intake -> screen payload       (key)
+    POST /v1/compare                    full intake -> scenarios side by side, with only the dates the lead times support (key)
     POST /v1/study                      full intake -> model pack           (key)
     POST /v1/portfolio                  [intakes]  -> ranked halls          (key)
     POST /v1/proposal                   intake     -> priced proposal       (key)
@@ -32,6 +35,9 @@ Endpoints
     GET  /v1/usage                      this key's metered usage             (key)
     POST /mcp                           Model Context Protocol, JSON-RPC 2.0 (public
                                         transport; each tool keeps its own tier)
+    (an operator-only route, /v1/revoke, exists and is in no listing: it answers 404 to everyone but the operator)
+A route answers the methods it takes; any other method on a known route is 405 with an Allow header, HEAD answers a GET route as GET does
+without the body, and every error is JSON with schema_version.
 
 Auth: X-API-Key, or Authorization: Bearer <key>, against GRIDFORGE_API_KEYS
 (comma separated, `key[:label[:monthly_units]]`). With no keys configured the paid
@@ -95,7 +101,8 @@ from ..calibration.ledger import LedgerIntegrityError
 from ..calibration.residuals import public_report as public_residual_report
 from ..calibration.store import approved_records as approved_observation_records
 from ..compute.library import PLATFORMS, UNPUBLISHED_PLATFORMS
-from ..intake.loader import IntakeError, blank_intake, load_document
+from ..intake.loader import PLAUSIBLE_MAX, IntakeError, blank_intake, load_document
+from ..intake.schema import FIELD_BY_PATH as _INTAKE_FIELD_BY_PATH
 from ..reporting import to_html, to_markdown
 from ..reporting.gates import ReportMode, run_all_gates
 from ..reporting.portfolio import SiteEntry, portfolio_rows, portfolio_summary, portfolio_warnings
@@ -117,7 +124,8 @@ from ..serialize import csv_bundle, model_pack
 from .keys import revocation_persistable, revoke, revoked_ids
 from ..provenance import provenance
 from .costs import BUCKET_BOUNDS_MS, timer
-from .metering import METER, UNIT_COST, key_plans, payg_public, plan_for, refusal, units_for
+from .metering import (MAX_PORTFOLIO_HALLS, METER, UNIT_COST, key_plans, payg_public, plan_for, portfolio_cap_message, refusal,
+                       units_for)
 from .payloads import (btm_calibration_block, calibration_block, calibration_block_for_bindings, grid_queue_context_for, qualify_payload,
                        retail_price_context_for, screen_payload)
 from .tiers import Tier, redact
@@ -215,6 +223,13 @@ QUALIFY_DERIVED_FIRM_NOTE = ("Derived by the qualifier as contracted_MW / 0.97 b
                              "its contract, which no connection agreement states. It is not this hall's figure.")
 #: The intake path of that figure, in the loader's spelling.
 QUALIFY_FIRM_PATH = "grid.firm_capacity_MVA"
+#: The derived connection is the contract divided by this (the site power factor the qualifier assumes); it is the divisor the note above names.
+QUALIFY_DERIVED_FIRM_DIVISOR = 0.97
+#: Every figure the qualifier reads as a number, by the name the caller sends it under, to the intake path whose bounds apply to it.
+QUALIFY_FIGURE_PATHS = {**QUALIFY_FIELDS, "firm_capacity_MVA": QUALIFY_FIRM_PATH}
+#: The least the qualifier answers: this many of the seven QUALIFY_FIELDS figures sent (a figure sent as null is not sent). One rule, stated the
+#: same way in the published schema (api/tools.py), the 422 and the answer's `figures_not_supplied`.
+QUALIFY_MIN_FIGURES = 3
 
 
 def _declared_assumed(value: float, note: str = QUALIFY_ASSUMED_NOTE) -> dict:
@@ -261,15 +276,19 @@ def qualify_to_intake(body: dict) -> dict:
         # A connection is normally sized at or above the contracted figure; assume
         # parity rather than inventing headroom the site may not have.
         contracted = doc["grid"]["contracted_MW"]
-        if "contracted_MW" in assumed:
-            # Derived from a figure the caller declared assumed, so it is assumed too: it must not become customer data by arithmetic. The
-            # caller did not declare THIS figure in either branch (it is derived in both), so it carries the same derived note as the branch
-            # below: declaring the contract assumed changes the class labels of what the caller declared and nothing else.
-            doc["grid"]["firm_capacity_MVA"] = _declared_assumed(float(contracted["value"]) / 0.97, QUALIFY_DERIVED_FIRM_NOTE)
-        else:
-            # Derived from a figure the caller gave, but not a figure the caller gave: it is labelled an assumption (E0) like the branch above, and
-            # `handle_qualify` lists it as a required gap. It used to go in as a plain number, which the loader read as customer data (E5).
-            doc["grid"]["firm_capacity_MVA"] = _declared_assumed(float(contracted) / 0.97, QUALIFY_DERIVED_FIRM_NOTE)
+        contracted_value = float(contracted["value"] if isinstance(contracted, dict) else contracted)      # a dict when declared assumed
+        derived = contracted_value / QUALIFY_DERIVED_FIRM_DIVISOR
+        ceiling = PLAUSIBLE_MAX.get(QUALIFY_FIRM_PATH)
+        if ceiling is not None and derived > ceiling:
+            # The contract is inside its own cap, but the connection derived from it is not: say what was derived and what to send, in the
+            # caller's own field name (they never sent a firm capacity, and the loader would have named one).
+            raise ApiError(422, f"contracted_MW={contracted_value:g} implies a firm capacity of {derived:.2f} MVA, above the {ceiling:g} MVA "
+                                f"the engine accepts; send a smaller contracted_MW", field="contracted_MW",
+                           derived_firm_capacity_MVA=round(derived, 2), limit_MVA=ceiling)
+        # Derived from a figure the caller gave (or declared assumed), but not a figure the caller gave: it is labelled an assumption (E0) in
+        # BOTH cases, so it never becomes customer data by arithmetic, and `handle_qualify` lists it as a required gap. Declaring the contract
+        # assumed changes the class labels of what the caller declared and nothing else.
+        doc["grid"]["firm_capacity_MVA"] = _declared_assumed(derived, QUALIFY_DERIVED_FIRM_NOTE)
     return doc
 
 
@@ -282,11 +301,32 @@ CAPABILITIES: dict[str, bool] = {
 
 
 def _qualify_number(name: str, raw) -> float:
-    """A figure on the free route is a JSON number. float() would also accept `true` (as 1), the text "12" and digits from other scripts,
-    so a form that sent the wrong type was answered as if it had sent a figure."""
+    """A figure on the free route is a JSON number, checked here BY THE NAME THE CALLER SENT IT UNDER before anything is derived from it.
+    float() would also accept `true` (as 1), the text "12" and digits from other scripts, so a form that sent the wrong type was answered as if
+    it had sent a figure. The bounds are the intake loader's own (PLAUSIBLE_MAX, imported, not retyped): a figure the loader would refuse
+    is refused here, naming the field the caller sent, never the intake path it would have become (`grid.firm_capacity_MVA`, which they did not send)."""
     if isinstance(raw, bool) or not isinstance(raw, (int, float)):
         raise ApiError(422, f"{name} must be a number, not {type(raw).__name__}")
-    return float(raw)
+    try:
+        num = float(raw)
+    except OverflowError:          # an integer of several hundred digits parses as a JSON number and does not fit a float
+        raise ApiError(422, f"{name} is too large to be a number this tool can model") from None
+    if not math.isfinite(num):
+        raise ApiError(422, f"{name} must be a finite number, not {raw!r}")
+    path = QUALIFY_FIGURE_PATHS.get(name)
+    spec = _INTAKE_FIELD_BY_PATH.get(path) if path else None
+    unit = spec.unit if spec is not None else ""
+    shown = f"{num:g}" + (f" {unit}" if unit else "")
+    if name == "positions_available":
+        if num != int(num) or num < 0:
+            raise ApiError(422, f"{name} is {raw!r}; it must be a whole number, zero or more")
+    elif num < 0 and unit != "degC":
+        raise ApiError(422, f"{name} is {shown}; it cannot be negative")
+    ceiling = PLAUSIBLE_MAX.get(path) if path else None
+    if ceiling is not None and num > ceiling:
+        raise ApiError(422, f"{name} is {shown}, above {ceiling:g}{(' ' + unit) if unit else ''}, the most this tool will model for one hall. "
+                            f"Check the unit and for a stray digit.", field=name, limit=ceiling)
+    return num
 
 
 class ApiError(Exception):
@@ -642,15 +682,34 @@ def handle_qualify(body: dict, tier: Tier) -> dict:
     figure is not the caller's, so it is a REQUIRED gap row (`grid.firm_capacity_MVA`; `required_inputs_missing` and `completeness` count it) and is
     listed under `inputs_derived_assumed`, never under `inputs_declared_assumed`, which holds exactly what the caller declared. Free and keyless as ever."""
     missing = [k for k in QUALIFY_FIELDS if body.get(k) is None]
-    if len(missing) > 4:
-        raise ApiError(422, "too little to say anything useful",
-                       required_at_least=list(QUALIFY_FIELDS)[:3], missing=missing)
+    sent = len(QUALIFY_FIELDS) - len(missing)
+    if sent < QUALIFY_MIN_FIGURES:
+        nulls = [k for k in missing if k in body]
+        raise ApiError(422, f"too little to say anything useful: send at least {QUALIFY_MIN_FIGURES} of the {len(QUALIFY_FIELDS)} qualify figures "
+                            f"({', '.join(QUALIFY_FIELDS)}); this request has {sent}"
+                            + (f" (a figure sent as null is not sent: {', '.join(nulls)})" if nulls else ""),
+                       required_at_least=list(QUALIFY_FIELDS), minimum_figures=QUALIFY_MIN_FIGURES, figures_sent=sent, missing=missing)
     intake, results = _run(qualify_to_intake(body))
     derived = qualify_derives_firm(body)
     if derived:
         _record_derived_firm(intake)
     return qualify_payload(intake, results, _objective(body), declared_assumed=[QUALIFY_FIELDS[k] for k in qualify_assumed_fields(body)],
-                           derived_assumed=[QUALIFY_FIRM_PATH] if derived else None)
+                           derived_assumed=[QUALIFY_FIRM_PATH] if derived else None, not_supplied=_qualify_not_supplied(body, intake))
+
+
+def _qualify_not_supplied(body: dict, intake) -> list[dict]:
+    """The qualify figures this request did not give, each as the assumption it became. A figure left out and a figure sent as an explicit
+    null are the same thing (not supplied: the library default is used and named in `intake.gaps`), and the answer says which it was, so a
+    null is never read as a value and never accepted without a word."""
+    by_path = {g.path: g for g in intake.report.gaps}
+    rows = []
+    for name, path in QUALIFY_FIELDS.items():
+        if body.get(name) is not None:
+            continue
+        gap = by_path.get(path)
+        rows.append({"field": name, "path": path, "sent": "null" if name in body else "absent",
+                     "assumed": gap.fallback_description if gap is not None else None})
+    return rows
 
 
 def _record_derived_firm(intake) -> None:
@@ -854,6 +913,34 @@ def handle_study(body: dict, tier: Tier) -> dict:
     return pack
 
 
+def _headline_with_residual(d) -> str:
+    """The change note's headline, and the part of the rack movement no single input explains, in the same sentence. The probes move one input at a
+    time; when the inputs interact they explain only part of the movement (10 of +25), and a headline that said +25 racks beside a driver list
+    that adds to 10 left the reader to find the rest in `unexplained_racks`. change.py's own headline is unchanged: this adds a sentence to the
+    API's answer, and only when probes ran and left something over."""
+    head = d.headline()
+    if d.drivers and d.racks_delta and d.residual:
+        also = ", or were not probed" if (d.unprobed or d.unprobeable) else ""
+        head = (f"{head.rstrip()} The single-input probes explain {d.explained:+d} of the {d.racks_delta:+d} racks; the other {d.residual:+d} "
+                f"are not explained by any one input (the inputs interact{also}).")
+    return head
+
+
+def _state_drivers_note(d) -> str | None:
+    """Why a diff against a recorded state names no driver. A state keeps fingerprints of the earlier inputs, not the inputs, so a changed input
+    cannot be located from it; the caller who needs the driver sends `before`. None when the inputs are verifiably unchanged (nothing to name:
+    what moved is ours, in `model_drift`)."""
+    if d.inputs == "unchanged":
+        return None
+    if d.inputs == "changed":
+        note = "the earlier inputs were not stored, so the driver cannot be named; send `before` to get it"
+        if d.evidence_digest_changed:
+            note += " (the declared evidence classes also differ from the earlier record, which kept only a fingerprint of them)"
+        return note
+    return ("the earlier record carries no fingerprint of its inputs, so whether they moved cannot be told and no driver can be named; "
+            "send `before` to get it")
+
+
 def handle_diff(body: dict, tier: Tier) -> dict:
     after = body.get("after") or body.get("intake")
     if not isinstance(after, dict):
@@ -861,7 +948,8 @@ def handle_diff(body: dict, tier: Tier) -> dict:
                             '{"previous_state": {...}, "after": {...}}')
     objective = _objective(body)
     prev = body.get("previous_state")
-    if isinstance(prev, dict):
+    from_state = isinstance(prev, dict)
+    if from_state:
         try:
             state = EnvelopeState.from_record(prev)
         except StateError as exc:
@@ -875,7 +963,7 @@ def handle_diff(body: dict, tier: Tier) -> dict:
                           attribute=bool(body.get("attribute", True)))
 
     payload = {
-        "headline": d.headline(),
+        "headline": _headline_with_residual(d),
         "material": d.material,
         "material_reasons": d.material_reasons,
         "not_compared": d.not_compared,
@@ -887,6 +975,12 @@ def handle_diff(body: dict, tier: Tier) -> dict:
         "capex_delta_eur": d.capex_delta,
         "binding_moved": d.binding_moved,
         "changed_inputs": d.changed_paths,
+        # Additive. `changed_inputs` and `drivers` are empty when the earlier inputs were never stored (a recorded state keeps fingerprints of them, not
+        # the inputs): that is "cannot be named", not "nothing moved", and `inputs` / `changed_inputs_known` / `drivers_note` say which. With `before`
+        # the paths are compared and named; `evidence_changed_inputs` names the inputs whose declared evidence class moved (what `before` can see).
+        "changed_inputs_known": not (from_state and d.inputs != "unchanged"),
+        "evidence_changed_inputs": list(d.evidence_changes),
+        "drivers_note": _state_drivers_note(d) if from_state else None,
         "drivers": [dr.__dict__ for dr in d.drivers],
         "explained_racks": d.explained,
         "unexplained_racks": d.residual,
@@ -1140,8 +1234,10 @@ def handle_power_deploy_bids(body: dict, tier: Tier) -> dict:
 
 
 def _mcp_message_is_valid(message) -> bool:
-    """The least JSON-RPC 2.0 asks of a request or notification: an object with a string method. Anything else is an Invalid Request."""
-    return isinstance(message, dict) and isinstance(message.get("method"), str) and bool(message["method"])
+    """The least JSON-RPC 2.0 asks of a request or notification: an object declaring `"jsonrpc": "2.0"` with a string method. Anything else
+    is an Invalid Request: a message that says it is another version (`"1.0"`) or none at all is not one this endpoint is entitled to read as 2.0."""
+    return (isinstance(message, dict) and message.get("jsonrpc") == "2.0"
+            and isinstance(message.get("method"), str) and bool(message["method"]))
 
 
 def _invalid_rpc_request(message) -> dict:
@@ -1150,8 +1246,13 @@ def _invalid_rpc_request(message) -> dict:
     rid = message.get("id") if isinstance(message, dict) else None
     if isinstance(rid, bool) or not isinstance(rid, (str, int)):
         rid = None
-    return {"jsonrpc": "2.0", "id": rid,
-            "error": {"code": -32600, "message": 'invalid request: expected a JSON-RPC object with a string "method"'}}
+    if isinstance(message, dict) and message.get("jsonrpc") != "2.0":
+        got = message.get("jsonrpc")
+        shown = ("missing" if "jsonrpc" not in message else repr(got) if isinstance(got, str) and len(got) <= 20 else f"a {type(got).__name__}")
+        what = f'invalid request: "jsonrpc" must be the string "2.0" (it is {shown})'
+    else:
+        what = 'invalid request: expected a JSON-RPC object with a string "method"'
+    return {"jsonrpc": "2.0", "id": rid, "error": {"code": -32600, "message": what}}
 
 
 def handle_revoke(body: dict, tier: Tier) -> dict:
@@ -1217,6 +1318,51 @@ ECONOMICS_BASIS = (
     "fees, any model or LLM provider cost (the engine makes no model calls, so there is none to include), "
     "support and engineering time, taxes, minimum-invoice carry-forward, and invoices not yet paid."
 )
+
+
+def withhold_non_finite(payload):
+    """(a copy of payload with every non-finite float replaced by None, the paths where that happened); (payload, []) when there is none.
+
+    NaN and the infinities are not JSON: `Infinity` in a response breaks every strict parser downstream, and a client that coerces it to 0 has
+    turned "unbounded" into "none". The loader refuses the inputs that can cause one; this is the defence behind it. The value becomes null (never
+    zero, never a number made up) and its path is named, so the caller is told rather than left to find a hole. A tuple is read as a list."""
+    paths: list[str] = []
+
+    def clean(node, path):
+        if isinstance(node, float):
+            if math.isfinite(node):
+                return node
+            paths.append(path or "$")
+            return None
+        if isinstance(node, dict):
+            return {k: clean(v, f"{path}.{k}" if path else str(k)) for k, v in node.items()}
+        if isinstance(node, (list, tuple)):
+            return [clean(v, f"{path}[{i}]") for i, v in enumerate(node)]
+        return node
+
+    out = clean(payload, "")
+    return (out, paths) if paths else (payload, [])
+
+
+def _warn_non_finite(payload, paths: list[str]):
+    """The payload with a `warnings` entry per withheld figure. Top level of the answer, beside any warnings it already carries; in a JSON-RPC
+    response (which has no room for one) inside its `result`. A list (an MCP batch) is handled element by element."""
+    if isinstance(payload, list):
+        return [_warn_non_finite(m, [p for p in paths if p.startswith(f"[{i}]")]) if isinstance(m, dict) else m for i, m in enumerate(payload)]
+    if not isinstance(payload, dict):
+        return payload
+    notes = [f"non-finite figure withheld at {p}" for p in paths]
+    if not notes:
+        return payload
+    target = payload["result"] if "jsonrpc" in payload and isinstance(payload.get("result"), dict) else payload
+    existing = target.get("warnings")
+    if isinstance(existing, list):
+        target["warnings"] = existing + notes
+    elif existing is None:
+        target["warnings"] = notes
+    else:
+        target["non_finite_warnings"] = notes
+    return payload
 
 
 def _strict(obj):
@@ -1374,12 +1520,8 @@ def handle_bids(body: dict, tier: Tier) -> dict:
     return payload
 
 
-#: The most halls one /v1/portfolio request may rank. A bound on the work a request can demand (every hall is a full solve, about 0.2 s
-#: each, and the 512 KiB body limit alone admits well over a hundred), not a statement about how large a portfolio may be: the Portfolio
-#: Screen is sold for five to fifteen halls, and a larger estate is several requests.
-MAX_PORTFOLIO_HALLS = 50
-
-
+#: MAX_PORTFOLIO_HALLS (the most halls one /v1/portfolio request may rank) is defined once, in metering.py, and imported above: the published
+#: input schema, the estimator and the rate card read the same number.
 from ..reporting.portfolio_guard import (declares_hall_ids as _declares_hall_ids, hall_key as _hall_key,  # noqa: E402
                                          identical_physics_warning as _identical_warning, is_repeat as _is_repeat_hall,
                                          physics_fingerprint as _fingerprint)
@@ -1390,8 +1532,7 @@ def handle_portfolio(body: dict, tier: Tier) -> dict:
     if not isinstance(docs, list) or not docs:
         raise ApiError(422, "expected {\"intakes\": [ ... ]} with at least one intake")
     if len(docs) > MAX_PORTFOLIO_HALLS:
-        raise ApiError(422, f"intakes lists {len(docs)} halls, more than the {MAX_PORTFOLIO_HALLS} one request may rank; send the rest as "
-                            "further requests", max_halls=MAX_PORTFOLIO_HALLS)
+        raise ApiError(422, portfolio_cap_message(len(docs)), max_halls=MAX_PORTFOLIO_HALLS)
     objective = _objective(body)
     fmt = str(body.get("format") or "json").lower()
     if fmt not in ("json", "md", "html"):
@@ -1479,7 +1620,7 @@ def _units_basis(endpoint: str, units: int, halls: int | None) -> str:
     if endpoint == _PORTFOLIO:
         base = UNIT_COST[_PORTFOLIO]
         if halls is None:
-            return (f"{base} unit per hall in the request; give hall_count (or body.intakes) for a total. "
+            return (f"{base} unit per hall in the request, at most {MAX_PORTFOLIO_HALLS} halls per request; give hall_count (or body.intakes) for a total. "
                     f"Units are reserved when the call starts and refunded if it produces no answer.")
         return (f"{base} unit per hall x {halls} halls = {units} units. "
                 f"Units are reserved when the call starts and refunded if it produces no answer.")
@@ -1514,6 +1655,11 @@ def handle_estimate(body: dict, tier: Tier) -> dict:
             halls = max(1, len(intakes))
         elif hall_count is not None:
             halls = hall_count
+        if halls is not None and halls > MAX_PORTFOLIO_HALLS:
+            # A price for a request the engine would refuse is not an estimate: refuse it in the engine's own words, and say how many requests
+            # the estate is (each is priced on its own by asking again with its own hall_count).
+            raise ApiError(422, portfolio_cap_message(halls), max_halls=MAX_PORTFOLIO_HALLS,
+                           requests_needed=-(-halls // MAX_PORTFOLIO_HALLS), units_per_hall=UNIT_COST[_PORTFOLIO])
         units = UNIT_COST[_PORTFOLIO] * (halls if halls is not None else 1)
     else:
         units = units_for(endpoint, req_body)
@@ -1559,6 +1705,45 @@ ROUTES = {
     "/v1/power/deploy/bids": (handle_power_deploy_bids, Tier.CLIENT),
     "/v1/revoke": (handle_revoke, Tier.INTERNAL),
 }
+
+#: The `format` each route that renders a document honours, as (allowed values in the order its published schema lists them, the value used when
+#: `format` is absent). The published enums are the source: a value outside them used to be answered as if it were the default (and billed), so
+#: `format: "pdf"` on /v1/screen was a 200 JSON answer and a charge. /v1/deck has no schema (it is REST only) and always renders html.
+ROUTE_FORMATS: dict[str, tuple[tuple[str, ...], str]] = {
+    "/v1/screen": (("json", "md", "html"), "json"),
+    "/v1/study": (("json", "md", "html", "csv"), "json"),
+    "/v1/portfolio": (("json", "md", "html"), "json"),
+    "/v1/diff": (("json", "md", "html"), "json"),
+    "/v1/proposal": (("html", "md"), "html"),
+    "/v1/spec": (("html", "md"), "html"),
+    "/v1/deck": (("html",), "html"),
+}
+
+
+def validate_format(endpoint: str, body) -> None:
+    """Refuse a `format` the route does not render, naming the allowed ones (422, the same shape /v1/portfolio always gave).
+
+    Runs BEFORE the call is metered (REST: before `_charge`; MCP: before the tool is charged), so a request that can never be answered is
+    refused for nothing, not billed and refunded. A route with no entry here, or a body that is not an object, is not looked at; absent, null
+    and empty `format` are the route's default, as they always were; case is ignored, as it always was."""
+    spec = ROUTE_FORMATS.get(endpoint)
+    if spec is None or not isinstance(body, dict):
+        return
+    allowed, default = spec
+    raw = body.get("format")
+    fmt = str(raw or default).lower()
+    if fmt not in allowed:
+        raise ApiError(422, f"unknown format {fmt[:40]!r}", allowed=list(allowed))
+
+
+def validate_request(endpoint: str, body) -> None:
+    """What can be refused from the request alone, before it is metered: an unsupported `format` (`validate_format`) and a portfolio over
+    MAX_PORTFOLIO_HALLS (the handler's own refusal, in the same words, which would otherwise come after `units_for` had reserved a unit per
+    hall and a key short of that many units had been told it was over quota instead of told the cap)."""
+    validate_format(endpoint, body)
+    if endpoint == "/v1/portfolio" and isinstance(body, dict) and isinstance(body.get("intakes"), list) and len(body["intakes"]) > MAX_PORTFOLIO_HALLS:
+        raise ApiError(422, portfolio_cap_message(len(body["intakes"])), max_halls=MAX_PORTFOLIO_HALLS)
+
 
 #: Routes whose result depends on prices and can therefore take accepted cost evidence for that one request.
 EVIDENCE_ROUTES = frozenset({"/v1/screen", "/v1/study", "/v1/compare", "/v1/diff", "/v1/deck", "/v1/spec"})
@@ -1608,6 +1793,7 @@ def _invoke_inner(endpoint: str, handler, body, tier):
     The evidence applies to THIS call only (a request-scoped overlay over the library); an entry that is not accepted,
     has expired, is not in EUR, or is superseded by a newer one in the same request is ignored with a reason that is
     returned and printed. The answer says which evidence it used and, for a screen or study, what that changed."""
+    validate_request(endpoint, body)           # already checked before the charge on both transports; this covers any other caller of `_invoke`
     if _nests_deeper_than(body, MAX_BODY_DEPTH):
         raise ApiError(422, f"the request nests more than {MAX_BODY_DEPTH} levels deep; no field of any route needs that")
     if not isinstance(body, dict) or "cost_evidence" not in body:
@@ -1644,6 +1830,12 @@ GET_ROUTES = ("/health", "/v1/version", "/v1/platforms", "/v1/intake/template",
               "/v1/calibration", "/v1/calibration/residuals", "/v1/tools", "/v1/usage")
 
 
+def public_endpoints() -> list[str]:
+    """The routes a caller may be told exist: every POST and GET route except the operator-only ones (`Tier.INTERNAL`: /v1/revoke), which answer
+    404 to everyone else precisely so they do not confirm they exist, and so are in no listing. The one list behind GET /v1/version `endpoints`."""
+    return sorted(r for r, (_, tier) in ROUTES.items() if tier is not Tier.INTERNAL) + sorted(GET_ROUTES)
+
+
 # --- Model Context Protocol --------------------------------------------------
 # JSON-RPC 2.0 over one POST endpoint. Implemented here rather than pulled in as a
 # dependency because the whole engine is standard-library-only and an agent-facing
@@ -1662,6 +1854,9 @@ def _mcp_call_tool(params: dict, tier: Tier, charge) -> dict:
     if limit is not None and not limit():
         raise RpcError(-32005, "rate limit exceeded", {"status": 429, "limit_per_minute": RATE_LIMIT_PER_MINUTE})
     name = params.get("name")
+    if not isinstance(name, str) or not name:
+        got = "missing" if name is None else "empty" if name == "" else f"a {type(name).__name__}, not a string"
+        raise RpcError(-32602, f"params.name is {got}: name the tool to call (a string)", {"available": sorted(TOOLS_BY_NAME)})
     tool = TOOLS_BY_NAME.get(name)
     if tool is None:
         raise RpcError(-32602, f"unknown tool {name!r}",
@@ -1674,6 +1869,10 @@ def _mcp_call_tool(params: dict, tier: Tier, charge) -> dict:
     args = params.get("arguments")
     if not isinstance(args, dict):
         raise RpcError(-32602, "arguments must be an object")
+    try:
+        validate_request(endpoint, args)       # before the idempotency lookup and the charge: nothing to refund
+    except ApiError as exc:
+        raise RpcError(-32602, exc.message, exc.extra)
     # Idempotency-Key, exactly as REST honours it: a retry after a timeout is neither charged twice nor handed a
     # different answer, and a key reused for another request is refused. `idem` is None when there is no key,
     # no valid API key to scope it to, or the tool is the estimator.
@@ -1751,9 +1950,12 @@ def _mcp_summary(name: str, result: dict) -> str:
     try:
         if name == "gridforge_qualify":
             a, b = result["as_found"], result["after_relief"]
+            # Follows the payload: an item is named only when the payload names one; with no date the sentence says so and why.
+            no_date = str(b.get("sets_the_date_reason") or b.get("date_label") or "No date can be given.").rstrip(".") + ". "
+            sets = f"{b['sets_the_date']} sets the date. " if b.get("sets_the_date") else no_date
             return (f"{a['racks']} racks as found, {b['racks']} after relief. "
                     f"Binds first on {a['binding_constraint']}. "
-                    f"{b['sets_the_date']} sets the date. "
+                    f"{sets}"
                     f"Calibration: {result['calibration']['state']}.")
         if name == "gridforge_portfolio":
             top = result["halls"][0]
@@ -1783,10 +1985,13 @@ def handle_mcp(body: dict, tier: Tier, charge) -> dict | None:
     """One JSON-RPC request. Returns None for a notification (no id)."""
     rpc_id = body.get("id")
     method = body.get("method")
+    # A notification is a message with NO `id` member (JSON-RPC 2.0 section 4.1). `"id": null` is a request, answered with id null: it used to be
+    # taken for a notification, so the caller got a 202 and nothing else.
+    notification = "id" not in body
     params = body.get("params") if isinstance(body.get("params"), dict) else {}
 
     def ok(result):
-        return None if rpc_id is None else {"jsonrpc": "2.0", "id": rpc_id, "result": result}
+        return None if notification else {"jsonrpc": "2.0", "id": rpc_id, "result": result}
 
     try:
         if method == "initialize":
@@ -1800,9 +2005,11 @@ def handle_mcp(body: dict, tier: Tier, charge) -> dict | None:
                     "which of thirteen electrical, thermal and physical constraints binds "
                     "first, and what each step of extra density costs.\n\n"
                     "gridforge_qualify is free and needs no API key — call it whenever a "
-                    "user asks whether a data hall can take high-density or AI racks. It "
-                    "needs only contracted MW, current site peak, busway ampacity and "
-                    "tap-off rating; ask the user for those rather than guessing them.\n\n"
+                    "user asks whether a data hall can take high-density or AI racks. Send "
+                    "at least three of its seven figures (contracted MW, current site peak, "
+                    "current IT load, busway ampacity, tap-off rating, plant supply "
+                    "temperature, free rack positions); each one you omit is named in the "
+                    "answer as an assumption, so ask the user for them rather than guessing.\n\n"
                     "Every numeric field carries an evidence class E0-E7 and a provenance "
                     "digest. Do not present an E0 or E1 figure as a property of a physical "
                     "asset: it is modelled, not measured. The calibration block on each "
@@ -1819,15 +2026,35 @@ def handle_mcp(body: dict, tier: Tier, charge) -> dict | None:
             # for us than for them.
             return ok({"tools": mcp_tools()})
         if method == "tools/call":
+            if not isinstance(body.get("params"), dict):
+                raise RpcError(-32602, 'tools/call needs params: an object with a string "name" (the tool to call) and an "arguments" object',
+                               {"available": sorted(TOOLS_BY_NAME)})
             return ok(_mcp_call_tool(params, tier, charge))
         raise RpcError(-32601, f"method not found: {method}")
     except RpcError as exc:
-        if rpc_id is None:
+        if notification:
             return None
         err = {"code": exc.code, "message": exc.message}
         if exc.data is not None:
             err["data"] = exc.data
         return {"jsonrpc": "2.0", "id": rpc_id, "error": err}
+
+
+def _encode(payload) -> bytes:
+    """A response body as strict JSON. `allow_nan=False`: a NaN or an infinity is never written (`Infinity` is not JSON). If one reaches here it
+    is replaced by null where it stands and named in a top-level `warnings` entry ('non-finite figure withheld at <path>'): never a 500, never
+    silent, never a zero. A body that fails for any other reason is the caller's exception, as before."""
+    try:
+        return json.dumps(payload, allow_nan=False).encode()
+    except ValueError as exc:
+        try:
+            clean, paths = withhold_non_finite(payload)
+        except RecursionError:             # a payload that refers to itself: not a non-finite figure, so the original error stands
+            raise exc from None
+        if not paths:
+            raise
+        print(f"gridforge: non-finite figure withheld at {', '.join(paths[:5])}", file=sys.stderr)
+        return json.dumps(_warn_non_finite(clean, paths), allow_nan=False).encode()
 
 
 class Handler(BaseHTTPRequestHandler):
@@ -1869,12 +2096,12 @@ class Handler(BaseHTTPRequestHandler):
         self.send_header("Access-Control-Expose-Headers",
                          "X-GridForge-Units, X-GridForge-Units-Month, X-GridForge-Units-Remaining, "
                          "X-GridForge-Charge-Cents, X-GridForge-Idempotent-Replay, Idempotent-Replay")
-        self.send_header("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
+        self.send_header("Access-Control-Allow-Methods", "GET, POST, OPTIONS")      # HEAD is CORS-safelisted like GET and POST: not listed
 
     def _send(self, status: int, payload: dict) -> None:
         if isinstance(payload, dict) and "jsonrpc" not in payload:
             payload = {"schema_version": API_SCHEMA, **payload}
-        data = json.dumps(payload).encode()
+        data = _encode(payload)
         self.send_response(status)
         self.send_header("Content-Type", "application/json; charset=utf-8")
         self.send_header("Content-Length", str(len(data)))
@@ -1886,6 +2113,8 @@ class Handler(BaseHTTPRequestHandler):
             self.send_header("X-GridForge-Idempotent-Replay", "true")
         if getattr(self, "_retry_after", None):
             self.send_header("Retry-After", str(self._retry_after))
+        if getattr(self, "_allow", None):
+            self.send_header("Allow", self._allow)
         self._usage_headers()
         self._cors()
         self.end_headers()
@@ -1962,8 +2191,60 @@ class Handler(BaseHTTPRequestHandler):
 
     def do_OPTIONS(self) -> None:  # noqa: N802
         self.send_response(204)
+        allow = self._allowed_methods(urlparse(self.path).path.rstrip("/") or "/")
+        if allow:
+            self.send_header("Allow", ", ".join(allow))
         self._cors()
         self.end_headers()
+
+    # -- methods -----------------------------------------------------------
+    @staticmethod
+    def _allowed_methods(path: str) -> list[str] | None:
+        """The methods a known route answers, for a 405's Allow header; None when the path is not a route a caller may know exists.
+        Operator routes (/v1/revoke, /v1/admin/*) are None on purpose: they answer 404 to everyone else and never confirm they exist."""
+        reads = path in ("/", "/health", "/v1/estimate") or path in GET_ROUTES
+        posts = path == "/mcp" or (path in ROUTES and ROUTES[path][1] is not Tier.INTERNAL)
+        if not (reads or posts):
+            return None
+        return (["GET", "HEAD"] if reads else []) + (["POST"] if posts else []) + ["OPTIONS"]
+
+    def _method_not_allowed(self, path: str):
+        """405 with an Allow header for a known route reached by a method it does not take; 404 for a path that is no route."""
+        allow = self._allowed_methods(path)
+        if allow is None:
+            return self._send(404, {"error": "not found", "endpoints": public_endpoints() + ["/mcp"]})
+        self._allow = ", ".join(allow)
+        return self._send(405, {"error": f"{self.command} is not allowed on {path}", "allow": allow})
+
+    def _other_method(self) -> None:
+        """PUT, DELETE and PATCH: no route takes them. They used to get the standard library's HTML 501 page."""
+        self._method_not_allowed(urlparse(self.path).path.rstrip("/") or "/")
+
+    do_PUT = do_DELETE = do_PATCH = _other_method  # noqa: N815
+
+    def do_HEAD(self) -> None:  # noqa: N802
+        """HEAD answers a GET route exactly as GET does (same status, same headers, no body: `_send` leaves the body out), so a monitor that
+        probes with HEAD is not told the service is down."""
+        self.do_GET()
+
+    def send_error(self, code, message=None, explain=None) -> None:
+        """Every error the standard library raises on its own (a malformed request line, an over-long header, an unsupported method such as
+        TRACE) as the engine's JSON, never its HTML page. Runs before any header is parsed on a bad request, so it reads nothing from them."""
+        short = self.responses.get(code, ("error",))[0]
+        data = json.dumps({"schema_version": API_SCHEMA, "error": message or short, "status": code}).encode()
+        try:
+            self.log_error("code %d, message %s", code, message)
+            self.send_response(code, message)
+            self.send_header("Content-Type", "application/json; charset=utf-8")
+            self.send_header("Content-Length", str(len(data)))
+            self.send_header("Cache-Control", "no-store")
+            self.send_header("X-Content-Type-Options", "nosniff")
+            self.send_header("Connection", "close")
+            self.end_headers()
+            if self.command != "HEAD" and code >= 200 and code not in (204, 205, 304):
+                self.wfile.write(data)
+        except (OSError, ValueError):       # the peer is gone: nothing to tell it
+            pass
 
     def do_GET(self) -> None:  # noqa: N802
         parsed = urlparse(self.path)
@@ -2029,7 +2310,7 @@ class Handler(BaseHTTPRequestHandler):
                                 f"or on an /mcp tools/call, to make a retry free and identical"),
                 "idempotency_key_max_chars": MAX_IDEM_KEY_CHARS,
                 "tier": self._tier().value,
-                "endpoints": sorted(ROUTES) + sorted(GET_ROUTES),
+                "endpoints": public_endpoints(),
                 # Behaviour a route has that its path does not show. A site that depends on one reads it here and, from an engine that does
                 # not list it (an older deployment), hides the feature instead of sending a field that engine would silently ignore.
                 "capabilities": dict(CAPABILITIES),
@@ -2095,8 +2376,7 @@ class Handler(BaseHTTPRequestHandler):
                 return self._send(401, dict(refusal(self._supplied_key()),
                                             hint="GET /v1/tools is free and needs no key"))
             return self._send(200, METER.statement(plan))
-        return self._send(404, {"error": "not found",
-                                "endpoints": sorted(ROUTES) + sorted(GET_ROUTES)})
+        return self._method_not_allowed(path)       # a POST route read with GET: 405 and Allow; a path that is no route: the 404 it always was
 
     # -- metering ----------------------------------------------------------
     def _project(self) -> str:
@@ -2233,8 +2513,7 @@ class Handler(BaseHTTPRequestHandler):
     def _do_post(self) -> None:
         path = urlparse(self.path).path.rstrip("/") or "/"
         if path not in ROUTES and path != "/mcp":
-            return self._send(404, {"error": "not found",
-                                    "endpoints": sorted(ROUTES) + ["/mcp"]})
+            return self._method_not_allowed(path)          # a GET route sent a POST: 405 and Allow; a path that is no route: 404
 
         if not self._within(self.limiter):
             return self._send(429, {"error": "rate limit exceeded",
@@ -2296,6 +2575,10 @@ class Handler(BaseHTTPRequestHandler):
 
         if not isinstance(body, dict):
             return self._send(400, {"error": "expected a JSON object"})
+        try:
+            validate_request(path, body)       # a format the route cannot render, or a portfolio over the cap, is refused before anything is metered
+        except ApiError as exc:
+            return self._send(exc.status, {"error": exc.message, **exc.extra})
 
         idem = (self.headers.get("Idempotency-Key") or "").strip()
         idem_key = None
@@ -2409,7 +2692,7 @@ class Handler(BaseHTTPRequestHandler):
             except Exception:
                 self._refund()
                 _log_engine_error(charge.request_id)
-                if message.get("id") is None:
+                if "id" not in message:
                     return None
                 return {"jsonrpc": "2.0", "id": message.get("id"),
                         "error": {"code": -32603, "message": "engine error",

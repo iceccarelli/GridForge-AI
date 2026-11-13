@@ -58,6 +58,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from gridforge.api.metering import UNIT_COST  # noqa: E402
 from gridforge.provenance import code_sha256  # noqa: E402
 from gridforge.api.server import ROUTES, VERSION  # noqa: E402
+from gridforge.api.tiers import Tier  # noqa: E402
 
 ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_BASE = "https://gridforge-engine.fly.dev"
@@ -106,7 +107,7 @@ def drift_grouped(deployed: dict, tools: dict | None = None) -> dict[str, list[s
     """
     out: dict[str, list[str]] = {key: [] for key, _ in GROUPS}
     served = set(deployed.get("endpoints", []))
-    for path in sorted(ROUTES):
+    for path in sorted(p for p, (_, tier) in ROUTES.items() if tier is not Tier.INTERNAL):      # an operator-only route (/v1/revoke) is in no listing, by design
         if path not in served:
             out["routes"].append(f"route {path} is in this repository but the deployed engine does not list it")
     remote_rates = deployed.get("unit_rates", {})

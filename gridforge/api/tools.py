@@ -23,7 +23,7 @@ Zero dependencies: MCP here is a JSON-RPC dialect, not a package.
 from __future__ import annotations
 
 from ..compute.library import PLATFORMS
-from .metering import UNIT_COST, payg_public
+from .metering import MAX_PORTFOLIO_HALLS, UNIT_COST, payg_public
 from .tiers import Tier
 
 PROTOCOL_VERSION = "2025-06-18"
@@ -78,13 +78,14 @@ def _label(what: str) -> dict:
 def _qualify_schema() -> dict:
     return {
         "type": "object",
-        "description": ("Seven figures about one air-cooled hall, and some options. The four marked required are the minimum this contract "
-                        "asks you to send. The engine itself answers 422 only when more than four of the seven figures are missing (any "
-                        "three are enough); every figure you leave out is filled from library defaults and listed under intake.gaps in "
-                        "the result. The engine does not validate a request against this schema before running it: a key that is not "
-                        "listed here is not read as a figure and is ignored, except cost_evidence, which this route does not take and "
-                        "refuses with 422."),
-        "required": ["contracted_MW", "current_site_peak_MW", "busway_ampacity_A", "tapoff_max_A"],
+        "description": ("Seven figures about one air-cooled hall, and some options. Send at least three of these seven figures; each one "
+                        "you omit is an assumption named in the answer (library default, listed under intake.gaps and, with the way you "
+                        "left it out, under figures_not_supplied). Fewer than three is refused with 422, and no one figure is required: "
+                        "any three are enough. A figure sent as null is not sent: it counts as omitted, and the answer says so. Each "
+                        "figure you do send is checked by its own name against the same plausibility bounds the engine's intake uses "
+                        "(a refusal names the figure you sent, with the limit). The engine does not validate a request against this "
+                        "schema before running it: a key that is not listed here is not read as a figure and is ignored, except "
+                        "cost_evidence, which this route does not take and refuses with 422."),
         "properties": {
             "contracted_MW": {"type": "number", "description": "Contracted grid capacity, MW."},
             "current_site_peak_MW": {"type": "number", "description": "Current site peak demand, MW."},
@@ -171,7 +172,8 @@ _BTM_SHARED_PROPERTIES = {
 TOOLS: list[dict] = [
     _tool(
         "gridforge_qualify",
-        ("Free. Seven numbers about an existing air-cooled hall in, one answer out: which "
+        ("Free. Up to seven numbers about an existing air-cooled hall in (at least three; each one you leave out is an "
+         "assumption named in the answer), one answer out: which "
          "physical constraint binds first when you try to deploy AI racks in it, how many "
          "racks fit as found, and which item sets the time to power (labelled 'assumed lead time, not a date' "
          "when that item's lead time is an assumption). Use this to triage "
@@ -179,8 +181,10 @@ TOOLS: list[dict] = [
         "/v1/qualify",
         _qualify_schema(),
         tier=Tier.PUBLIC,
-        returns=("binding constraint, racks as found and after relief, the item that sets the "
-                 "date, and the inputs nobody has measured (when you send assumed_fields, also inputs_declared_assumed, which lists only what you "
+        returns=("binding constraint, racks as found and after relief (each with racks_evidence, the evidence class of that rack count as a "
+                 "short code such as E0: the weakest class among the constraints that cap it), the item that sets the "
+                 "date (null, with sets_the_date_reason, when no date can be given: nothing is deployable, or a lead time on the path is "
+                 "missing because transformers or UPS were not declared), and the inputs nobody has measured (when you send assumed_fields, also inputs_declared_assumed, which lists only what you "
                  "declared; when you send contracted_MW and no firm_capacity_MVA, inputs_derived_assumed, the firm capacity the qualifier "
                  "derived, as an assumption). No capital cost or "
                  "dated lead times in this free read: the metered /v1/compare (it needs an API key) returns indicative capital and weeks "
@@ -199,7 +203,8 @@ TOOLS: list[dict] = [
          "properties": {"endpoint": {"type": "string",
                                      "description": "The engine route to price, e.g. /v1/study."},
                         "hall_count": {"type": "integer", "minimum": 1,
-                                       "description": "Halls in a /v1/portfolio request (one unit each)."},
+                                       "description": (f"Halls in a /v1/portfolio request (one unit each). A portfolio request ranks at most "
+                                                       f"{MAX_PORTFOLIO_HALLS} halls: a larger hall_count is refused with 422, as the request would be.")},
                         "body": {"type": "object", "additionalProperties": True,
                                  "description": "Optional: the request body you intend to send; the "
                                                 "units are read from it exactly as the meter would."}},
@@ -247,8 +252,9 @@ TOOLS: list[dict] = [
                         "grid_queue_region": _queue_region_schema(),
                         "electricity_price_state": _price_state_schema()},
          "additionalProperties": False},
-        returns="gridforge/ttp-compare/1: scenarios[], ranking, grade, caveats, grid_queue_context (measured US queue statistic, context "
-                "only), request_digest, provenance.",
+        returns="gridforge/ttp-compare/1: scenarios[] (each with as_found.racks and after_ladder.racks, and racks_evidence beside each: the "
+                "evidence class of that rack count as a short code such as E0), ranking, grade, caveats, grid_queue_context (measured US queue "
+                "statistic, context only), request_digest, provenance.",
         boundary=("Same solve as the screen: a scenario with an unknown lead time gets no date and a reason, nothing is ranked on a figure it does "
                   "not have, and a date that rests on an assumed lead time is labelled 'assumed lead time, not a date'."),
     ),
@@ -270,11 +276,15 @@ TOOLS: list[dict] = [
     ),
     _tool(
         "gridforge_portfolio",
-        ("Rank halls. Many intakes in, an ordered list out: racks, weeks to power, capex per "
-         "rack and what binds first for each. Bills one unit per hall."),
+        (f"Rank halls. Many intakes in (at most {MAX_PORTFOLIO_HALLS} halls in one request; a larger estate is several requests), "
+         "an ordered list out: racks, weeks to power, capex per "
+         "rack and what binds first for each. A hall that is not ranked on a figure (no deployable rack, a required input missing or an "
+         "equipment bank undeclared) is listed after the ranked ones with rank null. Bills one unit per hall."),
         "/v1/portfolio",
         {"type": "object", "required": ["intakes"],
-         "properties": {"intakes": {"type": "array", "items": _INTAKE_SCHEMA, "minItems": 1},
+         "properties": {"intakes": {"type": "array", "items": _INTAKE_SCHEMA, "minItems": 1, "maxItems": MAX_PORTFOLIO_HALLS,
+                                    "description": (f"The halls to rank, one intake each: at most {MAX_PORTFOLIO_HALLS} per request (more is "
+                                                    "refused with 422 and nothing is charged; send the rest as further requests).")},
                         "objective": _OBJECTIVE,
                         "format": {"type": "string", "enum": ["json", "md", "html"], "default": "json",
                                    "description": "json: the ranking rows. md or html: also the rendered Portfolio Screen "
@@ -298,13 +308,17 @@ TOOLS: list[dict] = [
         {"type": "object", "required": ["after"],
          "properties": {"before": _INTAKE_SCHEMA,
                         "previous_state": {"type": "object", "additionalProperties": True,
-                                           "description": "A recorded envelope state from an earlier run."},
+                                           "description": ("A recorded envelope state from an earlier run. It keeps fingerprints of that run's inputs, "
+                                                           "not the inputs: a change is detected (inputs: changed) but no driver can be named, and "
+                                                           "drivers_note says so. Send before to get the drivers.")},
                         "after": _INTAKE_SCHEMA, "objective": _OBJECTIVE,
                         "attribute": {"type": "boolean", "default": True},
                         "format": {"type": "string", "enum": ["json", "md", "html"],
                                    "default": "json"}},
          "additionalProperties": False},
-        returns="headline, racks/weeks/capex deltas, ranked drivers, explained and residual.",
+        returns=("headline, racks/weeks/capex deltas, ranked drivers, explained and residual; changed_inputs_known and drivers_note say when the "
+                 "inputs moved but cannot be named (a diff against previous_state), evidence_changed_inputs names the inputs whose declared evidence "
+                 "class moved."),
         boundary=("Attributes a change to the inputs that moved it using single-input probes, and reports what the probes do not explain as a "
                   "residual rather than distributing it."),
     ),
@@ -383,9 +397,11 @@ TOOLS: list[dict] = [
                                                         "can reach"},
                         "objective": _OBJECTIVE},
          "additionalProperties": False},
-        returns=("capacity (current/target/gap), binding_constraint, headroom_ladder (every "
+        returns=("capacity (current/target/gap; target_reachable and gap_racks_after_ladder say whether the full headroom ladder reaches the "
+                 "target, and what is still missing when it does not), binding_constraint, headroom_ladder (every "
                  "relief priced and dated), time_to_power (critical item and dependencies), "
-                 "evidence (calibration state, evidence classes used), and next_action."),
+                 "evidence (calibration state, evidence classes used), and next_action (which leads with the fact when the target is not "
+                 "reachable)."),
         boundary=("Composed from the same solved scenario as the screen and the study: no price, lead time or date is invented, every figure "
                   "traces to the engine or an explicit input with its evidence class, and the calibration state is stated."),
     ),
@@ -596,7 +612,9 @@ def mcp_tools() -> list[dict]:
 #: not an agent tool (a human walkthrough); an integrator pricing a deployment still needs its weight.
 def rate_card() -> list[dict]:
     by_endpoint = {t["endpoint"]: t["name"] for t in TOOLS}
-    return [{"endpoint": e, "units": u, "tool": by_endpoint.get(e)}
+    return [{"endpoint": e, "units": u, "tool": by_endpoint.get(e),
+             # additive, on the one row it applies to: a request over this many halls is refused (422), not priced
+             **({"max_halls_per_request": MAX_PORTFOLIO_HALLS} if e == "/v1/portfolio" else {})}
             for e, u in sorted(UNIT_COST.items())]
 
 

@@ -386,12 +386,14 @@ def test_power_deploy_spec_is_callable_over_mcp(server):
 
 
 def test_portfolio_ranks_several_halls(server):
-    doc = qualify_to_intake(GOOD)
-    other = qualify_to_intake({**GOOD, "contracted_MW": 26, "tapoff_max_A": 400,
-                               "busway_ampacity_A": 1000, "plant_supply_C": 18})
-    status, body = call(server, "/v1/portfolio", {"intakes": [doc, other]}, key=KEY)
+    # Two fully declared halls (every required input, transformers and UPS): each holds a rank. Halls built from the seven-figure qualifier have no
+    # transformer or UPS schedule, so they are listed but not ranked (rank null): tests/test_portfolio_rank_and_cap.py.
+    root = os.path.join(os.path.dirname(__file__), "..", "examples", "intake")
+    halls = [json.load(open(os.path.join(root, f"{n}_hall.json"))) for n in ("reference", "dublin")]
+    status, body = call(server, "/v1/portfolio", {"intakes": halls}, key=KEY)
     assert status == 200, body
     assert [h["rank"] for h in body["halls"]] == [1, 2]
+    assert [h["position"] for h in body["halls"]] == [1, 2]
     assert body["total_racks"] >= 0
 
 
