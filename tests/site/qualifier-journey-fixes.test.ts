@@ -13,8 +13,15 @@
 import React from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import fs from "node:fs";
+import path from "node:path";
 import { siteUrl } from "@/lib/site";
 import { headline, qualifySchema, toEngineBody, type QualifyResult } from "@/lib/qualify";
+import { engagementAdvice } from "@/lib/qualify-engagement";
+import { PRODUCTS } from "@/lib/products";
+import { eur } from "@/lib/commerce";
+import { studyOffer } from "@/lib/study-offer";
+import { workingDays } from "@/lib/turnaround";
 import { CapacityQualifier, FIELDS, QualifyReadout, fieldProblem } from "@/components/CapacityQualifier";
 import { resetMemoryLimiter } from "@/lib/rate-limit";
 
@@ -422,5 +429,86 @@ describe("J1-4: every required gap is on the page, with an honest count of the r
     expect(text(insideDisclosure(html))).toContain("Where to find it: Where to get Free-cooling hours per year.");
     expect(html).toContain('aria-label="Inputs the engine assumed"');
     expect(html).toContain('aria-label="More optional inputs the engine assumed"');
+  });
+});
+
+// ================================================================================================ J1-2: the engine's note to our salesperson is not shown to a buyer
+/** The three sentences the engine writes into intake.recommended_engagement (gridforge/intake/schema.py), for 'complete', '1-3 required missing' and 'too thin'. */
+const ENGINE_NOTES_TO_SALES = [
+  "The intake is complete. This supports a full Capacity & Density Envelope Study with site-specific conclusions.",
+  "3 required inputs missing. Request them before starting; the study can proceed in parallel on everything else.",
+  "1 required inputs missing. Request them before starting; the study can proceed in parallel on everything else.",
+  "Intake too thin for a full study. Sell the Density Screen instead: it produces the binding constraint and the data-request list, and its fee credits against the study when the data arrives.",
+  "No required inputs are missing, so this supports a full Capacity & Density Envelope Study, but the intake is not complete: 1 optional input is still an assumption (listed in the data request), and the study names each one.",
+];
+const screen = PRODUCTS.density_screen;
+const withNote = (note: string, gaps: QualifyResult["intake"]["gaps"] = EXAMPLE_GAPS.map(([i, r, a]) => gap(i, r, a))) => resultOf({ intake: { gaps, recommended_engagement: note } });
+
+describe("J1-2: the paid step is described to the buyer from the catalogue, never from the engine's note to sales", () => {
+  it.each(ENGINE_NOTES_TO_SALES)("the engine's sentence is not on the page: %s", (note) => {
+    const t = text(readout(withNote(note)));
+    expect(t).not.toContain(note);
+    expect(t).not.toMatch(/Sell the Density Screen|Request them before starting|Intake too thin|supports a full/i);
+    // and the button it used to sit above is still there
+    expect(t).toContain(`Commission the ${screen.name} · ${eur(screen.amountCents)}`);
+  });
+
+  it("no component or page renders the engine's recommended_engagement (the only place it is named is the answer's type and the OpenAPI text)", () => {
+    const offenders: string[] = [];
+    const walk = (dir: string) => {
+      for (const e of fs.readdirSync(dir, { withFileTypes: true })) {
+        const p = path.join(dir, e.name);
+        if (e.isDirectory()) walk(p);
+        else if (/\.tsx$/.test(e.name) && /recommended_engagement|engagement_recommendation/.test(fs.readFileSync(p, "utf8"))) offenders.push(path.relative(path.resolve(__dirname, "../.."), p));
+      }
+    };
+    for (const d of ["components", "app"]) walk(path.resolve(__dirname, "../..", d));
+    expect(offenders).toEqual([]);
+  });
+
+  it("states what this read leaves open, counted from the gaps the page shows, right for one, many, none", () => {
+    const g = (n: number, req: boolean) => Array.from({ length: n }, (_, i) => gap(`${req ? "Req" : "Opt"} ${i}`, req, "x"));
+    expect(engagementAdvice(withNote("x", [...g(1, true), ...g(4, false)])).situation).toBe("1 required input is still assumed in this read (marked * above).");
+    expect(engagementAdvice(withNote("x", [...g(5, true), ...g(4, false)])).situation).toBe("5 required inputs are still assumed in this read (marked * above).");
+    expect(engagementAdvice(withNote("x", g(1, false))).situation).toBe("No required input is missing from this read; 1 optional input is still assumed.");
+    expect(engagementAdvice(withNote("x", g(3, false))).situation).toBe("No required input is missing from this read; 3 optional inputs are still assumed.");
+    expect(engagementAdvice(withNote("x", [])).situation).toBe("No input in this read is assumed.");
+    // an answer with no gap list says nothing about counts, rather than "none"
+    const bare = resultOf({});
+    delete (bare.intake as Partial<QualifyResult["intake"]>).gaps;
+    expect(engagementAdvice(bare).situation).toBeNull();
+  });
+
+  it("the offer is the catalogue's own: its description (with the turnaround), its deliverable, and the step it credits against", () => {
+    const a = engagementAdvice(withNote("x"));
+    expect(a.offer).toContain(screen.description);
+    expect(a.offer).toContain(screen.deliverable);
+    expect(a.offer).toContain(workingDays(screen.turnaroundDays));
+    const study = studyOffer(screen.kind)!;
+    expect(a.next).toBe(`If the Screen shows the hall is worth a full study, the next step is the ${study.studyName}: ${study.price}. ${study.earlierCredit}`);
+    // the page shows exactly these words, and the button carries the catalogue's name and price
+    const t = text(readout(withNote("x")));
+    expect(t).toContain("5 required inputs are still assumed in this read (marked * above).");
+    expect(t).toContain(text(screen.description));
+    expect(t).toContain(text(study.earlierCredit));
+    expect(t).toContain(`Commission the ${screen.name} · ${eur(screen.amountCents)}`);
+  });
+
+  it("types no price, duration or credit of its own: the module that writes the sentences holds none", () => {
+    const src = fs.readFileSync(path.resolve(__dirname, "../../lib/qualify-engagement.ts"), "utf8").replace(/\/\/.*$/gm, "");
+    expect(src).not.toMatch(/€|EUR|\d[\d,.]*\s*(working )?days?|credits? in full|fixed fee/i);
+  });
+
+  it("a read taken from a reference template still shows no commission step and no engine note", () => {
+    const t = text(
+      renderToStaticMarkup(
+        React.createElement(QualifyReadout, {
+          result: withNote(ENGINE_NOTES_TO_SALES[3]), headline: "x", share: null, qualificationId: null, qualificationToken: null,
+          template: { name: "T", assumed: 7, total: 7, untouched: true, fields: [] },
+        })
+      )
+    );
+    expect(t).not.toContain(ENGINE_NOTES_TO_SALES[3]);
+    expect(t).not.toContain("Commission the");
   });
 });

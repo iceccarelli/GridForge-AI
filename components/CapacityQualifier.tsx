@@ -12,6 +12,7 @@ import { PAYG } from "@/lib/products";
 import { formatSetsTheDate } from "@/lib/date-basis";
 import FreeAllowanceForm from "@/components/FreeAllowanceForm";
 import { NEXT_STEP_HREFS } from "@/lib/qualify-next-steps";
+import { engagementAdvice, type EngagementAdvice } from "@/lib/qualify-engagement";
 import { isInputProblem, joinNames, orderedWarnings, rackNoun, splitGaps, upperBoundInputs, type QualifyGap } from "@/lib/qualify-readout";
 import { assumedRecordMatches, type QualifyAssumable } from "@/lib/qualify-assumed";
 import {
@@ -624,7 +625,7 @@ export function QualifyReadout({
         templateDerived={template !== null}
         commission={
           <CommissionPanel
-            recommendation={intake.recommended_engagement}
+            advice={engagementAdvice(result)}
             summary={`${headline} Binding constraint: ${found.binding_constraint}. ${gapRows.requiredCount} required input${gapRows.requiredCount === 1 ? "" : "s"} still assumed.`}
             capacityMW={Math.round((found.it_load_kW?.value ?? 0) / 1000)}
             qualificationId={qualificationId}
@@ -807,13 +808,14 @@ export function TemplateNotice({ template, recorded }: { template: TemplateUsed;
 }
 
 function CommissionPanel({
-  recommendation,
+  advice,
   summary,
   capacityMW,
   qualificationId,
   qualificationToken,
 }: {
-  recommendation: string;
+  /** The buyer-facing words about the paid step (lib/qualify-engagement.ts). The engine's own engagement recommendation is written to our salesperson and is not shown. */
+  advice: EngagementAdvice;
   summary: string;
   capacityMW: number;
   /** The read being commissioned, so the engagement opens joined to it. */
@@ -861,11 +863,9 @@ function CommissionPanel({
 
   return (
     <div className="mt-6 rounded border border-line bg-panel-2 p-4">
-      <p className="text-sm text-ghost">{recommendation}</p>
-      <p className="mt-2 text-xs text-faint">
-        {screen.deliverable} {screen.turnaroundDays} working days from a complete intake, and the
-        fee credits in full against the full study.
-      </p>
+      {advice.situation ? <p data-testid="qualify-engagement" className="text-sm text-ghost">{advice.situation}</p> : null}
+      <p className={`${advice.situation ? "mt-2 " : ""}text-sm text-mute`}>{advice.offer}</p>
+      {advice.next ? <p className="mt-2 text-xs text-faint">{advice.next}</p> : null}
       <div className="mt-4 flex flex-wrap items-center gap-3">
         <button
           type="button"
