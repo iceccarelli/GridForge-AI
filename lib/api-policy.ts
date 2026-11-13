@@ -7,6 +7,10 @@
 //   - "schema_version" is the engine's own field (gridforge/api/server.py API_SCHEMA, sent in the body and in the X-GridForge-Schema header). Its
 //     value is "gridforge/api/1" today. The commitment that it is incremented on any change to a response shape counts from 2026-11-13; the changelog
 //     says that the additive keys of that day did not change it, so the entry is true to the code as it stands.
+//   - The commitment is dated, and says so: "From 2026-11-13, ...". The same day's `correction` entry in the changelog changed the MEANING of rank,
+//     required, sets_the_date and compliant inside /v1 with schema_version unchanged, which the sentence "only additive ... never inside /v1" would
+//     contradict if it were read as always true. So the policy says those corrections predate it (and tests/site/api-policy.test.ts fails if a
+//     correction is ever dated after API_POLICY_DATE: from then on a meaning change ships under a new path version, not as a changelog entry).
 // tests/site/api-policy.test.ts pins the three surfaces to this constant and the changelog to the engine's own published keys.
 
 import { PORTFOLIO_ENGINE_MAX_HALLS } from "@/lib/portfolio-scope";
@@ -18,11 +22,12 @@ export const API_POLICY_DATE = "2026-11-13";
 export const API_DEPRECATION_NOTICE_DAYS = 90;
 
 export const API_VERSIONING_POLICY =
-  "Within /v1 we make only additive changes: new endpoints, new optional request fields and new response keys. " +
+  `From ${API_POLICY_DATE}, within /v1 we make only additive changes: new endpoints, new optional request fields and new response keys. ` +
   "A change to the meaning of a response key, to a unit, or to the meaning of a status code, and the removal of anything, is a breaking change: " +
   "it ships under a new path version and never inside /v1. " +
   `The previous version keeps running for at least ${API_DEPRECATION_NOTICE_DAYS} days after we have given written notice to the account email of every active API-key holder and posted a notice on /developers. ` +
   "The schema_version field in every response is incremented on any change to a response shape, additive or breaking. " +
+  `The corrections listed in the changelog dated ${API_POLICY_DATE} predate this commitment: they changed the meaning of values inside /v1 without a change to schema_version, and the commitment above does not cover them. ` +
   "A deprecation is announced with a dated entry in the changelog on /developers. " +
   "The API itself announces nothing: it sends no Deprecation or Sunset header, and the notice is our email and our entry on /developers.";
 

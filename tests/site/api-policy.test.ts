@@ -33,8 +33,27 @@ async function developersHtml(): Promise<string> {
 
 describe("the commitment says what was decided", () => {
   it("within /v1 only additive changes; a meaning, a unit, a status code's meaning or a removal ships under a new path version", () => {
-    expect(API_VERSIONING_POLICY).toContain("Within /v1 we make only additive changes: new endpoints, new optional request fields and new response keys.");
+    expect(API_VERSIONING_POLICY).toContain("within /v1 we make only additive changes: new endpoints, new optional request fields and new response keys.");
     expect(API_VERSIONING_POLICY).toMatch(/A change to the meaning of a response key, to a unit, or to the meaning of a status code, and the removal of anything, is a breaking change: it ships under a new path version and never inside \/v1\./);
+  });
+
+  it("is dated: it opens 'From 2026-11-13,', and says the corrections of that day's changelog predate it", () => {
+    expect(API_POLICY_DATE).toBe("2026-11-13");
+    expect(API_VERSIONING_POLICY.startsWith(`From ${API_POLICY_DATE}, within /v1 we make only additive changes`)).toBe(true);
+    expect(API_VERSIONING_POLICY).toContain(
+      `The corrections listed in the changelog dated ${API_POLICY_DATE} predate this commitment: they changed the meaning of values inside /v1 without a change to schema_version, and the commitment above does not cover them.`
+    );
+  });
+
+  it("the statement that those corrections predate it is TRUE of the changelog: it has them, dated that day, and none is dated later (a later one would break the commitment)", () => {
+    const corrections = API_CHANGELOG.filter((e) => e.kind === "correction");
+    expect(corrections.length, "the policy refers to corrections that must be listed").toBeGreaterThan(0);
+    for (const c of corrections) {
+      expect(c.date <= API_POLICY_DATE, `a correction dated ${c.date} changes a meaning inside /v1 after the commitment: it must ship under a new path version, not as a changelog entry`).toBe(true);
+      expect(c.text, "a correction says what changed and that schema_version did not").toContain("schema_version stays gridforge/api/1");
+    }
+    // The meaning-changing keys are the ones the corrections name: the commitment text must not claim the day's corrections were additive.
+    expect(corrections.flatMap((c) => c.keys ?? [])).toEqual(expect.arrayContaining(["rank", "required", "sets_the_date", "compliant"]));
   });
 
   it("the previous version keeps running at least 90 days after written notice to every active key holder's account email and a notice on /developers", () => {
