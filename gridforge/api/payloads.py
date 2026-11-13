@@ -2,10 +2,12 @@
 from __future__ import annotations
 
 from ..calibration import accuracy_block, constraint_key
+from ..envelope.solver import rack_evidence
 from ..envelope.time_to_power import date_basis, full_capacity_band, no_date_reason, schedule
 from ..intake.loader import Intake
 from ..intake.schema import FIELD_BY_PATH
 from ..power.plausibility import intake_warnings
+from ..reporting.labels import rack_class
 from ..reporting.study import Objective, _pick_recommended
 from ..scenario.run import ScenarioResult
 from ..serialize import _q, scenario_dict
@@ -89,6 +91,8 @@ def qualify_payload(intake: Intake, results: list[ScenarioResult],
                      "rack_kW": _q(plat.rack_kW), "gpus_per_rack": plat.gpus_per_rack},
         "as_found": {
             "racks": rec.envelope.max_racks,
+            # The class (short code) of the rack count beside it: the weakest of the constraints that cap it. A bare integer has none of its own.
+            "racks_evidence": rack_evidence(rec.envelope).short,
             "it_load_kW": _q(rec.envelope.it_load_kW),
             "binding_constraint": rec.envelope.binding.name,
             "domain": rec.envelope.binding.domain,
@@ -96,6 +100,7 @@ def qualify_payload(intake: Intake, results: list[ScenarioResult],
         },
         "after_relief": {
             "racks": rec.unlocked_racks,
+            "racks_evidence": rack_class(rec).short,        # weakest class of the constraints behind the as-found and the after-relief count
             "architecture": rec.spec.name,
             "then_binds_on": rec.ladder.final.binding.name if rec.ladder.final else None,
             # The item that sets the date, only when there IS a date (the same test /v1/compare applies: a complete schedule that reaches the

@@ -180,7 +180,8 @@ TOOLS: list[dict] = [
         "/v1/qualify",
         _qualify_schema(),
         tier=Tier.PUBLIC,
-        returns=("binding constraint, racks as found and after relief, the item that sets the "
+        returns=("binding constraint, racks as found and after relief (each with racks_evidence, the evidence class of that rack count as a "
+                 "short code such as E0: the weakest class among the constraints that cap it), the item that sets the "
                  "date (null, with sets_the_date_reason, when no date can be given: nothing is deployable, or a lead time on the path is "
                  "missing because transformers or UPS were not declared), and the inputs nobody has measured (when you send assumed_fields, also inputs_declared_assumed, which lists only what you "
                  "declared; when you send contracted_MW and no firm_capacity_MVA, inputs_derived_assumed, the firm capacity the qualifier "
@@ -250,8 +251,9 @@ TOOLS: list[dict] = [
                         "grid_queue_region": _queue_region_schema(),
                         "electricity_price_state": _price_state_schema()},
          "additionalProperties": False},
-        returns="gridforge/ttp-compare/1: scenarios[], ranking, grade, caveats, grid_queue_context (measured US queue statistic, context "
-                "only), request_digest, provenance.",
+        returns="gridforge/ttp-compare/1: scenarios[] (each with as_found.racks and after_ladder.racks, and racks_evidence beside each: the "
+                "evidence class of that rack count as a short code such as E0), ranking, grade, caveats, grid_queue_context (measured US queue "
+                "statistic, context only), request_digest, provenance.",
         boundary=("Same solve as the screen: a scenario with an unknown lead time gets no date and a reason, nothing is ranked on a figure it does "
                   "not have, and a date that rests on an assumed lead time is labelled 'assumed lead time, not a date'."),
     ),

@@ -913,6 +913,19 @@ def handle_study(body: dict, tier: Tier) -> dict:
     return pack
 
 
+def _headline_with_residual(d) -> str:
+    """The change note's headline, and the part of the rack movement no single input explains, in the same sentence. The probes move one input at a
+    time; when the inputs interact they explain only part of the movement (10 of +25), and a headline that said +25 racks beside a driver list
+    that adds to 10 left the reader to find the rest in `unexplained_racks`. change.py's own headline is unchanged: this adds a sentence to the
+    API's answer, and only when probes ran and left something over."""
+    head = d.headline()
+    if d.drivers and d.racks_delta and d.residual:
+        also = ", or were not probed" if (d.unprobed or d.unprobeable) else ""
+        head = (f"{head.rstrip()} The single-input probes explain {d.explained:+d} of the {d.racks_delta:+d} racks; the other {d.residual:+d} "
+                f"are not explained by any one input (the inputs interact{also}).")
+    return head
+
+
 def _state_drivers_note(d) -> str | None:
     """Why a diff against a recorded state names no driver. A state keeps fingerprints of the earlier inputs, not the inputs, so a changed input
     cannot be located from it; the caller who needs the driver sends `before`. None when the inputs are verifiably unchanged (nothing to name:
@@ -950,7 +963,7 @@ def handle_diff(body: dict, tier: Tier) -> dict:
                           attribute=bool(body.get("attribute", True)))
 
     payload = {
-        "headline": d.headline(),
+        "headline": _headline_with_residual(d),
         "material": d.material,
         "material_reasons": d.material_reasons,
         "not_compared": d.not_compared,
