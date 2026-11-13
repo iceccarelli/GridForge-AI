@@ -155,6 +155,55 @@ describe("everyone else", () => {
     expect(mock.calls).toEqual([]);
   });
 
+  // An owner whose paid access is SUSPENDED (a full refund or an open dispute: status `suspended`) or whose scheduled pause has started (the
+  // paid period is over) is not entitled, so the portal is refused for them too (this route's authorization is unchanged: owner of an
+  // entitling subscription). The refusal must not be a dead end: it names who to write to. Stripe is not called for them at all.
+  describe("an owner whose access is suspended or paused is refused with a next step", () => {
+    const wrote = `write to ${SITE.email}`;
+    const expectNextStep = async (res: Response) => {
+      expect(res.status).toBe(402);
+      expect(res.headers.get("cache-control")).toBe("no-store");
+      const j = await res.json();
+      expect(j).toMatchObject({ ok: false, error: expect.stringContaining("An active GridForge Intelligence subscription is required.") });
+      expect(j.error, "a 402 for a suspended or paused owner with no next step").toContain(wrote);
+      expect(j.error).toMatch(/suspended|paused/i); // says WHICH people it is for, so a stranger is not told they hold one
+      expect(j.error).toContain("from the address you signed in with");
+      expect(JSON.stringify(j)).not.toContain("cus_owner");
+      expect(mock.calls).toEqual([]);
+      expect(mock.portalSessions).toHaveLength(0);
+    };
+
+    it("status suspended (a full refund or an open dispute): 402 naming the contact address, Stripe not called", async () => {
+      subscription({ status: "suspended", billing_hold: "refunded" });
+      await expectNextStep(await ask(bearerFor(OWNER)));
+    });
+
+    it("status suspended by an open dispute: the same", async () => {
+      subscription({ status: "suspended", billing_hold: "disputed" });
+      await expectNextStep(await ask(bearerFor(OWNER)));
+    });
+
+    it("a pause whose paid period is over (billing_pause_from in the past): 402 naming the contact address, Stripe not asked for a portal", async () => {
+      subscription({ billing_pause_from: new Date(Date.now() - 86_400_000).toISOString(), billing_pause_resumes_at: null });
+      await expectNextStep(await ask(bearerFor(OWNER)));
+    });
+
+    it("a pause that has not started yet (the paid period is still running) still opens the portal", async () => {
+      subscription({ billing_pause_from: new Date(Date.now() + 5 * 86_400_000).toISOString() });
+      const res = await ask(bearerFor(OWNER));
+      expect(res.status).toBe(200);
+      expect(mock.portalSessions.map((s) => s.customer)).toEqual(["cus_owner"]);
+    });
+
+    it("a stranger with no subscription at all gets the same 402 (and the same next step), not a claim that they hold one", async () => {
+      subscription();
+      const res = await ask(bearerFor(STRANGER));
+      expect(res.status).toBe(402);
+      expect((await res.json()).error).toContain(wrote);
+      expect(mock.calls).toEqual([]);
+    });
+  });
+
   it("a SEAT MEMBER is 403, told the owner manages billing, and Stripe is not called", async () => {
     subscription();
     seat();

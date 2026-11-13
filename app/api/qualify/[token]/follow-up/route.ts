@@ -4,6 +4,7 @@ import { z } from "zod";
 import { getQualification, requestFollowUp, type StoredQualification } from "@/lib/qualify";
 import { PRODUCTS, eurFromCents } from "@/lib/products";
 import { siteUrl } from "@/lib/site";
+import { SCREEN_CREDIT_SENTENCE } from "@/lib/credits-terms";
 import { guardRequest, mailRecipientAllowed } from "@/lib/rate-limit";
 import { readBoundedJson } from "@/lib/http-body";
 import { plainLine } from "@/lib/untrusted-text";
@@ -147,8 +148,8 @@ async function acknowledgeBuyer(q: StoredQualification, token: string, email: st
     `We will look at that read ourselves; we make no promise about when we will reply.\n\n` +
     `That read is a free, directional indication. The next engineering step is the ` +
     `${screen.name}: ${screen.description}\n\n` +
-    `${eurFromCents(screen.amountCents)}, ${screen.turnaroundDays} working days, and it credits ` +
-    `in full against the full Envelope Study if you go further.\n\n` +
+    `${eurFromCents(screen.amountCents)}, ${screen.turnaroundDays} working days. ` +
+    `${SCREEN_CREDIT_SENTENCE}\n\n` +
     `Your read: ${siteUrl(`/q/${token}`)}\n` +
     `Commission the ${screen.name}: ${siteUrl("/pricing")}\n\n` +
     `— Time to Power\nIndependent power-and-thermal engineering for existing AI sites`;

@@ -60,6 +60,69 @@ export function rackCountIsUpperBound(r: { intake?: Partial<Intake> | null }): b
   return upperBoundInputs(r).length > 0;
 }
 
+/**
+ * The fixed note on a page that prints a FREE read's rack counts without the engine's own answer beside them (the shared link, /q/[token]).
+ * The free qualifier sends no transformer or UPS figures, so the engine treats both banks as "no limit" (gridforge/intake/loader.py
+ * UNASSESSED_BANK_TEXT) on every free read: each count is an upper bound whatever else the answer says. The live page derives "at most" from the
+ * engine's own gap text; a stored read keeps no gaps, so this page says it for all of them.
+ */
+export const FREE_READ_UPPER_BOUND_NOTE = "A free read treats transformers and UPS as no limit, so each rack count is an upper bound.";
+
+/**
+ * What the shared page says beside a count of ZERO. The engine answers "0 racks" for a hall whose figures are in the wrong unit or disagree (a
+ * MW/kW slip, a peak below the IT load) and says so in a warning; the stored row keeps no warnings (no column for the answer exists), so the page
+ * cannot tell that read from a hall that is really stopped, and does not claim to: it names the cause it cannot rule out and the way to check.
+ */
+export const SHARED_ZERO_RACKS_NOTE =
+  "Zero racks can mean a real limit, or figures in the wrong unit or that disagree with each other (MW typed as kW, a peak below the IT load). " +
+  "Check your inputs first: this link does not keep the engine's warnings, so run the read again at /qualify and read the warning shown there before relying on it.";
+
+/**
+ * How the rack tiles and the note under them speak of an upper bound. An upper bound of ZERO is just zero: "upper bound 0 racks" and "the hall may
+ * carry fewer racks than this" mean nothing at 0, so a tile at 0 carries no label, and the note says what zero means:
+ *
+ *   racks today        both tiles are labelled; the note is the original ("may carry fewer racks than this");
+ *   none today, some after   the second tile only is labelled; the note says no racks can be deployed today, and that it is the count after the
+ *                      ladder that may be lower (it keeps the "Upper bound: ... not evaluated (treated as no limit)" wording the other tests pin);
+ *   none at all        no tile is labelled; the note says no racks can be deployed on these inputs, even with the banks treated as no limit
+ *                      (the most favourable reading, so declaring them cannot raise it).
+ *
+ * Nothing here is a figure: every number is the engine's.
+ */
+export function upperBoundReading(r: { as_found: { racks: number }; after_relief: { racks: number }; intake?: Partial<Intake> | null }): {
+  todayLabel: string;
+  afterLabel: string;
+  note: string | null;
+} {
+  const names = upperBoundInputs(r);
+  const today = r.as_found.racks;
+  const after = r.after_relief.racks;
+  const tag = (n: number) => (names.length && n > 0 ? " · upper bound" : "");
+  if (!names.length) return { todayLabel: "Deployable today", afterLabel: "After the ladder", note: null };
+  const verb = names.length === 1 ? "was" : "were";
+  let note: string;
+  if (today === 0 && after === 0) {
+    note = `No racks can be deployed on these inputs, even with ${joinNames(names)} treated as no limit.`;
+  } else if (today === 0) {
+    note = `No racks can be deployed today on these inputs. Upper bound: ${joinNames(names)} ${verb} not evaluated (treated as no limit), so the hall may carry fewer than ${after} ${rackNoun(after)} after the ladder.`;
+  } else {
+    note = `Upper bound: ${joinNames(names)} ${verb} not evaluated (treated as no limit), so the hall may carry fewer racks than this.`;
+  }
+  return { todayLabel: `Deployable today${tag(today)}`, afterLabel: `After the ladder${tag(after)}`, note };
+}
+
+/**
+ * The engine's floor-space basis reads "<free> of <total> positions available in <hall>". The TOTAL is the hall's rack positions, which the free
+ * qualifier never asks for (toEngineBody sends no rack_positions), so it is the engine's library default, printed beside the free count as if it
+ * were a figure the visitor gave. Said once, wherever the engine prints one.
+ */
+const POSITIONS_BASIS = /\b\d+ of (\d+) positions available\b/;
+
+export function assumedTotalNote(basis: string | null | undefined): string | null {
+  const m = typeof basis === "string" ? POSITIONS_BASIS.exec(basis) : null;
+  return m ? `The total of ${m[1]} positions is assumed (a library default): the free read asks only for the positions that are free.` : null;
+}
+
 /** The rows of the assumed-inputs table that are shown without a click: every required one, then optional ones up to this many rows in all. */
 export const VISIBLE_GAP_ROWS = 8;
 

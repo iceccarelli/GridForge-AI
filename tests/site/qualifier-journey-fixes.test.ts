@@ -132,12 +132,22 @@ describe("J1-11: zero free rack positions is a real answer, not a form error", (
     });
   });
 
+  it("the total is said to be assumed whenever the engine prints one, not only at zero, and the premise holds: the free read sends no total", () => {
+    expect(Object.keys(toEngineBody(qualifySchema.parse({ ...SEVEN, positionsAvailable: 0 })))).not.toContain("rack_positions");
+    const some = resultOf({ as_found: { racks: 40, binding_constraint: "Available rack positions", domain: "physical", basis: "180 of 400 positions available in HALL-1" } });
+    expect(text(readout(some))).toContain("The total of 400 positions is assumed (a library default)");
+    // A basis of another shape (a different limit) gets no such note.
+    expect(text(readout(resultOf({})))).not.toContain("is assumed (a library default)");
+  });
+
   it("the page renders the zero-positions verdict: positions named as the limit, no NaN, no division by zero", () => {
     const html = readout(ZERO_POSITIONS);
     const t = text(html);
     expect(t).toContain("This hall cannot host NVIDIA GB300 NVL72 racks on these inputs. Available rack positions is what stops it.");
     expect(t).toContain("Binding constraint · physical");
     expect(t).toContain("0 of 400 positions available in HALL-1");
+    // The engine's 400 is the hall's TOTAL positions, which the free read never asks for (toEngineBody sends no rack_positions): a library default.
+    expect(t).toContain("The total of 400 positions is assumed (a library default): the free read asks only for the positions that are free.");
     expect(t).toMatch(/Deployable today 0 racks/);
     expect(t).toMatch(/After the ladder 0 racks/);
     expect(t).toContain("No date");
@@ -227,11 +237,38 @@ describe("J1-5: a rack count the engine marks as an upper bound is said as 'at m
     expect(headline(bare)).toContain("carries about 28 NVIDIA GB300 NVL72 racks");
   });
 
-  it("the page marks both rack tiles as upper bounds and names the inputs that were not evaluated", () => {
-    const t = text(readout(EXAMPLE));
-    expect(t).toMatch(/Deployable today · upper bound 0 racks/);
+  it("the page marks the rack tiles that are above zero as upper bounds and names the inputs that were not evaluated", () => {
+    const withRacks = resultOf({ as_found: { racks: 12 }, after_relief: { racks: 28 }, intake: { gaps: EXAMPLE_GAPS.map(([i, r, a]) => gap(i, r, a)) } });
+    const t = text(readout(withRacks));
+    expect(t).toMatch(/Deployable today · upper bound 12 racks/);
     expect(t).toMatch(/After the ladder · upper bound 28 racks/);
     expect(t).toContain("Upper bound: Transformer schedule and UPS schedule were not evaluated (treated as no limit), so the hall may carry fewer racks than this.");
+  });
+
+  it("an upper bound of 0 is not shown as one: 'Deployable today 0 racks', and the note speaks of the count after the ladder, which is the one that can be lower", () => {
+    const t = text(readout(EXAMPLE)); // 0 racks today, 28 after the ladder
+    expect(t).toMatch(/Deployable today 0 racks/);
+    expect(t).not.toMatch(/upper bound 0 racks/i);
+    expect(t).toMatch(/After the ladder · upper bound 28 racks/);
+    expect(t).toContain(
+      "No racks can be deployed today on these inputs. Upper bound: Transformer schedule and UPS schedule were not evaluated (treated as no limit), so the hall may carry fewer than 28 racks after the ladder."
+    );
+    expect(t).not.toContain("fewer racks than this");
+  });
+
+  it("nothing deployable at all (0 today, 0 after) says 'no racks can be deployed on these inputs', with no 'fewer' note and no upper-bound tile", () => {
+    const t = text(readout(resultOf({ as_found: { racks: 0 }, after_relief: { racks: 0 }, intake: { gaps: EXAMPLE_GAPS.map(([i, r, a]) => gap(i, r, a)) } })));
+    expect(t).toContain("No racks can be deployed on these inputs, even with Transformer schedule and UPS schedule treated as no limit.");
+    expect(t).not.toMatch(/fewer/i);
+    expect(t).not.toMatch(/upper bound 0 racks/i);
+    expect(t).toMatch(/Deployable today 0 racks/);
+    expect(t).toMatch(/After the ladder 0 racks/);
+  });
+
+  it("one rack today still says 'upper bound 1 rack' (the note is about zero only)", () => {
+    const t = text(readout(resultOf({ as_found: { racks: 1 }, after_relief: { racks: 1 }, intake: { gaps: EXAMPLE_GAPS.map(([i, r, a]) => gap(i, r, a)) } })));
+    expect(t).toMatch(/Deployable today · upper bound 1 rack\b/);
+    expect(t).toContain("so the hall may carry fewer racks than this");
   });
 
   it("the page does not call a read an upper bound when nothing was treated as no limit", () => {

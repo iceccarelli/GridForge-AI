@@ -102,13 +102,78 @@ describe("an oversized body is refused with 413 before the route does anything w
   });
 });
 
-describe("no listed route reads its body with an unbounded req.json()", () => {
-  it("scans the five route files", () => {
-    for (const f of ["app/api/checkout/route.ts", "app/api/subscribe/route.ts", "app/api/qualify/[token]/follow-up/route.ts", "app/api/keys/route.ts", "app/api/scenarios/route.ts"]) {
-      const src = fs.readFileSync(path.join(process.cwd(), f), "utf8");
-      expect(src, `${f} reads its body with req.json()`).not.toMatch(/\breq(uest)?\.json\(\)/);
-      expect(src, `${f} does not use the bounded reader`).toContain("readBoundedJson");
+describe("no route under app/api reads a request body without a bound", () => {
+  const strip = (s: string) => s.replace(/\/\*[\s\S]*?\*\//g, "").replace(/(^|[^:"'`])\/\/.*$/gm, "$1");
+  const routes = (dir: string): string[] =>
+    fs.readdirSync(dir, { withFileTypes: true }).flatMap((e) => (e.isDirectory() ? routes(path.join(dir, e.name)) : e.name === "route.ts" ? [path.join(dir, e.name).split(path.sep).join("/")] : []));
+  /** Every way a handler can pull the request body in whole or by stream. A response's `.json()` is not one: the receiver is `req` or `request`. */
+  const RAW_READ = /\b(?:req|request)\.(?:json|text|formData|arrayBuffer|blob)\(\)|\b(?:req|request)\.body\b[\s\S]{0,40}?\.getReader\(\)|\b(?:req|request)\.body\.getReader\(\)/;
+  const BOUNDED = /\breadBounded(?:Json|Text|Bytes)\(/;
+
+  /**
+   * The routes that read a body with a reader of their own, and why that is acceptable. Each entry is CHECKED, not trusted: the file must still
+   * read a body raw (so a stale entry fails), and the check named in `proves` must hold for it.
+   */
+  const ALLOWED: Record<string, { reason: string; proves: (src: string) => string | null }> = {
+    "app/api/admin/deliverables/route.ts": { reason: "operator-only: reads the body after the admin session check (401 first); the caller is the operator, not an anonymous visitor", proves: authFirst },
+    "app/api/admin/leads/route.ts": { reason: "operator-only: reads the body after the admin session check (401 first)", proves: authFirst },
+    "app/api/admin/proposal/route.ts": { reason: "operator-only: reads the body after the admin session check (401 first)", proves: authFirst },
+    "app/api/admin/notifications/route.ts": { reason: "operator-only: reads the body after the admin session check (401 first)", proves: authFirst },
+    "app/api/admin/notifications/reconcile/route.ts": { reason: "operator-only: reads the body after the admin session check (401 first)", proves: authFirst },
+    "app/api/intake/[token]/evidence/route.ts": { reason: "the body IS an uploaded file, not JSON: a stream loop with its own cap (EVIDENCE_MAX_BYTES) that cancels the stream and answers 413 past it", proves: ownCap },
+    "app/api/projects/[token]/evidence/route.ts": { reason: "the body IS an uploaded file, not JSON: a stream loop with its own cap (EVIDENCE_MAX_BYTES) that cancels the stream and answers 413 past it", proves: ownCap },
+  };
+  /** The admin session check (a 401 "Unauthorized") comes before the first raw body read. */
+  function authFirst(src: string): string | null {
+    const auth = src.search(/Unauthorized|authed\(\)|isAdmin\(|requireAdmin\(/);
+    const read = src.search(RAW_READ);
+    return auth !== -1 && auth < read ? null : "the body is read before the admin session is checked";
+  }
+  /** The route compares the running total with a cap, cancels the reader and answers 413. */
+  function ownCap(src: string): string | null {
+    return /total\s*>\s*max/.test(src) && /reader\.cancel\(\)/.test(src) && /status:\s*413/.test(src) ? null : "no cap / cancel / 413 in the route's own reader";
+  }
+
+  const files = routes("app/api");
+  const reading = files.filter((f) => RAW_READ.test(strip(fs.readFileSync(f, "utf8"))));
+
+  it("walks the whole route tree and finds the readers (the scan is not empty)", () => {
+    expect(files.length).toBeGreaterThan(60);
+    // the routes that read a raw body today: the admin routes and the two evidence uploads, which are exactly the allow-list
+    expect(reading.sort()).toEqual(Object.keys(ALLOWED).sort());
+  });
+
+  it("every route file that reads a request body uses a bounded reader, or is on the reasoned allow-list and passes its own check", () => {
+    const offenders: string[] = [];
+    for (const f of files) {
+      const src = strip(fs.readFileSync(f, "utf8"));
+      if (!RAW_READ.test(src)) continue;
+      const allowed = ALLOWED[f];
+      if (!allowed) {
+        offenders.push(`${f}: reads its body with req.json() / req.text() / a raw stream and is not bounded (use readBoundedJson / readBoundedText / readBoundedBytes from lib/http-body.ts)`);
+        continue;
+      }
+      expect(allowed.reason.length, `${f}: an allow-list entry needs a reason`).toBeGreaterThan(30);
+      const problem = allowed.proves(src);
+      if (problem) offenders.push(`${f}: ${problem}`);
     }
+    expect(offenders).toEqual([]);
+  });
+
+  it("every route that reads a body through the bounded reader names it, and the routes bounded earlier still do", () => {
+    for (const f of ["app/api/checkout/route.ts", "app/api/subscribe/route.ts", "app/api/qualify/[token]/follow-up/route.ts", "app/api/keys/route.ts", "app/api/scenarios/route.ts", "app/api/admin/login/route.ts", "app/api/stripe/webhook/route.ts"]) {
+      const src = strip(fs.readFileSync(path.join(process.cwd(), f), "utf8"));
+      expect(src, `${f} reads its body with req.json() / req.text()`).not.toMatch(/\b(?:req|request)\.(?:json|text)\(\)/);
+      expect(src, `${f} does not use the bounded reader`).toMatch(BOUNDED);
+    }
+  });
+
+  it("the scan itself sees the shapes it must (so a pass means something)", () => {
+    for (const bad of ["await req.json()", "await request.text()", "const f = await req.formData();", "req.body.getReader()", "const r = req.body?.getReader();", "await req.arrayBuffer()"]) {
+      expect(RAW_READ.test(bad), bad).toBe(true);
+    }
+    for (const fine of ["await res.json()", "await readBoundedJson(req, 10)", "const j = await r.json()", "await d.json()"]) expect(RAW_READ.test(fine), fine).toBe(false);
+    expect(BOUNDED.test("await readBoundedBytes(req, N)")).toBe(true);
   });
 });
 

@@ -47,8 +47,7 @@ def build(intake: Intake, results: list[ScenarioResult],
               ("Site", ctx.site.name), ("Hall", ctx.hall.id),
               ("Target platform", plat.name),
               ("Intake completeness", f"{intake.report.completeness:.0%}")],
-        footer=("Screening opinion supported by a documented model. The fee for this screen "
-                "credits in full against a Capacity & Density Envelope Study."),
+        footer=f"Screening opinion supported by a documented model. {SCREEN_CREDIT_SENTENCE}",
     )
 
     s = Section("1. The answer")

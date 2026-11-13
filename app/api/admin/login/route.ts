@@ -14,6 +14,7 @@ import {
   revokeAdminSession,
   adminRevocationStoreReadable,
 } from "@/lib/admin";
+import { ADMIN_LOGIN_MAX_BODY_BYTES, readBoundedJson } from "@/lib/http-body";
 
 export const runtime = "nodejs";
 
@@ -52,12 +53,13 @@ export async function POST(req: Request) {
     );
   }
 
-  let body: unknown;
-  try {
-    body = await req.json();
-  } catch {
-    return NextResponse.json({ ok: false, error: "Invalid payload" }, { status: 400 });
+  // Bounded, and AFTER the throttle above: this route is open to anyone, so a body is read only to the cap (a password is a few dozen bytes), and
+  // an oversized attempt has already cost an attempt. 413 over the cap; malformed JSON keeps its 400.
+  const read = await readBoundedJson(req, ADMIN_LOGIN_MAX_BODY_BYTES);
+  if (!read.ok) {
+    return NextResponse.json({ ok: false, error: read.status === 413 ? read.error : "Invalid payload" }, { status: read.status });
   }
+  const body: unknown = read.value;
   const password =
     typeof (body as { password?: unknown })?.password === "string"
       ? (body as { password: string }).password

@@ -14,19 +14,22 @@ import { storeFault } from "@/lib/safe-log";
 import { engineFetch } from "@/lib/rate-limit";
 
 import { QUALIFY_ASSUMABLE, type QualifyAssumable } from "@/lib/qualify-assumed";
+import { typedNumber } from "@/lib/qualify-number";
 import { CHECK_INPUTS_NOTE, hasInputProblem, rackCountIsUpperBound, rackNoun } from "@/lib/qualify-readout";
 export { QUALIFY_ASSUMABLE, type QualifyAssumable };
 const QUALIFY_ASSUMABLE_KEYS = Object.keys(QUALIFY_ASSUMABLE) as [QualifyAssumable, ...QualifyAssumable[]];
 
 export const qualifySchema = z.object({
   // --- the seven questions that decide the answer for almost any hall --------
-  contractedMW: z.coerce.number().positive().max(2000),
-  currentPeakMW: z.coerce.number().nonnegative().max(2000),
-  currentItLoadMW: z.coerce.number().nonnegative().max(2000),
-  buswayAmpacityA: z.coerce.number().positive().max(6300),
-  tapoffMaxA: z.coerce.number().positive().max(1600),
-  plantSupplyC: z.coerce.number().min(-5).max(45),
-  positionsAvailable: z.coerce.number().int().nonnegative().max(20000),
+  // typedNumber, not z.coerce: Number(null), Number(""), Number(false) and Number([]) are all 0, so a figure nobody gave would be zero free positions,
+  // a 0 degC plant supply or a peak of zero, sent to the engine as the visitor's own (lib/qualify-number.ts).
+  contractedMW: typedNumber(z.number().positive().max(2000)),
+  currentPeakMW: typedNumber(z.number().nonnegative().max(2000)),
+  currentItLoadMW: typedNumber(z.number().nonnegative().max(2000)),
+  buswayAmpacityA: typedNumber(z.number().positive().max(6300)),
+  tapoffMaxA: typedNumber(z.number().positive().max(1600)),
+  plantSupplyC: typedNumber(z.number().min(-5).max(45)),
+  positionsAvailable: typedNumber(z.number().int().nonnegative().max(20000)),
   // --- context --------------------------------------------------------------
   siteName: z.string().trim().max(120).optional(),
   hallId: z.string().trim().max(60).optional(),

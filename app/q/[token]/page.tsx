@@ -9,6 +9,7 @@ import { constraintReference } from "@/lib/constraints";
 import { constraintSlugsByName, slugForConstraint } from "@/lib/constraint-links";
 import { PRODUCTS } from "@/lib/products";
 import { SCREEN_CREDIT_SENTENCE } from "@/lib/credits-terms";
+import { FREE_READ_UPPER_BOUND_NOTE, SHARED_ZERO_RACKS_NOTE, rackNoun } from "@/lib/qualify-readout";
 import { eur } from "@/lib/commerce";
 
 export const dynamic = "force-dynamic";
@@ -75,8 +76,8 @@ export default async function QualificationPage({
           {q.metro ? ` · ${q.metro}` : ""}
         </p>
         <h1 className="mt-3 text-3xl font-semibold leading-tight text-ghost sm:text-4xl">
-          {where} stops at {asFound} rack{asFound === 1 ? "" : "s"}
-          {q.platform ? ` of ${q.platform}` : ""}.
+          {where} carries at most {asFound} {rackNoun(asFound)}
+          {q.platform ? ` of ${q.platform}` : ""} as it stands.
         </h1>
         <p className="mt-4 text-lg text-mute">
           {q.binding_constraint} binds first — before anything else in the hall runs out.
@@ -84,10 +85,11 @@ export default async function QualificationPage({
       </header>
 
       <section className="mt-8 grid gap-3 sm:grid-cols-3">
-        <Fig k="Deployable as found" v={String(asFound)} n="racks, with nothing changed" />
+        <Fig k="Deployable as found" v={String(asFound)} atMost n="racks, with nothing changed" />
         <Fig
           k="After the relief ladder"
           v={String(afterRelief)}
+          atMost
           n="racks, once the costed steps are taken"
         />
         <Fig
@@ -96,6 +98,13 @@ export default async function QualificationPage({
           n="the rest is assumed, and named below"
         />
       </section>
+
+      <p className="mt-3 text-sm text-mute">{FREE_READ_UPPER_BOUND_NOTE}</p>
+      {asFound === 0 ? (
+        <p role="note" className="mt-3 rounded border border-queue/40 bg-queue/10 px-4 py-3 text-sm text-ghost">
+          {SHARED_ZERO_RACKS_NOTE}
+        </p>
+      ) : null}
 
       {bench.published ? (
         <section className="mt-8 rounded border border-line bg-panel-2 p-6">
@@ -218,11 +227,14 @@ export default async function QualificationPage({
   );
 }
 
-function Fig({ k, v, n }: { k: string; v: string; n: string }) {
+function Fig({ k, v, n, atMost = false }: { k: string; v: string; n: string; atMost?: boolean }) {
   return (
     <div className="rounded border border-line bg-panel-2 px-4 py-3">
       <p className="font-mono text-[10px] uppercase tracking-[0.14em] text-faint">{k}</p>
-      <p className="mt-1 font-mono text-3xl font-semibold text-power">{v}</p>
+      <p className="mt-1 font-mono text-3xl font-semibold text-power">
+        {atMost ? <span className="mr-1.5 text-sm font-normal text-faint">at most</span> : null}
+        {v}
+      </p>
       <p className="mt-1 text-xs text-faint">{n}</p>
     </div>
   );

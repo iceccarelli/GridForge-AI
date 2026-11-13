@@ -170,9 +170,11 @@ describe.runIf(hasPython)("hostile numbers in the hall form", () => {
     }
   });
 
-  it.fails("confirmed defect: REFUSE a boolean for a count - positionsAvailable: true is coerced to 1 position and a 1-rack answer is returned - lib/engagement-intake.ts:40", async () => {
-    const r = await send({ hall: { ...HALL, positionsAvailable: true } });
-    expect(r.status).toBe(422);
+  it("FIXED: a boolean (or a blank) for a count is refused - positionsAvailable: true was coerced to 1 position and a 1-rack answer returned (lib/qualify-number.ts)", async () => {
+    for (const bad of [true, false, null, "", "   ", []]) {
+      const r = await send({ hall: { ...HALL, positionsAvailable: bad } });
+      expect(r.status, JSON.stringify(bad)).toBe(422);
+    }
   });
 
   it.fails("confirmed defect: REFUSE a boolean battery power - btm_options[].capacity_MW: true is coerced to a 1 MW battery and ranked - lib/ttp-compare.ts:35", async () => {

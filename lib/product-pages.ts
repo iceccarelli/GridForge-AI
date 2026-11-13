@@ -10,6 +10,7 @@ import { depositTerms } from "@/lib/engagement-state";
 import { PORTFOLIO_FEWER_SENTENCE, PORTFOLIO_MORE_SENTENCE, PORTFOLIO_SOLD_RANGE_CAP, PORTFOLIO_SOLD_SENTENCE } from "@/lib/portfolio-scope";
 import { PRODUCTS, type Product, type ProductId } from "@/lib/products";
 import { STUDY_REDUNDANCY_SENTENCE } from "@/lib/study-needs";
+import { CANCEL_TIMING_NOTE } from "@/lib/subscription-manage";
 
 export interface ProductPage {
   slug: string;
@@ -148,7 +149,7 @@ export const PRODUCT_PAGES: ProductPage[] = [
       "Updates to those numbers whenever they change.",
     ],
     limits: [
-      "It is billed every quarter until you cancel. There is no minimum term.",
+      `It is billed every quarter until you cancel. There is no minimum term. ${CANCEL_TIMING_NOTE}`,
       "Nothing material to report is itself a reportable answer, and the note says so.",
       SCREENING_LIMIT,
     ],

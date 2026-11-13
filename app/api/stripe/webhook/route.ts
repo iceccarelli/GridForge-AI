@@ -4,6 +4,7 @@ import { notifyOperator } from "@/lib/mail";
 import { NextResponse } from "next/server";
 import Stripe from "stripe";
 import { boundedStripeClient } from "@/lib/stripe-client";
+import { STRIPE_WEBHOOK_MAX_BODY_BYTES, readBoundedBytes } from "@/lib/http-body";
 import { createDeliverable, deliverableBySession } from "@/lib/deliverables";
 import { abandonPendingNotices, createWatch, updateWatch, watchBySubscription, type WatchRecord } from "@/lib/watches";
 import { INTELLIGENCE_PLANS, PRODUCTS, PRODUCT_BY_KIND, isApiProduct } from "@/lib/products";
@@ -121,10 +122,15 @@ export async function POST(req: Request) {
   const stripe = boundedStripeClient(key);
 
   const sig = req.headers.get("stripe-signature");
-  const raw = await req.text();
+  // The body is read BEFORE it can be authenticated (the signature covers the whole body), so it is read only to the cap: a body over 1 MiB is 413
+  // and nothing is verified, parsed or written. The exact bytes, untouched, go to the signature check (the SDK decodes them itself).
+  const read = await readBoundedBytes(req, STRIPE_WEBHOOK_MAX_BODY_BYTES);
+  if (!read.ok) {
+    return NextResponse.json({ ok: false, error: read.status === 413 ? read.error : "Bad request" }, { status: read.status });
+  }
   let event: Stripe.Event;
   try {
-    event = stripe.webhooks.constructEvent(raw, sig ?? "", whSecret);
+    event = stripe.webhooks.constructEvent(read.bytes, sig ?? "", whSecret);
   } catch (err) {
     console.error("[GridForge] Stripe signature verify failed:", err);
     return NextResponse.json({ ok: false, error: "Bad signature" }, { status: 400 });

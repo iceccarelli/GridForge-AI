@@ -1,7 +1,14 @@
 "use client";
 
 import React, { useEffect, useState } from "react";
-import { INTELLIGENCE_CANCEL_TERMS, MANAGE_SUBSCRIPTION_LABEL, memberBillingNote, portalUnavailableMessage } from "@/lib/subscription-manage";
+import {
+  INTELLIGENCE_CANCEL_TERMS,
+  INTELLIGENCE_PORTAL_EXPLANATION,
+  MANAGE_SUBSCRIPTION_LABEL,
+  memberBillingNote,
+  portalUnavailableMessage,
+  suspendedAccessNote,
+} from "@/lib/subscription-manage";
 import { openIntelligencePortal, type ClientFailure, type FetchLike } from "@/lib/payg-client";
 
 /**
@@ -39,6 +46,19 @@ export async function requestIntelligencePortal(
   }
   const res = await openIntelligencePortal(auth, f);
   return res.ok ? { url: res.data.url } : { message: failureMessage(res) };
+}
+
+/**
+ * What /account says where it has no entitling subscription to show (the Gate): the page cannot tell "never subscribed" from "suspended by a
+ * full refund, an open dispute or a pause" (/api/subscription-status answers `active: false` for both), so it names the next step for the
+ * second kind of visitor and does NOT print the owner's cancel control or sentence, which exist only while access is on.
+ */
+export function SuspendedAccessNote() {
+  return (
+    <p className="mt-3 max-w-xl text-[13px] text-mute" data-testid="suspended-access-note">
+      {suspendedAccessNote()}
+    </p>
+  );
 }
 
 export function IntelligenceManage({
@@ -87,10 +107,7 @@ export function IntelligenceManage({
   return (
     <section aria-labelledby="intel-billing-heading" className="mt-8 rounded-[var(--radius)] border border-line bg-panel p-6">
       <h2 id="intel-billing-heading" className="text-lg font-semibold tracking-tight">{MANAGE_SUBSCRIPTION_LABEL}</h2>
-      <p className="mt-2 max-w-2xl text-[13px] text-mute">
-        This opens Stripe&apos;s billing page for your subscription, where you can update the card, see invoices and cancel. Nothing is cancelled
-        by opening it.
-      </p>
+      <p className="mt-2 max-w-2xl text-[13px] text-mute">{INTELLIGENCE_PORTAL_EXPLANATION}</p>
       <p className="mt-2 max-w-2xl text-[13px] text-mute" data-testid="cancel-terms">{INTELLIGENCE_CANCEL_TERMS}</p>
       {returned ? (
         <p role="status" className="mt-3 text-[13px] text-ghost">

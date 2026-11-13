@@ -11,7 +11,7 @@ import { Loader2, LogOut, Send, Download, Save } from "lucide-react";
 import { generateSitingBrief } from "@/lib/brief";
 import { PRODUCTS, intelligencePlanName } from "@/lib/products";
 import TeamPanel from "@/components/TeamPanel";
-import { IntelligenceManage } from "@/components/IntelligenceManage";
+import { IntelligenceManage, SuspendedAccessNote } from "@/components/IntelligenceManage";
 import { PENDING_INVITE_KEY } from "@/lib/team-client";
 import { CONFIRM_EMAIL_TEXT, isUnverified } from "@/lib/portal-links";
 
@@ -153,6 +153,7 @@ function Gate() {
       <h2 className="text-xl font-semibold tracking-tight">Activate GridForge Intelligence</h2>
       <p className="text-mute text-[14px] leading-relaxed mt-2 max-w-xl">A modelled ranking of regions by time to energize with measured US queue history beside it, market and grid context that states its source and time, saved scenarios, board briefs and an AI siting analyst. Choose a plan to unlock.</p>
       <Link href="/intelligence" className="mt-5 inline-flex items-center gap-2 rounded-lg bg-power text-ink px-5 py-3 text-sm font-semibold hover:bg-power/90 transition-all">View plans</Link>
+      <SuspendedAccessNote />
     </div>
   );
 }

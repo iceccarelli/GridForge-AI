@@ -13,7 +13,7 @@ import { formatSetsTheDate } from "@/lib/date-basis";
 import FreeAllowanceForm from "@/components/FreeAllowanceForm";
 import { NEXT_STEP_HREFS } from "@/lib/qualify-next-steps";
 import { engagementAdvice, type EngagementAdvice } from "@/lib/qualify-engagement";
-import { isInputProblem, joinNames, orderedWarnings, rackNoun, splitGaps, upperBoundInputs, type QualifyGap } from "@/lib/qualify-readout";
+import { assumedTotalNote, isInputProblem, orderedWarnings, rackNoun, splitGaps, upperBoundReading, type QualifyGap } from "@/lib/qualify-readout";
 import { assumedRecordMatches, type QualifyAssumable } from "@/lib/qualify-assumed";
 import {
   HALL_PRESETS,
@@ -540,8 +540,9 @@ export function QualifyReadout({
   constraintSlugs?: ConstraintSlugs;
 }) {
   const { as_found: found, after_relief: after, intake } = result;
-  // The inputs the engine treated as "no limit": the rack counts are then upper bounds, and the page says so beside them.
-  const unevaluated = upperBoundInputs(result);
+  // The inputs the engine treated as "no limit": the rack counts are then upper bounds, and the page says so beside them (and says what zero means).
+  const bound = upperBoundReading(result);
+  const totalNote = assumedTotalNote(found.basis);
   // Everything the engine warned about, the unit and inconsistency findings first. The verdict below is not a finding about the hall while one stands.
   const warnings = orderedWarnings(result);
   // Every required gap is shown, then optional ones up to a cap; the rest sit behind a disclosure. The footer counts the starred rows.
@@ -554,13 +555,13 @@ export function QualifyReadout({
       {share ? <ShareLink href={share} /> : null}
 
       <div className="mt-5 grid gap-3 sm:grid-cols-3">
-        <Readout label={`Deployable today${unevaluated.length ? " · upper bound" : ""}`} value={String(found.racks)} suffix={rackNoun(found.racks)} tone="ghost" />
-        <Readout label={`After the ladder${unevaluated.length ? " · upper bound" : ""}`} value={String(after.racks)} suffix={rackNoun(after.racks)} tone="power" />
+        <Readout label={bound.todayLabel} value={String(found.racks)} suffix={rackNoun(found.racks)} tone="ghost" />
+        <Readout label={bound.afterLabel} value={String(after.racks)} suffix={rackNoun(after.racks)} tone="power" />
         <SetsTheDate after={after} />
       </div>
-      {unevaluated.length ? (
+      {bound.note ? (
         <p data-testid="qualify-upper-bound" className="mt-2 max-w-3xl text-[11px] leading-snug text-queue">
-          Upper bound: {joinNames(unevaluated)} {unevaluated.length === 1 ? "was" : "were"} not evaluated (treated as no limit), so the hall may carry fewer racks than this.
+          {bound.note}
         </p>
       ) : null}
 
@@ -572,6 +573,7 @@ export function QualifyReadout({
           <ConstraintName name={found.binding_constraint} slugs={constraintSlugs} />
         </p>
         <p className="text-mute text-sm mt-1">{found.basis}</p>
+        {totalNote ? <p data-testid="qualify-total-assumed" className="text-faint text-[11px] mt-1">{totalNote}</p> : null}
       </div>
 
       {result.first_three_constraints.length ? (

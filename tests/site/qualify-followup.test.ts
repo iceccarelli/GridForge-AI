@@ -9,6 +9,7 @@
  */
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { siteUrl } from "@/lib/site";
+import { SCREEN_CREDIT_SENTENCE } from "@/lib/credits-terms";
 import { PostgrestFake } from "./postgrest-fake";
 
 let db: PostgrestFake;
@@ -114,6 +115,17 @@ describe("a qualified read can ask for a human", () => {
     expect(toBuyer!.body.text.toLowerCase()).not.toMatch(
       /guarantee|save you|we have measured|this hall has been verified/
     );
+  });
+
+  it("states the credit with its conditions (the one shared sentence), never 'credits in full against the full Envelope Study'", async () => {
+    seedScored();
+    const { POST } = await route();
+    await POST(post("tok_north_hall", { email: "buyer@acme.example" }), ctx("tok_north_hall"));
+    const toBuyer = resendCalls.find((c) => c.body.to.includes("buyer@acme.example"));
+    expect(toBuyer).toBeTruthy();
+    const text = String(toBuyer!.body.text);
+    expect(text).toContain(SCREEN_CREDIT_SENTENCE);
+    expect(text.replace(/\s+/g, " ")).not.toMatch(/credits?\s+in\s+full/i);
   });
 
   it("is idempotent — a second request sends no second email", async () => {
