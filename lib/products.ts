@@ -6,6 +6,8 @@
 // buys the screen has already decided to spend, which is the only qualification
 // signal that has ever meant anything.
 
+import { workingDays } from "@/lib/turnaround";
+
 /** Which engine endpoint generates a purchased deliverable. */
 export type DeliverableEndpoint = "screen" | "study" | "spec" | "portfolio";
 
@@ -75,10 +77,15 @@ export const PRODUCTS: Record<ProductId, Product> = {
     kind: "density_screen",
     name: "Density Screen",
     amountCents: 450_000, // €4,500
-    description:
-      "A screening assessment of one hall, delivered five working days after a complete intake: what binds first, how many racks of your " +
-      "target platform it carries as it stands and after the costed ladder, which item sets " +
-      "the date, and the list of inputs nobody has measured.",
+    // A getter, so the duration in the sentence IS `turnaroundDays` below (through the one formatter) and not a second copy of it. The field
+    // stays a plain numeric literal because tests/test_catalogue_single_source.py reads it that way to compare it with the engine's.
+    get description() {
+      return (
+        `A screening assessment of one hall, delivered ${workingDays(this.turnaroundDays)} after a complete intake: what binds first, how many racks of your ` +
+        "target platform it carries as it stands and after the costed ladder, which item sets " +
+        "the date, and the list of inputs nobody has measured."
+      );
+    },
     deliverable:
       "Density Screen document (HTML + Markdown), the first six rungs of the headroom ladder, " +
       "and a data request you can send to your own engineers verbatim.",

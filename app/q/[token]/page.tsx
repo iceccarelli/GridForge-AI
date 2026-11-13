@@ -6,6 +6,7 @@ import { RequestFollowUp } from "@/components/RequestFollowUp";
 import { AlertTriangle, ArrowRight, Users } from "lucide-react";
 import { BENCHMARK_MIN_HALLS, benchmark, getQualification } from "@/lib/qualify";
 import { constraintReference } from "@/lib/constraints";
+import { constraintSlugsByName, slugForConstraint } from "@/lib/constraint-links";
 import { PRODUCTS } from "@/lib/products";
 import { eur } from "@/lib/commerce";
 
@@ -44,7 +45,10 @@ export default async function QualificationPage({
     benchmark(q.binding_constraint),
     constraintReference(),
   ]);
-  const doc = ref?.constraints.find((c) => c.name === q.binding_constraint);
+  // By the shared name -> slug map, not by the reference's own spelling: the engine prints "Firm supply (grid import + behind-the-meter)" and the
+  // reference says "... and ...", so an exact comparison of names showed no reference section for the constraint that binds most often.
+  const docSlug = slugForConstraint(constraintSlugsByName(ref), q.binding_constraint);
+  const doc = docSlug ? ref?.constraints.find((c) => c.slug === docSlug) : undefined;
   const screen = PRODUCTS.density_screen;
   const asFound = q.racks_as_found ?? 0;
   const afterRelief = q.racks_after_relief ?? 0;

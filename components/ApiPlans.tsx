@@ -5,6 +5,7 @@ import { ArrowRight } from "lucide-react";
 import { API_PRODUCTS, eurFromCents } from "@/lib/products";
 import { SITE } from "@/lib/site";
 import { breakEven, callableRates, type ToolRate } from "@/lib/payg-pricing";
+import { MANAGE_SUBSCRIPTION_LABEL } from "@/lib/subscription-manage";
 
 /**
  * Buy a monthly plan. Checkout runs in subscription mode; the webhook opens an account and emails a link where
@@ -138,7 +139,8 @@ export default function ApiPlans({ rates = [] }: { rates?: ToolRate[] }) {
       </div>
 
       <p className="mt-5 text-xs text-faint">
-        Billed monthly through Stripe. To cancel, write to{" "}
+        Billed monthly through Stripe. To cancel, open your account page (the link is in the email that carries your key)
+        and choose &ldquo;{MANAGE_SUBSCRIPTION_LABEL}&rdquo;, which opens Stripe&apos;s billing page; or write to{" "}
         <a href={`mailto:${SITE.email}`} className="text-mute underline">
           {SITE.email}
         </a>

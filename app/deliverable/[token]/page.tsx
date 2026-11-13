@@ -6,6 +6,7 @@ import { BOARD_HTML, getByToken, isPackFile, reviewHash } from "@/lib/deliverabl
 import { LinkNotFound } from "@/components/LinkNotFound";
 import { WatchUpsell } from "@/components/WatchUpsell";
 import { SpecUpsell } from "@/components/SpecUpsell";
+import { StudyUpsell } from "@/components/StudyUpsell";
 import { BidComparison } from "@/components/BidComparison";
 import { PRODUCT_BY_KIND } from "@/lib/products";
 import { paymentHoldAnswer } from "@/lib/one-time-holds";
@@ -141,6 +142,9 @@ export default async function DeliverablePage({
       ) : null}
       {row.kind === "proposal" ? null : (
         <>
+          {/* The Study is the step the catalogue says a Density Screen credits against. It renders for that kind only (and only here, on a
+              released page): a study, a specification or a portfolio row is not offered the step it has already taken or does not credit. */}
+          <StudyUpsell kind={row.kind} />
           {/* A specification is already the next step; offering it under itself
               would be the page selling what the reader has just bought. */}
           {PRODUCT_BY_KIND[row.kind]?.endpoint === "spec" ? null : (

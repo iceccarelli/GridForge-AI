@@ -1,6 +1,7 @@
 import type { Metadata, Viewport } from "next";
 import { SITE_URL } from "@/lib/site";
 import { PRODUCTS, eurFromCents } from "@/lib/products";
+import { workingDays } from "@/lib/turnaround";
 import localFont from "next/font/local";
 import "./globals.css";
 import { Toaster } from "sonner";
@@ -42,7 +43,7 @@ const siteUrl = SITE_URL;
 // Price and turnaround come from the catalogue, never typed beside the copy.
 const SCREEN = PRODUCTS.density_screen;
 const SCREEN_PRICE = eurFromCents(SCREEN.amountCents);
-const SCREEN_DAYS = SCREEN.turnaroundDays === 5 ? "five" : String(SCREEN.turnaroundDays);
+const SCREEN_DAYS = workingDays(SCREEN.turnaroundDays);
 
 export const viewport: Viewport = { themeColor: "#070B14", colorScheme: "dark" };
 
@@ -84,7 +85,7 @@ export const metadata: Metadata = {
     url: siteUrl,
     title: "Time to Power — AI rack capacity for existing halls",
     description:
-      `How many AI racks can your hall power, and what unlocks more? Evidence-graded capacity analysis for existing halls: the limit that binds first, what relieves it, and the evidence behind every figure. Density Screen: ${SCREEN_PRICE}, ${SCREEN_DAYS} working days from a complete intake.`,
+      `How many AI racks can your hall power, and what unlocks more? Evidence-graded capacity analysis for existing halls: the limit that binds first, what relieves it, and the evidence behind every figure. Density Screen: ${SCREEN_PRICE}, ${SCREEN_DAYS} from a complete intake.`,
     siteName: "Time to Power",
   },
   // Only the card type: a page that sets its own openGraph title and description would otherwise inherit THIS twitter title, so a shared

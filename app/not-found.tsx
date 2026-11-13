@@ -1,5 +1,19 @@
+import type { Metadata } from "next";
 import Link from "next/link";
 import { ArrowLeft } from "lucide-react";
+
+// The 404 page's own metadata. Without it the page inherited the root layout's, so a missing URL was titled exactly like the home page and
+// carried the layout's `robots: index, follow` beside the `noindex` Next itself injects on every not-found response: two contradictory
+// robots tags on a page that answers 404.
+//
+//  - title: its own, wrapped by the root template like every other page ("Page not found · Time to Power").
+//  - robots: null removes the inherited tag (a key present with a null value replaces the parent's in Next's metadata merge). The one
+//    `<meta name="robots" content="noindex">` that remains is Next's own, written for every not-found response; this file does not repeat it,
+//    because two tags would be two chances to disagree. The response status stays 404 (Next sets it; nothing here touches it).
+export const metadata: Metadata = {
+  title: "Page not found",
+  robots: null,
+};
 
 export default function NotFound() {
   return (

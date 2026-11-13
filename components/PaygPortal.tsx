@@ -22,6 +22,7 @@ import {
   type UsageSnapshot,
 } from "@/lib/payg-client";
 import { billingRuleText, eurExact, formatUtc } from "@/lib/payg-pricing";
+import { MANAGE_SUBSCRIPTION_LABEL } from "@/lib/subscription-manage";
 
 type Load =
   | { phase: "loading" }
@@ -662,7 +663,7 @@ function ManageSubscription({ token }: { token: string }) {
   return (
     <section aria-labelledby="manage-heading" className="rounded border border-line bg-panel-2 p-5 sm:p-6">
       <h2 id="manage-heading" className="text-lg font-semibold text-ghost">
-        Manage or cancel subscription
+        {MANAGE_SUBSCRIPTION_LABEL}
       </h2>
       <p className="mt-2 text-sm text-mute">
         This opens Stripe&apos;s billing page for your subscription, where you can update the card, see invoices and cancel. What
@@ -675,7 +676,7 @@ function ManageSubscription({ token }: { token: string }) {
         disabled={busy}
         className="mt-4 inline-flex min-h-11 items-center gap-2 rounded border border-line px-5 py-2.5 font-semibold text-ghost hover:border-power/50 disabled:opacity-60"
       >
-        {busy ? "Opening Stripe" : "Manage or cancel subscription"}
+        {busy ? "Opening Stripe" : MANAGE_SUBSCRIPTION_LABEL}
       </button>
       {error ? (
         <p role="alert" className="mt-3 text-sm text-flag">

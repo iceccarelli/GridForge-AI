@@ -1,5 +1,7 @@
 import type { Metadata } from "next";
 import { OG_BASE } from "@/lib/site";
+import { PAYG } from "@/lib/products";
+import { eurExact } from "@/lib/payg-pricing";
 import { pageImages } from "@/lib/page-cards";
 import { LegalShell, Note } from "@/components/LegalShell";
 
@@ -15,6 +17,10 @@ export const metadata: Metadata = {
 };
 
 export default function Terms() {
+  // The metered rate, the free allowance and the minimum invoice are the catalogue's (PAYG in lib/products.ts, mirrored by the engine),
+  // never typed here: a contract page that disagrees with checkout is worse than no page.
+  const rate = `${eurExact(PAYG.unitPriceCents)} per unit after the ${PAYG.freeAllowanceUnits}-unit monthly free allowance`;
+  const minimumInvoice = `${eurExact(PAYG.minInvoiceCents)} minimum invoice`;
   return (
     <LegalShell title="Terms of use" updated="November 2026">
       <p>
@@ -48,10 +54,10 @@ export default function Terms() {
       <p>
         The free qualifier and estimator require no API key. Metered operations
         on the GridForge Engine are billed per unit at the published catalogue
-        rate (€2 per unit after the 25-unit monthly free allowance on eligible
+        rate ({rate} on eligible
         accounts). Pay-as-you-go usage is settled monthly in arrears for net
         successful units (charges minus automatic refunds for failed, rejected
-        or invalid calls). Monthly balances below the €5 minimum invoice carry
+        or invalid calls). Monthly balances below the {minimumInvoice} carry
         forward; usage stops at the account spend cap (HTTP 402) until raised
         or settled.
       </p>

@@ -33,6 +33,7 @@ import { PAYG, eurText, utcMonth } from "@/lib/payg";
 import { capUsedUnits, usageNet } from "@/lib/payg-usage";
 import { depositTerms } from "@/lib/engagement-state";
 import { SCOPING_PREPARATION } from "@/lib/engagement-intake";
+import { studyOffer, studyOfferEmail } from "@/lib/study-offer";
 import { PRODUCT_BY_KIND, eurFromCents, intelligencePlanName } from "@/lib/products";
 
 export const NOTIFICATION_KINDS = ["intake_link", "api_access_link", "watch_link", "key_rotation", "subscription_welcome", "team_invitation", "usage_alert", "payg_payment_failed", "deposit_receipt", "deliverable_release"] as const;
@@ -302,6 +303,8 @@ async function build(n: Pick<NotificationRow, "kind" | "subject_table" | "subjec
     if (!token) throw new Blocked("credential_missing");
     const files = (row.working_files ?? {}) as Record<string, unknown>;
     const hasBoard = Boolean(files["board_summary.html"]);
+    // Only a product the catalogue says credits against a deposit (the Density Screen) is pointed at the next step, in the catalogue's own words.
+    const offer = studyOffer(String(row.kind ?? ""));
     return {
       to,
       subject: "Your GridForge document is ready",
@@ -312,7 +315,8 @@ async function build(n: Pick<NotificationRow, "kind" | "subject_table" | "subjec
         `${SITE_URL}/deliverable/${token}\n\n` +
         "The link is private to this engagement and is the only way to open the document — keep it, and do not " +
         "forward it to anyone who should not read the result. It is a screening-mode document: it carries its " +
-        "own evidence classes and assumptions, and it is not an issued engineering opinion.",
+        "own evidence classes and assumptions, and it is not an issued engineering opinion." +
+        (offer ? `\n\n${studyOfferEmail(offer, SITE_URL)}` : ""),
     };
   }
   if (n.kind === "payg_payment_failed") {

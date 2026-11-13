@@ -5,6 +5,8 @@ import { NextResponse } from "next/server";
 import { guardRequest, mailRecipientAllowed } from "@/lib/rate-limit";
 import { leadSchema, scoreLead, parseCapacityMW, type LeadRecord } from "@/lib/lead";
 import { readBoundedJson } from "@/lib/http-body";
+import { PRODUCTS } from "@/lib/products";
+import { workingDays } from "@/lib/turnaround";
 
 export const runtime = "nodejs";
 
@@ -182,11 +184,13 @@ async function notify(record: LeadRecord): Promise<void> {
   // The address is whatever the caller typed, so the mail goes only while that recipient is under its daily cap.
   if (apiKey && realEmail && (await mailRecipientAllowed(record.email))) {
     const hot = record.tier === "hot";
+    // The Density Screen's turnaround, from the catalogue through the one formatter (lib/turnaround.ts): never typed beside the copy.
+    const screenDays = workingDays(PRODUCTS.density_screen.turnaroundDays);
     // Template literals, not the double-quoted strings this used to be: those
     // mailed the characters ${siteUrl('/pricing')} to the customer verbatim.
     const nextSteps = hot
-      ? `Your site looks like a good fit for an engagement. We make no promise about when we will reply.\n\nThe entry point is the Density Screen \u2014 one hall, five working days, a fixed fee, and it credits in full against the full study:\n${siteUrl('/pricing')}`
-      : `We will review your site. We make no promise about when we will reply.\n\nThe entry point is the Density Screen (five working days): what binds your hall, how many racks it carries, and the inputs nobody has measured. Details and pricing:\n${siteUrl('/pricing')}`;
+      ? `Your site looks like a good fit for an engagement. We make no promise about when we will reply.\n\nThe entry point is the Density Screen \u2014 one hall, ${screenDays}, a fixed fee, and it credits in full against the full study:\n${siteUrl('/pricing')}`
+      : `We will review your site. We make no promise about when we will reply.\n\nThe entry point is the Density Screen (${screenDays}): what binds your hall, how many racks it carries, and the inputs nobody has measured. Details and pricing:\n${siteUrl('/pricing')}`;
     try {
       await sendMail({
           from,

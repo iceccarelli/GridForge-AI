@@ -163,7 +163,8 @@ export default async function CommissionedPage({
             </p>
           ) : null}
           <p className="text-faint text-sm">
-            No contact from us? Reply to the Stripe receipt and we will pick it up.
+            No contact from us? Reply to the Stripe receipt and we will pick it up, or write to{" "}
+            <a href={`mailto:${SITE.email}`} className="text-power underline">{SITE.email}</a>.
           </p>
         </div>
       </div>

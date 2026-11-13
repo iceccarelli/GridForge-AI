@@ -11,7 +11,9 @@ import { DOMAIN_LABEL, constraintBySlug, constraintReference } from "@/lib/const
 import { TtpPhoto } from "@/components/TtpPhoto";
 import { TtpImageId } from "@/lib/ttp-images";
 import { QUALIFY_LINK } from "@/lib/nav";
-import { constraintRecordJsonLd } from "@/lib/jsonld";
+import { breadcrumbJsonLd, constraintRecordJsonLd } from "@/lib/jsonld";
+import { constraintNextSteps } from "@/lib/constraint-next-steps";
+import pageDates from "@/lib/page-lastmod.json";
 import { constraintDefinition } from "@/lib/definitions";
 import { EngineeringAssumptions } from "@/components/EngineeringAssumptions";
 import { assumptionsForConstraint } from "@/lib/engineering-constants";
@@ -98,6 +100,10 @@ export default async function ConstraintPage({
   const related = (c.see_also ?? [])
     .map((id) => ref?.constraints.find((x) => x.id === id))
     .filter((x): x is NonNullable<typeof x> => Boolean(x));
+  const nextSteps = constraintNextSteps(c);
+  // The date this page's content last changed, from the manifest scripts/page-lastmod.mjs maintains (never typed, never the build time): a page
+  // with no recorded date carries no dateModified rather than a made-up one.
+  const modified = (pageDates.pages as Record<string, { lastmod?: string }>)[`/constraints/${c.slug}`]?.lastmod;
 
   return (
     <div className="mx-auto w-full max-w-4xl px-5 pb-24 pt-28 sm:px-8">
@@ -110,9 +116,17 @@ export default async function ConstraintPage({
         about: c.name,
         articleSection: DOMAIN_LABEL[c.domain] ?? c.domain,
         isAccessibleForFree: true,
+        ...(modified ? { dateModified: modified } : {}),
         publisher: orgRef(),
         author: orgRef(),
       })}
+      {jsonLd(
+        breadcrumbJsonLd([
+          { name: "Time to Power", path: "/" },
+          { name: "Constraints", path: "/constraints" },
+          { name: c.name, path: `/constraints/${c.slug}` },
+        ])
+      )}
       {jsonLd(constraintRecordJsonLd(c, ref))}
 
       <nav className="font-mono text-[11px] uppercase tracking-[0.14em] text-faint">
@@ -182,6 +196,27 @@ export default async function ConstraintPage({
             />
           ) : null}
         </div>
+      ) : null}
+
+      {nextSteps.length ? (
+        <section className="mt-8 rounded border border-line bg-panel-2 p-6" aria-labelledby="next-steps-h" data-testid="constraint-next-steps">
+          <h2 id="next-steps-h" className="font-mono text-[11px] uppercase tracking-[0.14em] text-power">
+            What to do next
+          </h2>
+          <ul className="mt-3 space-y-3">
+            {nextSteps.map((s) => (
+              <li key={s.href} className="text-sm text-mute">
+                <Link
+                  href={s.href}
+                  className="inline-flex min-h-11 items-center font-semibold text-ghost underline decoration-power/60 underline-offset-2 hover:text-power"
+                >
+                  {s.label}
+                </Link>
+                <span className="block">{s.why}</span>
+              </li>
+            ))}
+          </ul>
+        </section>
       ) : null}
 
       {c.misconception ? (

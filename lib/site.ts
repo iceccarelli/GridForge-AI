@@ -9,6 +9,10 @@
 import { PRODUCTS, eurFromCents, type ProductId } from "@/lib/products";
 import { marketFigure } from "@/lib/market-evidence";
 import { DEPOSIT_CLOCK_START } from "@/lib/engagement-state";
+import { workingDays } from "@/lib/turnaround";
+
+/** The Density Screen's turnaround as prose ("five working days"), from the catalogue's `turnaroundDays` through the one formatter (lib/turnaround.ts). */
+const SCREEN_DAYS = workingDays(PRODUCTS.density_screen.turnaroundDays);
 
 /**
  * The site's own address, in one place.
@@ -169,7 +173,7 @@ export const SERVICES: ServiceCard[] = [
     productId: "density_screen",
     icon: "search",
     desc:
-      "One hall, five working days from a complete intake. What binds first, how many racks of your target platform it carries as it stands and after the costed ladder, which item sets the energisation date, and the inputs nobody has measured.",
+      `One hall, ${SCREEN_DAYS} from a complete intake. What binds first, how many racks of your target platform it carries as it stands and after the costed ladder, which item sets the energisation date, and the inputs nobody has measured.`,
     flagship: true,
   },
   {
@@ -256,7 +260,7 @@ export const FAQ = [
   },
   {
     q: "What can I actually buy today?",
-    a: "Fixed-fee engagements, each priced before we start (the Study and the Portfolio Screen are booked with a deposit against a fee agreed at scoping). The Density Screen is the first paid step: one hall, five working days from a complete intake: what binds it first, how many racks of your target platform it carries as it stands and after the costed ladder, and the list of inputs nobody has measured. It credits in full against the Capacity & Density Envelope Study. Above that sit the Procurement Specification, the Portfolio Screen and Hall Watch. Nothing is billed by the hour, and we quote no equipment and take no margin on hardware.",
+    a: `Fixed-fee engagements, each priced before we start (the Study and the Portfolio Screen are booked with a deposit against a fee agreed at scoping). The Density Screen is the first paid step: one hall, ${SCREEN_DAYS} from a complete intake: what binds it first, how many racks of your target platform it carries as it stands and after the costed ladder, and the list of inputs nobody has measured. It credits in full against the Capacity & Density Envelope Study. Above that sit the Procurement Specification, the Portfolio Screen and Hall Watch. Nothing is billed by the hour, and we quote no equipment and take no margin on hardware.`,
   },
   {
     q: "Do you sell or install equipment?",
