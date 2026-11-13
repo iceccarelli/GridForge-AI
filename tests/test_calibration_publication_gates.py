@@ -666,15 +666,22 @@ def test_the_effects_of_a_withdrawal_follow_a_withdrawal_row_however_it_was_inse
     assert not exported(db, a)
 
 
-def snapshot_with(org_hash_members, others=9, at="2026-09-01T00:00:00Z", figures=None):
-    """A snapshot whose members are the given (observation hash, organisation hash) pairs plus `others` observations of three other organisations."""
+def snapshot_with(org_hash_members, others=9, at=None, figures=None):
+    """A snapshot whose members are the given (observation hash, organisation hash) pairs plus `others` observations of three other organisations. `at` is its
+    released_at; None is now, which is the only date the registry accepts (within a day of ITS clock)."""
     members = [R.Contribution(o, g) for o, g in org_hash_members]
     members += [R.Contribution.from_ids(f"filler-{uuid.uuid4().hex}", f"filler-org-{k % 3}-{org_hash_members[0][1][:6]}") for k in range(others)]
-    return R.Snapshot.make({"total": members}, released_at=datetime.fromisoformat(at.replace("Z", "+00:00")), figures=figures or {"n": len(members)})
+    return R.Snapshot.make({"total": members}, released_at=at or datetime.now(timezone.utc), figures=figures or {"n": len(members)})
 
 
 def register(db, snapshot, check=False):
     return call(db, "gf_record_release_snapshot", snapshot.to_record(), check=check)
+
+
+def age_registry(db, days):
+    """Move every registered snapshot `days` days into the past (when it was recorded and released), the way the rig back-dates a forecast: row triggers off,
+    because the registry's clock is the database's and a test cannot wait a month. The next registration then follows the last by `days` days."""
+    bypassing_triggers(db, f"update calibration_release_snapshots set recorded_at = recorded_at - interval '{days} days', released_at = released_at - interval '{days} days'")
 
 
 def test_a_withdrawal_marks_the_snapshots_that_contained_the_organisation_superseded_and_never_edits_them(fresh):
@@ -682,10 +689,11 @@ def test_a_withdrawal_marks_the_snapshots_that_contained_the_organisation_supers
     grant(fresh, c.org)
     _, a = eligible(fresh, c)
     org_h = R.organisation_hash(c.org)
-    mine = snapshot_with([(R.observation_hash(a), org_h)] + [(R.observation_hash(uuid.uuid4().hex), org_h) for _ in range(3)])
-    other = snapshot_with([(R.observation_hash("x"), R.organisation_hash("some-other-org"))] + [(R.observation_hash(f"x{i}"), R.organisation_hash("some-other-org")) for i in range(2)],
-                          at="2026-04-01T00:00:00Z")
-    assert register(fresh, other).returncode == 0 and register(fresh, mine).returncode == 0
+    other = snapshot_with([(R.observation_hash("x"), R.organisation_hash("some-other-org"))] + [(R.observation_hash(f"x{i}"), R.organisation_hash("some-other-org")) for i in range(2)])
+    assert register(fresh, other).returncode == 0
+    age_registry(fresh, 40)
+    mine = snapshot_with([(R.observation_hash(a), org_h)] + [(R.observation_hash(uuid.uuid4().hex), org_h) for _ in range(3)])        # released now, 40 days after `other`
+    assert register(fresh, mine).returncode == 0
     before = psql(fresh, "select snapshot_id, members::text, cells::text, figures_sha256, released_at from calibration_release_snapshots order by seq").stdout
     out = result(withdraw(fresh, c.org))
     assert out["snapshots_superseded"] == 1
@@ -728,8 +736,9 @@ def members(start, n, orgs):
     return [R.Contribution.from_ids(f"obs-{start + k}", f"org-{orgs[k % len(orgs)]}") for k in range(n)]
 
 
-def snap(obs, at, figures=None):
-    return R.Snapshot.make({"total": obs}, released_at=datetime.fromisoformat(at), figures=figures or {"n": len(obs)})
+def snap(obs, at=None, figures=None):
+    """A one-cell snapshot of `obs` released `at` (None: now, the only date the registry takes: it holds released_at to within a day of its own clock)."""
+    return R.Snapshot.make({"total": obs}, released_at=at or datetime.now(timezone.utc), figures=figures or {"n": len(obs)})
 
 
 def test_the_database_holds_the_numbers_the_pure_policy_holds(db):
@@ -738,10 +747,10 @@ def test_the_database_holds_the_numbers_the_pure_policy_holds(db):
 
 def test_the_first_snapshot_must_be_a_safe_group_by_itself(fresh):
     for obs in (members(0, 9, [1, 2, 3]), members(0, 12, [1, 2]), members(0, 12, [1] * 6 + [2, 3, 4, 5, 6, 7])):
-        r = register(fresh, snap(obs, "2026-01-01T00:00:00+00:00"))
+        r = register(fresh, snap(obs))
         assert r.returncode != 0 and "at least 10 observations from at least 3 organisations" in r.stderr, (len(obs), r.stderr)
     assert count(fresh, "calibration_release_snapshots") == 0
-    assert register(fresh, snap(members(0, 12, [1, 2, 3, 4]), "2026-01-01T00:00:00+00:00")).returncode == 0
+    assert register(fresh, snap(members(0, 12, [1, 2, 3, 4]))).returncode == 0
 
 
 @pytest.mark.parametrize("added,orgs,days,ok", [
@@ -749,8 +758,9 @@ def test_the_first_snapshot_must_be_a_safe_group_by_itself(fresh):
 ])
 def test_a_snapshot_must_differ_from_the_last_by_a_safe_group_and_follow_it_by_the_cadence(fresh, added, orgs, days, ok):
     first = members(0, 12, [1, 2, 3, 4])
-    assert register(fresh, snap(first, "2026-01-01T00:00:00+00:00")).returncode == 0
-    nxt = snap(first + members(100, added, orgs), (datetime(2026, 1, 1, tzinfo=timezone.utc) + timedelta(days=days)).isoformat())
+    assert register(fresh, snap(first)).returncode == 0
+    age_registry(fresh, days)                                                  # the first release was recorded `days` days ago
+    nxt = snap(first + members(100, added, orgs))
     r = register(fresh, nxt)
     assert (r.returncode == 0) is ok, r.stderr
     if not ok:
@@ -760,12 +770,53 @@ def test_a_snapshot_must_differ_from_the_last_by_a_safe_group_and_follow_it_by_t
 def test_a_snapshot_is_compared_with_every_earlier_one_and_an_identical_membership_is_not_a_new_release(fresh):
     base = members(0, 12, [1, 2, 3, 4])
     twenty = members(100, 20, [5, 6, 7, 8])
-    assert register(fresh, snap(base, "2026-01-01T00:00:00+00:00")).returncode == 0
-    assert register(fresh, snap(base + twenty, "2026-03-01T00:00:00+00:00")).returncode == 0
-    r = register(fresh, snap(base + twenty[:1], "2026-05-01T00:00:00+00:00"))        # nineteen away from the last, ONE away from the first
+    assert register(fresh, snap(base)).returncode == 0
+    age_registry(fresh, 60)
+    assert register(fresh, snap(base + twenty)).returncode == 0
+    age_registry(fresh, 60)
+    r = register(fresh, snap(base + twenty[:1]))                                        # nineteen away from the last, ONE away from the first
     assert r.returncode != 0 and "differ from every earlier release" in r.stderr
-    again = register(fresh, snap(base + twenty, "2026-07-01T00:00:00+00:00", figures={"n": "again"}))
+    again = register(fresh, snap(base + twenty, figures={"n": "again"}))
     assert again.returncode != 0 and "differ from every earlier release" in again.stderr
+
+
+def test_the_cadence_is_measured_on_the_registrys_clock_so_a_release_cannot_be_dated_to_satisfy_it(fresh):
+    """C6: the cadence used to compare the CALLER-CHOSEN released_at, so S1 registered as released in 2020 and S2 registered 35 ms later as released now
+    both passed. Now S1 cannot be back-dated, S2 follows S1 by the registry's own recorded_at, and a recorded_at supplied by the caller is overwritten."""
+    first = members(0, 12, [1, 2, 3, 4])
+    old = register(fresh, snap(first, at=datetime(2020, 1, 1, tzinfo=timezone.utc)))
+    assert old.returncode != 0 and "back-dated" in old.stderr, old.stderr
+    assert "GF018" in psql(fresh, f"select gf_record_release_snapshot('{json.dumps(snap(first, at=datetime(2020, 1, 1, tzinfo=timezone.utc)).to_record())}'::jsonb)",
+                           check=False, sqlstate=True).stderr
+    assert count(fresh, "calibration_release_snapshots") == 0
+    assert register(fresh, snap(first)).returncode == 0
+    second = first + members(100, 12, [5, 6, 7, 8])                                       # a safe step in membership, recorded moments later
+    for at in (datetime.now(timezone.utc), datetime(2020, 6, 1, tzinfo=timezone.utc), datetime.now(timezone.utc) + timedelta(days=40)):
+        r = register(fresh, snap(second, at=at))
+        assert r.returncode != 0, f"a release dated {at} was registered moments after the previous one"
+    assert "may not be recorded within 30 days" in register(fresh, snap(second)).stderr
+    assert count(fresh, "calibration_release_snapshots") == 1
+    age_registry(fresh, 30)
+    assert register(fresh, snap(second)).returncode == 0                                 # a month later on the registry's clock, released now
+
+
+def test_a_released_at_more_than_a_day_from_the_registrys_clock_is_refused_and_a_day_is_not(fresh):
+    obs = members(0, 12, [1, 2, 3, 4])
+    now = datetime.now(timezone.utc)
+    for at in (now - timedelta(days=1, minutes=5), now - timedelta(days=30), now + timedelta(minutes=10)):
+        r = register(fresh, snap(obs, at=at))
+        assert r.returncode != 0 and ("back-dated" in r.stderr or "in the future" in r.stderr), (at, r.stderr)
+    assert register(fresh, snap(obs, at=now - timedelta(hours=23))).returncode == 0
+
+
+def test_a_recorded_at_written_by_the_caller_is_replaced_by_the_registrys_own_clock(fresh):
+    snap0 = snap(members(0, 12, [1, 2, 3, 4]))
+    rec = snap0.to_record()
+    insert = ("insert into calibration_release_snapshots (snapshot_id, released_at, members, cells, figures_sha256, recorded_at) values "
+              f"('{rec['snapshot_id']}', '{rec['released_at']}', {reg.q(json.dumps(rec['members']))}::jsonb, {reg.q(json.dumps(rec['cells']))}::jsonb, "
+              f"'{rec['figures_sha256']}', '2020-01-01T00:00:00Z')")
+    assert as_service_role(fresh, insert).returncode == 0
+    assert scalar(fresh, "select recorded_at > now() - interval '1 minute' from calibration_release_snapshots") == "t"
 
 
 def test_a_snapshot_with_a_withdrawn_observation_is_refused_before_any_other_check(fresh):
@@ -774,9 +825,9 @@ def test_a_snapshot_with_a_withdrawn_observation_is_refused_before_any_other_che
     _, a = eligible(fresh, c)
     withdraw(fresh, c.org)
     obs = members(0, 11, [1, 2, 3]) + [R.Contribution(R.observation_hash(a), R.organisation_hash(c.org))]
-    r = register(fresh, snap(obs, "2026-01-01T00:00:00+00:00"))
+    r = register(fresh, snap(obs))
     assert r.returncode != 0 and "withdrew its consent" in r.stderr
-    assert "GF017" in psql(fresh, f"select gf_record_release_snapshot('{json.dumps(snap(obs, '2026-01-01T00:00:00+00:00').to_record())}'::jsonb)", check=False, sqlstate=True).stderr
+    assert "GF017" in psql(fresh, f"select gf_record_release_snapshot('{json.dumps(snap(obs).to_record())}'::jsonb)", check=False, sqlstate=True).stderr
 
 
 @pytest.mark.parametrize("mutate,needle", [
@@ -790,7 +841,7 @@ def test_a_snapshot_with_a_withdrawn_observation_is_refused_before_any_other_che
     (lambda r: r.__setitem__("figures_sha256", "xyz"), "figures_sha256"),
 ])
 def test_a_malformed_snapshot_record_is_refused(fresh, mutate, needle):
-    rec = snap(members(0, 12, [1, 2, 3, 4]), "2026-01-01T00:00:00+00:00").to_record()
+    rec = snap(members(0, 12, [1, 2, 3, 4])).to_record()
     mutate(rec)
     r = call(fresh, "gf_record_release_snapshot", rec)
     assert r.returncode != 0 and needle in r.stderr, r.stderr
@@ -799,12 +850,15 @@ def test_a_malformed_snapshot_record_is_refused(fresh, mutate, needle):
 
 def test_a_snapshot_the_pure_policy_allows_is_one_the_database_registers(fresh):
     """The two halves agree on a run of releases: whatever propose_release releases, the registry accepts."""
-    history, now = [], datetime(2026, 1, 1, tzinfo=timezone.utc)
+    history, now = [], datetime(2026, 1, 1, tzinfo=timezone.utc)                         # the pure policy runs in a virtual calendar ...
     pool = members(0, 12, [1, 2, 3, 4])
     for month in range(5):
         p = R.propose_release({"total": pool}, history=history, now=now, figures_for=lambda names: {"n": len(pool)})
         assert p.decision.allowed, (month, p.decision)
-        assert register(fresh, p.snapshot).returncode == 0, month
+        if month:
+            age_registry(fresh, 31)                                                       # ... the registry on its own clock, a month later each time
+        registered = R.Snapshot.make(p.plan.published, released_at=datetime.now(timezone.utc), figures=p.figures)
+        assert register(fresh, registered).returncode == 0, month
         history.append(p.snapshot)
         pool = pool + members(1000 * (month + 1), 10, [5 + month, 6 + month, 7 + month])
         now += timedelta(days=31)

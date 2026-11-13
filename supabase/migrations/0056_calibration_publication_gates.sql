@@ -36,7 +36,9 @@
 --       Every released snapshot that contained any of the organisation's observations gets an appended supersession row; the snapshot itself is never edited.
 --   R4  calibration_release_snapshots: an append-only registry of what was released, keyed by the hashes of the observations and organisations behind
 --       it. A new snapshot is refused unless it is a safe group by itself (at least 10 observations, from at least 3 organisations, none supplying
---       more than 40%), is released no sooner than the cadence after the previous one, contains no tombstoned observation, and differs from EVERY earlier
+--       more than 40%), is recorded no sooner than the cadence after the previous one (measured between the registry's OWN recorded_at stamps, which the
+--       trigger sets from the database clock; the caller's released_at is only bounded to within a day of it, GF018, so a release cannot be back-dated or
+--       forward-dated to satisfy the cadence), contains no tombstoned observation, and differs from EVERY earlier
 --       snapshot (superseded ones too: the reader still holds them) by a safe group (the larger of the two differences, the one a reader cannot know).
 --       The constants live in gf_calibration_release_policy() and are the same numbers as gridforge/calibration/release.py (a test compares them).
 --       The database checks the snapshot as a whole; the per-cell and the multi-release linear-algebra checks are release.py's, which must run first.
@@ -258,8 +260,15 @@ begin
               where jsonb_typeof(h.x) <> 'string' or not (new.members ? (h.x #>> '{}'))) then
     raise exception 'a cell lists an observation that is not among the snapshot''s members' using errcode = 'GF018';
   end if;
-  if new.released_at > clock_timestamp() + interval '5 minutes' then
+  -- The registry's OWN clock decides when a snapshot was recorded; whatever the caller put in recorded_at is overwritten. released_at is the caller's
+  -- statement of when the figures were released, and is held to within a day of that clock, so the cadence below cannot be satisfied by dating a release.
+  new.recorded_at := clock_timestamp();
+  if new.released_at > new.recorded_at + interval '5 minutes' then
     raise exception 'a snapshot cannot be released in the future' using errcode = 'GF018';
+  end if;
+  if new.released_at < new.recorded_at - interval '1 day' then
+    raise exception 'a snapshot is dated % but is being recorded at %: a release is registered within a day of the time it is released, and cannot be back-dated',
+      new.released_at, new.recorded_at using errcode = 'GF018';
   end if;
   if exists (select 1 from jsonb_object_keys(new.members) k join public.calibration_tombstones t on t.observation_hash = k) then
     raise exception 'a snapshot contains an observation whose organisation withdrew its consent' using errcode = 'GF017';
@@ -269,9 +278,10 @@ begin
       pol ->> 'min_cell_observations', pol ->> 'min_cell_organisations', pol ->> 'max_organisation_share_permille' using errcode = 'GF018';
   end if;
   select * into prev from public.calibration_release_snapshots order by seq desc limit 1;
-  if found and new.released_at < prev.released_at + make_interval(days => (pol ->> 'min_release_interval_days')::int) then
-    raise exception 'the previous snapshot was released at %; the next may not be released within % days of it',
-      prev.released_at, pol ->> 'min_release_interval_days' using errcode = 'GF018';
+  -- the cadence is measured between the times the registry recorded the two (its own clock), never between dates a caller chose
+  if found and new.recorded_at < prev.recorded_at + make_interval(days => (pol ->> 'min_release_interval_days')::int) then
+    raise exception 'the previous snapshot was recorded at %; the next may not be recorded within % days of it',
+      prev.recorded_at, pol ->> 'min_release_interval_days' using errcode = 'GF018';
   end if;
   if exists (select 1 from public.calibration_release_snapshots s where not public.gf_release_step_ok(new.members, s.members)) then
     raise exception 'a snapshot must differ from every earlier release by a safe group (at least % observations from at least % organisations): the difference of two releases is what a reader computes',
