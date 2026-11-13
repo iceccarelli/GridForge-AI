@@ -31,15 +31,13 @@ from gridforge.api import server as S
 from gridforge.api.server import handle_compare, handle_qualify, handle_screen, handle_study, qualify_to_intake
 from gridforge.api.tiers import Tier
 from gridforge.envelope import solve
-from gridforge.intake import loader as _loader
-from gridforge.intake.loader import IntakeError, blank_intake, load_document
+from gridforge.intake.loader import EQUIPMENT_KEYS, IntakeError, blank_intake, load_document
 from gridforge.intake.schema import FIELD_BY_PATH, INTAKE_FIELDS
 from gridforge.scenario import run_all
 from gridforge.serialize import scenario_dict
 from gridforge.validation import EvidenceClass
 
 ROOT = Path(__file__).resolve().parents[1]
-EQUIPMENT_KEYS = getattr(_loader, "EQUIPMENT_KEYS", {})
 
 
 def example(name: str) -> dict:
@@ -63,7 +61,7 @@ def gap(intake, path: str):
     return next(g for g in intake.report.gaps if g.path == path)
 
 
-def constraint_racks(d: dict, cid: str, scenario_arch=None) -> float:
+def constraint_racks(d: dict, cid: str) -> float:
     ctx = load_document(d).context
     return next(c.racks for c in solve(ctx).constraints if c.id == cid)
 
