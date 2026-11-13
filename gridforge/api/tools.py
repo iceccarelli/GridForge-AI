@@ -172,7 +172,8 @@ _BTM_SHARED_PROPERTIES = {
 TOOLS: list[dict] = [
     _tool(
         "gridforge_qualify",
-        ("Free. Seven numbers about an existing air-cooled hall in, one answer out: which "
+        ("Free. Up to seven numbers about an existing air-cooled hall in (at least three; each one you leave out is an "
+         "assumption named in the answer), one answer out: which "
          "physical constraint binds first when you try to deploy AI racks in it, how many "
          "racks fit as found, and which item sets the time to power (labelled 'assumed lead time, not a date' "
          "when that item's lead time is an assumption). Use this to triage "
