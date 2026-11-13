@@ -20,28 +20,55 @@ import { SITE } from "@/lib/site";
 export const MANAGE_SUBSCRIPTION_LABEL = "Manage or cancel subscription";
 
 /**
- * What cancelling a GridForge Intelligence subscription does. ONE sentence, read by the sales page (components/IntelligenceClient.tsx), the
- * signed-in account page (components/IntelligenceManage.tsx) and the Terms (app/legal/terms/page.tsx), so the promise cannot differ between
- * the page that sells it and the page that holds it (tests/site/intelligence-cancel.test.ts). Every clause is a thing the code does:
+ * What cancelling a GridForge Intelligence subscription does, and what else ends access. ONE sentence group, read by the sales page
+ * (components/IntelligenceClient.tsx), the signed-in account page (components/IntelligenceManage.tsx) and the Terms (app/legal/terms/page.tsx),
+ * so the promise cannot differ between the page that sells it and the page that holds it (tests/site/intelligence-cancel.test.ts). Every
+ * clause is a thing the code does:
  *
- *   - "the billing owner can cancel from the account page ... which opens Stripe's billing page": the button and POST /api/billing/portal's
- *     session branch (app/api/billing/portal/route.ts), owner only (lib/team.ts ownerContext).
+ *   - "While access is on, the billing owner can cancel from the account page ... which opens Stripe's billing page": the button and POST
+ *     /api/billing/portal's session branch (app/api/billing/portal/route.ts), owner only (lib/team.ts ownerContext), and only while the
+ *     subscription entitles (lib/subscribers.ts lookupEntitlement: active and past_due rows, a scheduled pause not yet due). For an owner whose
+ *     access is suspended or whose pause has started, the account page shows no button and the portal answers 402 with the contact address
+ *     (subscriptionRequiredMessage), which is why the sentence says "if access is suspended, write to ...".
  *   - "when the cancellation takes effect is Stripe's": the site changes nothing when the portal is opened or when a cancellation is merely
  *     scheduled (customer.subscription.updated with a live status writes nothing here, app/api/stripe/webhook/route.ts applySubscriptionUpdate);
  *     whether the portal cancels at once or at the end of the paid period is its configuration in the Stripe dashboard, which no code here can see.
- *   - "ends access only when Stripe reports the subscription as ended": customer.subscription.deleted, or .updated to canceled / unpaid /
+ *   - "ends access when Stripe reports the subscription as ended": customer.subscription.deleted, or .updated to canceled / unpaid /
  *     incomplete_expired, sets the row to `cancelled` (applyCancellation); lookupEntitlement entitles only active and past_due rows.
+ *   - "suspends it for a full refund, an open dispute or a pause once the period already paid for is over": the three hold kinds of
+ *     lib/billing-holds.ts (HoldKind: refunded, disputed, paused). A refund counts only when it is a FULL one (isFullRefund), a dispute only when
+ *     a chargeback is open, and a pause only from the end of the paid period (billing_pause_from, lib/billing-pause-due.ts pauseDue). The Stripe
+ *     subscription itself goes on, so this is a suspension of access, not a cancellation. tests/site/intelligence-cancel.test.ts derives that
+ *     set from those two files and fails if the sentence names fewer causes than the code has.
  *   - "for every seat on it": a seat is the owner's subscription row read now (lib/subscribers.ts lookupMembership), so it ends with it.
  *   - "not reinstated ... a new purchase": a cancelled row is never reopened by a later invoice event (lib/billing-holds.ts, the invoice.paid
- *     branch of the webhook), and a new checkout records a new row (recordSubscription).
+ *     branch of the webhook), and a new checkout records a new row (recordSubscription). A SUSPENDED row is not a cancelled one: its hold can be
+ *     lifted (lib/billing-holds.ts liftHold), which is why the sentence says "ended" for the one and "suspends" for the other.
  *   - "refunds nothing automatically": no code path refunds anything when a subscription ends (applyCancellation writes the row and a funnel
  *     event, nothing else). It says nothing about what Stripe's portal may be set to do, and it is not a refund policy: the Terms state none
  *     ("Refund terms are not yet stated on this page; ask before you buy"), which is why it says "automatically".
  */
 export const INTELLIGENCE_CANCEL_TERMS =
-  `The billing owner can cancel from the account page (“${MANAGE_SUBSCRIPTION_LABEL}”), which opens Stripe's billing page. ` +
-  "When the cancellation takes effect is Stripe's: this site ends access only when Stripe reports the subscription as ended, for every seat on it. " +
+  `While access is on, the billing owner can cancel from the account page (“${MANAGE_SUBSCRIPTION_LABEL}”), which opens Stripe's billing page; ` +
+  `if access is suspended, write to ${SITE.email} from the address you signed in with. ` +
+  "When the cancellation takes effect is Stripe's: this site ends access when Stripe reports the subscription as ended, and suspends it " +
+  "for a full refund, an open dispute or a pause once the period already paid for is over (the Terms say more), in each case for every seat on it. " +
   "An ended subscription is not reinstated (subscribing again is a new purchase), and this site refunds nothing automatically when one ends.";
+
+/**
+ * The 402 for a caller with no ENTITLING subscription, where the owner-only routes cannot tell "never subscribed" from "subscribed, then
+ * suspended by a full refund or an open dispute, or paused" (lookupEntitlement answers null for all of them, by design: the same door). It
+ * must not be a dead end for the second kind of caller, and must not tell the first kind that they hold a subscription: so it says which
+ * callers the next step is for. Nothing is called on Stripe's side to produce it.
+ */
+export function subscriptionRequiredMessage(email: string = SITE.email): string {
+  return `An active GridForge Intelligence subscription is required. If you have one that is suspended (a full refund, an open dispute or a pause), write to ${email} from the address you signed in with.`;
+}
+
+/** What /account tells a visitor it shows no subscription for: the next step if theirs is suspended. Not a claim that they hold one. */
+export function suspendedAccessNote(email: string = SITE.email): string {
+  return `Already subscribed and seeing this? If your subscription is suspended (a full refund, an open dispute or a pause), write to ${email} from the address you signed in with: this page cannot open billing for it.`;
+}
 
 /** What a seat member is told on the account page: who manages billing. The owner's address is shown only where the page already shows it to members. */
 export function memberBillingNote(ownerEmail: string | null): string {

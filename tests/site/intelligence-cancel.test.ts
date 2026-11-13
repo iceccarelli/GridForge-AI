@@ -16,11 +16,16 @@ import fs from "node:fs";
 import path from "node:path";
 import React from "react";
 import { renderToStaticMarkup } from "react-dom/server";
-import { describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { IntelligenceClient } from "@/components/IntelligenceClient";
-import { IntelligenceManage, requestIntelligencePortal } from "@/components/IntelligenceManage";
+import { IntelligenceManage, SuspendedAccessNote, requestIntelligencePortal } from "@/components/IntelligenceManage";
 import Terms from "@/app/legal/terms/page";
 import { SITE } from "@/lib/site";
+import { lookupEntitlement } from "@/lib/subscribers";
+import { installWithAuth } from "./auth-fake";
+import { newPaygDb } from "./payg-harness";
+import { installTeamRpcs } from "./team-rpc-fake";
+import type { PostgrestFake } from "./postgrest-fake";
 import { openIntelligencePortal } from "@/lib/payg-client";
 import {
   HALL_WATCH_CANCEL_NOTE,
@@ -41,21 +46,24 @@ const noHeaders = async () => ({ authorization: "Bearer t" });
 const CANCEL_ANYTIME = /cancel(?:lation)?\s*(?:at\s*)?any\s*-?\s*time/i;
 
 describe("the one sentence on what cancelling does", () => {
-  it("says only what the code does: the owner cancels in Stripe's page; access ends when Stripe reports the subscription ended, for every seat; no reinstatement; nothing refunded automatically", () => {
-    const t = INTELLIGENCE_CANCEL_TERMS;
-    expect(t).toContain(`“${MANAGE_SUBSCRIPTION_LABEL}”`); // names the control by the constant the button renders
-    expect(t).toContain("The billing owner can cancel from the account page");
-    expect(t).toContain("Stripe's billing page");
-    expect(t).toContain("this site ends access only when Stripe reports the subscription as ended, for every seat on it");
-    expect(t).toContain("not reinstated");
-    expect(t).toContain("subscribing again is a new purchase");
-    expect(t).toContain("this site refunds nothing automatically when one ends");
+  it("names the control by the constant the button renders, and names the contact address for a suspended owner", () => {
+    expect(INTELLIGENCE_CANCEL_TERMS).toContain(`“${MANAGE_SUBSCRIPTION_LABEL}”`);
+    expect(INTELLIGENCE_CANCEL_TERMS).toContain(`write to ${SITE.email} from the address you signed in with`);
+    expect(INTELLIGENCE_CANCEL_TERMS).toContain("Stripe's billing page");
   });
 
-  it("promises nothing the code cannot establish: no timing, no period-end, no pro-rata, no money back", () => {
+  it("promises nothing the code cannot establish: no timing, no period-end, no pro-rata, no money back (a full refund appears only as a CAUSE of suspension)", () => {
     expect(INTELLIGENCE_CANCEL_TERMS).toContain("When the cancellation takes effect is Stripe's");
     expect(INTELLIGENCE_CANCEL_TERMS).not.toMatch(CANCEL_ANYTIME);
-    expect(INTELLIGENCE_CANCEL_TERMS).not.toMatch(/end of (?:the|your) (?:paid |billing )?(?:period|term|month)|immediately|at once|pro-?rat|money back|full refund|no questions/i);
+    expect(INTELLIGENCE_CANCEL_TERMS).not.toMatch(/end of (?:the|your) (?:paid |billing )?(?:period|term|month)|immediately|at once|pro-?rat|money back|no questions/i);
+    // "refund" is allowed in exactly two phrases: the cause ("a full refund") and the disclaimer ("refunds nothing automatically").
+    const rest = INTELLIGENCE_CANCEL_TERMS.replace("for a full refund,", "").replace("this site refunds nothing automatically when one ends", "");
+    expect(rest, "a refund promise").not.toMatch(/refund/i);
+  });
+
+  it("claims no reinstatement of a cancelled subscription and no automatic refund", () => {
+    expect(INTELLIGENCE_CANCEL_TERMS).toContain("An ended subscription is not reinstated (subscribing again is a new purchase)");
+    expect(INTELLIGENCE_CANCEL_TERMS).toContain("this site refunds nothing automatically when one ends");
   });
 
   it("is printed by the sales page", () => {
@@ -86,6 +94,114 @@ describe("the one sentence on what cancelling does", () => {
   });
 });
 
+/**
+ * The causes that end or suspend access are READ FROM THE CODE here (lib/billing-holds.ts, lib/subscribers.ts), not from the sentence: a sentence
+ * that is checked only against its own words cannot be wrong. A cause the code has and this test has no wording for fails; a cause the code has
+ * and the sentence does not name fails.
+ */
+describe("the sentence names every cause that ends or suspends access, derived from the code", () => {
+  const union = (src: string, re: RegExp): string[] => {
+    const m = re.exec(src);
+    if (!m) throw new Error(`could not read a union with ${re} (the code moved: update the test, do not skip it)`);
+    return [...m[1].matchAll(/"([a-z_]+)"/g)].map((x) => x[1]);
+  };
+  const holds = read("lib/billing-holds.ts");
+  const subs = read("lib/subscribers.ts");
+  /** The hold kinds: what takes PAID access away while the Stripe subscription goes on. */
+  const holdKinds = union(holds, /export type HoldKind = ([^;]+);/);
+  /** Every status a subscription row can have, and the extra one a hold writes. */
+  const rowStatuses = [...union(subs, /export type SubscriptionStatus = ([^;]+);/), ...union(holds, /status: SubscriptionRecord\["status"\] \| ("[a-z_]+"(?: \| "[a-z_]+")*)/)];
+  const entitling = union(subs, /const ENTITLING_STATUSES[^=]*=\s*new Set\(\[([^\]]+)\]\)/);
+  const nonEntitling = rowStatuses.filter((s) => !entitling.includes(s));
+
+  /** How the sentence names each cause. A cause the code gains must be given words HERE and in the sentence. */
+  const NAMED_BY: Record<string, RegExp> = {
+    cancelled: /ends access when Stripe reports the subscription as ended/,
+    superseded: /subscribing again is a new purchase/,
+    suspended: /suspends it for/,
+    refunded: /for a full refund/,
+    disputed: /an open dispute/,
+    paused: /a pause once the period already paid for is over/,
+  };
+
+  it("reads a meaningful set (the parse did not silently find nothing)", () => {
+    expect(holdKinds.sort()).toEqual(["disputed", "paused", "refunded"]);
+    expect(entitling.sort()).toEqual(["active", "past_due"]);
+    expect(nonEntitling.sort()).toEqual(["cancelled", "superseded", "suspended"]);
+  });
+
+  it("names each hold kind in lib/billing-holds.ts", () => {
+    for (const k of holdKinds) {
+      expect(NAMED_BY[k], `hold kind ${k}: the code suspends access for it, so the sentence must say so`).toBeDefined();
+      expect(INTELLIGENCE_CANCEL_TERMS, `hold kind ${k}`).toMatch(NAMED_BY[k]);
+    }
+  });
+
+  it("names each non-entitling status in lib/subscribers.ts / lib/billing-holds.ts", () => {
+    for (const s of nonEntitling) {
+      expect(NAMED_BY[s], `status ${s}: access ends or is suspended for it, so the sentence must say so`).toBeDefined();
+      expect(INTELLIGENCE_CANCEL_TERMS, `status ${s}`).toMatch(NAMED_BY[s]);
+    }
+  });
+
+  describe("and the access check really denies exactly those causes", () => {
+    let db: PostgrestFake;
+    let restore: () => void;
+    beforeEach(() => {
+      Object.assign(process.env, { SUPABASE_URL: "https://stub.supabase.co", SUPABASE_SERVICE_ROLE_KEY: "sb_secret_test" });
+      vi.spyOn(console, "error").mockImplementation(() => {});
+      db = newPaygDb();
+      installTeamRpcs(db);
+      restore = installWithAuth(db).restore;
+    });
+    afterEach(() => {
+      restore();
+      vi.restoreAllMocks();
+    });
+    const row = (over: Record<string, unknown>) =>
+      db.insertRow("subscriptions", { email: "o@team.example", plan: "team", status: "active", stripe_customer_id: "cus_o", stripe_subscription_id: "sub_o", stripe_session_id: "cs_o", ...over });
+    const entitled = async () => (await lookupEntitlement("o@team.example")).entitlement !== null;
+
+    it("every status the code entitles is entitled, every other status is not", async () => {
+      for (const s of [...entitling, ...nonEntitling]) {
+        db = newPaygDb();
+        installTeamRpcs(db);
+        restore();
+        restore = installWithAuth(db).restore;
+        row({ status: s });
+        expect(await entitled(), `status ${s}`).toBe(entitling.includes(s));
+      }
+    });
+
+    it("a pause whose paid period is over denies; one still ahead does not (the `paused` cause is the period, not the pause alone)", async () => {
+      row({ billing_pause_from: new Date(Date.now() + 5 * 86_400_000).toISOString() });
+      expect(await entitled(), "pause ahead").toBe(true);
+      db = newPaygDb();
+      installTeamRpcs(db);
+      restore();
+      restore = installWithAuth(db).restore;
+      row({ billing_pause_from: new Date(Date.now() - 86_400_000).toISOString() });
+      expect(await entitled(), "pause due").toBe(false);
+      expect(INTELLIGENCE_CANCEL_TERMS).toMatch(NAMED_BY.paused);
+    });
+  });
+});
+
+describe("/account, for a visitor it shows no subscription for", () => {
+  const src = read("app/account/page.tsx").replace(/\/\*[\s\S]*?\*\//g, "").replace(/(^|\s)\/\/.*$/gm, "$1");
+
+  it("names the next step for a suspended subscription, and does not print the owner's cancel sentence", () => {
+    const note = text(renderToStaticMarkup(React.createElement(SuspendedAccessNote)));
+    expect(note).toContain(`write to ${SITE.email} from the address you signed in with`);
+    expect(note).toMatch(/suspended/);
+    expect(note).not.toMatch(/can cancel from the account page/);
+    expect(note).not.toContain(MANAGE_SUBSCRIPTION_LABEL);
+    expect(src).toMatch(/function Gate\(\)[\s\S]*?<SuspendedAccessNote \/>[\s\S]*?\n}\n/);
+    // The sentence and the control exist only for `active && role`, never in the Gate.
+    expect(src).not.toContain("INTELLIGENCE_CANCEL_TERMS");
+  });
+});
+
 describe("the account page gives the BILLING OWNER the control", () => {
   const owner = () => renderToStaticMarkup(React.createElement(IntelligenceManage, { role: "owner", ownerEmail: null, authHeaders: noHeaders }));
 
@@ -102,7 +218,7 @@ describe("the account page gives the BILLING OWNER the control", () => {
 
   it("is wired into app/account/page.tsx for a subscriber with a role, with the page's own session headers", () => {
     const src = read("app/account/page.tsx");
-    expect(src).toContain('import { IntelligenceManage } from "@/components/IntelligenceManage"');
+    expect(src).toContain('import { IntelligenceManage, SuspendedAccessNote } from "@/components/IntelligenceManage"');
     expect(src).toMatch(/active && role && <IntelligenceManage role=\{role\} ownerEmail=\{ownerEmail\} authHeaders=\{authHeaders\} \/>/);
     expect(src).not.toMatch(CANCEL_ANYTIME);
   });

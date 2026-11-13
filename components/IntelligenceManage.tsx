@@ -1,7 +1,7 @@
 "use client";
 
 import React, { useEffect, useState } from "react";
-import { INTELLIGENCE_CANCEL_TERMS, MANAGE_SUBSCRIPTION_LABEL, memberBillingNote, portalUnavailableMessage } from "@/lib/subscription-manage";
+import { INTELLIGENCE_CANCEL_TERMS, MANAGE_SUBSCRIPTION_LABEL, memberBillingNote, portalUnavailableMessage, suspendedAccessNote } from "@/lib/subscription-manage";
 import { openIntelligencePortal, type ClientFailure, type FetchLike } from "@/lib/payg-client";
 
 /**
@@ -39,6 +39,19 @@ export async function requestIntelligencePortal(
   }
   const res = await openIntelligencePortal(auth, f);
   return res.ok ? { url: res.data.url } : { message: failureMessage(res) };
+}
+
+/**
+ * What /account says where it has no entitling subscription to show (the Gate): the page cannot tell "never subscribed" from "suspended by a
+ * full refund, an open dispute or a pause" (/api/subscription-status answers `active: false` for both), so it names the next step for the
+ * second kind of visitor and does NOT print the owner's cancel control or sentence, which exist only while access is on.
+ */
+export function SuspendedAccessNote() {
+  return (
+    <p className="mt-3 max-w-xl text-[13px] text-mute" data-testid="suspended-access-note">
+      {suspendedAccessNote()}
+    </p>
+  );
 }
 
 export function IntelligenceManage({

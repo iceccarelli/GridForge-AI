@@ -17,6 +17,7 @@ import { NextResponse } from "next/server";
 import { identify, identityRefusal } from "@/lib/portal";
 import { rpc } from "@/lib/pgrest";
 import { ensureNotification } from "@/lib/notifications";
+import { subscriptionRequiredMessage } from "@/lib/subscription-manage";
 import { inviteToken, hashInviteToken, isInviteToken } from "@/lib/team-token";
 import {
   lookupEntitlement,
@@ -104,7 +105,8 @@ export async function ownerContext(req: Request, words: OwnerRefusalWords = {}):
   if (!subscriptionsConfigured()) return deny(503, unavailable);
   const found = await lookupEntitlement(who.email);
   if (!found.reachable) return deny(503, unavailable);
-  if (!found.entitlement) return deny(402, "An active GridForge Intelligence subscription is required.");
+  // Not entitled covers "never subscribed" and "suspended by a refund, a dispute or a pause": the message names the next step for the second.
+  if (!found.entitlement) return deny(402, subscriptionRequiredMessage());
   if (found.entitlement.role !== "owner") return deny(403, words.notOwner ?? "Only the billing owner can manage seats.");
   return { ok: true, email: who.email, subscription: found.entitlement.subscription };
 }
@@ -133,7 +135,7 @@ export async function teamOverview(owner: string): Promise<Done<{ overview: Team
   const o = normaliseEmail(owner);
   const r = await rpc<OverviewRow | null>("gf_team_overview", { p_owner: o });
   if (!r.ok) return UNAVAILABLE;
-  if (!r.data) return fail(402, "An active GridForge Intelligence subscription is required.");
+  if (!r.data) return fail(402, subscriptionRequiredMessage());
   const d = r.data;
   const used = 1 + d.members.length;
   const reserved = d.invitations.length;
@@ -157,7 +159,7 @@ export async function teamOverview(owner: string): Promise<Done<{ overview: Team
 
 const INVITE_REFUSALS: Record<string, [number, string]> = {
   invalid_email: [400, "Enter a valid email address."],
-  no_subscription: [402, "An active GridForge Intelligence subscription is required."],
+  no_subscription: [402, subscriptionRequiredMessage()],
   is_owner: [400, "That is the billing owner's own address; the owner already holds a seat."],
   already_member: [409, "That person already has a seat."],
   already_invited: [409, "That person already has an open invitation. Revoke it first if you want to send a new one."],
