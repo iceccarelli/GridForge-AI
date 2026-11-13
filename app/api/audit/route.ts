@@ -7,6 +7,7 @@ import { leadSchema, scoreLead, parseCapacityMW, type LeadRecord } from "@/lib/l
 import { readBoundedJson } from "@/lib/http-body";
 import { PRODUCTS } from "@/lib/products";
 import { workingDays } from "@/lib/turnaround";
+import { plainLine, slackSafe } from "@/lib/untrusted-text";
 
 export const runtime = "nodejs";
 
@@ -146,15 +147,16 @@ async function notify(record: LeadRecord): Promise<void> {
     `Tier: ${record.tier.toUpperCase()}  (score ${record.score}/100)`,
     `Why: ${record.reasons.join("; ")}`,
     "",
-    `Name:     ${record.name}`,
-    `Company:  ${record.company}`,
-    `Email:    ${record.email}`,
-    `Location: ${record.location}`,
-    `Capacity: ${record.capacity}`,
+    // The desk reads these as text/plain. Each single-line field is kept to one inert line, so a line break in a name cannot forge another row.
+    `Name:     ${plainLine(record.name, 160)}`,
+    `Company:  ${plainLine(record.company, 160)}`,
+    `Email:    ${plainLine(record.email, 254)}`,
+    `Location: ${plainLine(record.location, 160)}`,
+    `Capacity: ${plainLine(record.capacity, 40)}`,
     `Timeline: ${record.urgency}`,
     `Grid:     ${record.gridStatus}`,
-    `Services: ${record.services.join(", ")}`,
-    `Source:   ${record.context}`,
+    `Services: ${plainLine(record.services.join(", "), 700)}`,
+    `Source:   ${plainLine(record.context, 80)}`,
     "",
     record.message,
   ].join("\n");
@@ -168,7 +170,8 @@ async function notify(record: LeadRecord): Promise<void> {
           from,
           to: to,
           replyTo: record.email,
-          subject: `[${record.tier.toUpperCase()}] Enquiry — ${record.company} (${record.capacity})`,
+          // One line, whatever the caller typed: a line break in the company name must not be able to add a header or a second subject line.
+          subject: `[${record.tier.toUpperCase()}] Enquiry — ${plainLine(record.company, 120)} (${plainLine(record.capacity, 40)})`,
           text: `New enquiry via timetopower.ai\n\n${lines}`,
         });
     } catch (err) {
@@ -203,7 +206,10 @@ async function notify(record: LeadRecord): Promise<void> {
             `Thank you for your request.\n\n` +
             `We received your submission.\n\n` +
             `${nextSteps}\n\n` +
-            `All information is held in strict confidence. An NDA is available immediately on request.\n\n` +
+            // What is true, and no more: the team reads it, and it is passed only to the processors named on the privacy page
+            // (which lists the mail provider and, when an operator has enabled them, Slack and Formspree). No retention period or
+            // storage location is promised here because none is implemented.
+            `Your submission is read by our team and shared only with the processors listed on our privacy page: ${siteUrl("/legal/privacy")}. An NDA is available immediately on request.\n\n` +
             `\u2014 Time to Power\nIndependent power-and-thermal engineering for existing AI sites`,
         });
     } catch (err) {
@@ -217,10 +223,12 @@ async function notify(record: LeadRecord): Promise<void> {
       await fetch(slack, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
+        // Every field below is text an anonymous caller typed, and Slack reads `<...>` in `text` as a control sequence
+        // (`<!channel>` pings the channel, `<https://x|label>` is a link the caller labels). Each one is escaped.
         body: JSON.stringify({
-          text: `🔥 *HOT lead* — ${record.company} (${record.capacity})\n${record.reasons.join(
-            "; "
-          )}\n${record.email} · ${record.location}`,
+          text: `🔥 *HOT lead* — ${slackSafe(record.company, 120)} (${slackSafe(record.capacity, 40)})\n${record.reasons
+            .map((r) => slackSafe(r, 160))
+            .join("; ")}\n${slackSafe(record.email, 254)} · ${slackSafe(record.location, 160)}`,
         }),
       });
     } catch (err) {

@@ -1,9 +1,12 @@
 // Lead model, validation schema, and scoring.
 //
 // NO LONGER A SELL SURFACE. This was the contract between the Power Audit form
-// and /api/audit. The form is gone and the audit route is closed to the public:
-// everything a visitor can press now commissions the Density Screen through
-// Stripe, because that is the only thing on this site that is actually for sale.
+// and /api/audit. The form is gone, but the audit route is NOT closed: it is open to
+// anyone who can POST to it, behind a per-caller rate limit (RATE_POLICIES.audit) and a
+// body cap, with no account. Treat everything it receives as text an anonymous caller
+// typed (lib/untrusted-text.ts). Everything a visitor can press now commissions the
+// Density Screen through Stripe, because that is the only thing on this site that is
+// actually for sale.
 //
 // What survives is enquiry classification for the scoping assistant, which still
 // wants to know whether the person it is talking to has a site or is browsing.

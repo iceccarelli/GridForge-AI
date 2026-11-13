@@ -5,6 +5,8 @@ import { getQualification, requestFollowUp, type StoredQualification } from "@/l
 import { PRODUCTS, eurFromCents } from "@/lib/products";
 import { siteUrl } from "@/lib/site";
 import { guardRequest, mailRecipientAllowed } from "@/lib/rate-limit";
+import { readBoundedJson } from "@/lib/http-body";
+import { plainLine } from "@/lib/untrusted-text";
 
 export const runtime = "nodejs";
 
@@ -21,6 +23,7 @@ export const runtime = "nodejs";
 // Idempotent by construction: `requestFollowUp` only flips the row the first time
 // it is called for a given token, so retries, double submits and two open tabs
 // all resolve to the same outcome and never produce a second email.
+const MAX_BODY_BYTES = 8 * 1024;
 const bodySchema = z.object({
   email: z.string().trim().email().max(200),
   note: z.string().trim().max(500).optional(),
@@ -29,12 +32,12 @@ const bodySchema = z.object({
 export async function POST(req: Request, ctx: { params: Promise<{ token: string }> }) {
   const { token } = await ctx.params;
 
-  let raw: unknown;
-  try {
-    raw = await req.json();
-  } catch {
-    return NextResponse.json({ ok: false, error: "Invalid payload" }, { status: 400 });
+  // An email and a 500-character note: a few hundred bytes. Capped before it is parsed, like the other open routes.
+  const read = await readBoundedJson(req, MAX_BODY_BYTES);
+  if (!read.ok) {
+    return NextResponse.json({ ok: false, error: read.status === 413 ? "That request is too large." : "Invalid payload" }, { status: read.status });
   }
+  const raw: unknown = read.value;
   const parsed = bodySchema.safeParse(raw);
   if (!parsed.success) {
     return NextResponse.json(
@@ -93,15 +96,17 @@ async function notifyDesk(
     console.log("[GridForge] follow-up requested (no email provider set); see the stored qualification");
     return;
   }
-  const where = [q.site_name, q.hall_id].filter(Boolean).join(" · ") || "Unnamed hall";
+  // Everything below that the visitor typed (hall name, metro, company, the note) is quoted as one inert plain-text line:
+  // no control characters (a line break could forge a header or a second "Read:" line), and no clickable link.
+  const where = plainLine([q.site_name, q.hall_id].filter(Boolean).join(" · "), 160) || "Unnamed hall";
   const lines = [
     `A qualified read asked for a follow-up.`,
     "",
-    `Hall:      ${where}${q.metro ? ` (${q.metro})` : ""}`,
-    `Company:   ${q.company ?? "not given"}`,
-    `As found:  ${q.racks_as_found ?? "?"} racks, bound by ${q.binding_constraint}`,
-    `Contact:   ${email}`,
-    note ? `Note:      ${note}` : null,
+    `Hall:      ${where}${q.metro ? ` (${plainLine(q.metro, 80)})` : ""}`,
+    `Company:   ${q.company ? plainLine(q.company, 160) : "not given"}`,
+    `As found:  ${q.racks_as_found ?? "?"} racks, bound by ${plainLine(q.binding_constraint, 120)}`,
+    `Contact:   ${plainLine(email, 200)}`,
+    note ? `Note:      ${plainLine(note, 500)}` : null,
     "",
     `Read: ${siteUrl(`/q/${token}`)}`,
   ].filter((l): l is string => l !== null);
@@ -130,11 +135,14 @@ async function acknowledgeBuyer(q: StoredQualification, token: string, email: st
   if (!key) return;
   // The address is whatever the caller typed: it is mailed only while that recipient is under its daily cap.
   if (!(await mailRecipientAllowed(email))) return;
-  const where = [q.site_name, q.hall_id].filter(Boolean).join(" · ") || "your hall";
   const screen = PRODUCTS.density_screen;
+  // Fixed wording. This mail goes to whatever address the caller typed, from the company's own sender, so it must not carry
+  // a word the caller chose: the hall's name and id are free text typed by whoever created the qualification, and quoting them
+  // here let anyone send a stranger text and links of their own. The racks figure and the binding constraint come from the
+  // engine's answer, not from the caller.
   const text =
     `Thank you — we have your request.\n\n` +
-    `Your read for ${where} showed ${q.racks_as_found ?? "an unspecified number of"} racks ` +
+    `Your read showed ${q.racks_as_found ?? "an unspecified number of"} racks ` +
     `deployable as found, bound first by ${q.binding_constraint}. ` +
     `We will look at that read ourselves; we make no promise about when we will reply.\n\n` +
     `That read is a free, directional indication. The next engineering step is the ` +

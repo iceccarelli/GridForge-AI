@@ -55,11 +55,17 @@ const SERVICES: { name: string; role: string; receives: string }[] = [
     receives:
       "The figures sent to the engine to be solved: the seven qualifier numbers and the platform, the intake of a paid engagement, and calls made with an API key or by an AI client over MCP. The engine's usage ledger records the account, endpoint, units, and the optional project label you send.",
   },
+  {
+    name: "Formspree",
+    role: "Form forwarding, only where an operator has switched it on for this deployment.",
+    receives:
+      "When it is on, each submission to the site's enquiry endpoint (/api/audit, which also receives the note recorded when a subscriber downloads a board brief) is also sent to Formspree: name, company, email, location, capacity, timeline, grid status, services, message, and the tier and score this site computes for the lead. When it is off, nothing is sent to Formspree. This page cannot show whether it is on for the deployment you are using.",
+  },
 ];
 
 export default function Privacy() {
   return (
-    <LegalShell title="Privacy" updated="October 2026">
+    <LegalShell title="Privacy" updated="November 2026">
       <p>
         This page describes, factually, what the Time to Power site does with the information you give it and which services
         it passes that information to. It is written from the site&apos;s own code. It is a draft for the operator&apos;s legal
