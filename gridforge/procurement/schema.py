@@ -247,7 +247,7 @@ def _section(d: dict, name: str, path: str = "") -> dict:
     number here was an AttributeError on `.items()`, which the HTTP layer reports as a 500 engine error for the caller's mistake."""
     raw = d.get(name) or {}
     if not isinstance(raw, dict):
-        raise ProcurementError(f"{_at(path, name)} must be an object, not {type(raw).__name__}")
+        raise ProcurementError(f"{_at(path, name)}: response field {name!r} must be an object, not {type(raw).__name__}")
     return raw
 
 
@@ -271,7 +271,7 @@ def _numeric(raw: dict, path: str = "") -> dict[str, float]:
             continue
         if isinstance(v, bool):
             raise ProcurementError(
-                f"{where} is {v!r}, a JSON boolean, which is not a number. A quotation figure must be a number. {_NOT_A_NUMBER}")
+                f"{where}: response field {k!r} is {v!r}, a JSON boolean, which is not a number. A quotation figure must be a number. {_NOT_A_NUMBER}")
         if isinstance(v, str):
             text = v.strip()
             try:
@@ -279,17 +279,17 @@ def _numeric(raw: dict, path: str = "") -> dict[str, float]:
                     raise ValueError(text)
                 num = float(text)
             except ValueError:
-                raise ProcurementError(f"{where} is {v!r}, which is not a number. {_NOT_A_NUMBER}") from None
+                raise ProcurementError(f"{where}: response field {k!r} is {v!r}, which is not a number. {_NOT_A_NUMBER}") from None
         elif isinstance(v, (int, float)):
             try:
                 num = float(v)
             except OverflowError:
-                raise ProcurementError(f"{where} is too large: a quotation figure must be a finite number.") from None
+                raise ProcurementError(f"{where}: response field {k!r} is too large: a quotation figure must be a finite number.") from None
         else:
-            raise ProcurementError(f"{where} is a {type(v).__name__}, which is not a number. {_NOT_A_NUMBER}")
+            raise ProcurementError(f"{where}: response field {k!r} is a {type(v).__name__}, which is not a number. {_NOT_A_NUMBER}")
         if not math.isfinite(num):
             raise ProcurementError(
-                f"{where} is {v!r}: a quotation figure must be a finite number.")
+                f"{where}: response field {k!r} is {v!r}: a quotation figure must be a finite number.")
         out[str(k)] = num
     return out
 
@@ -328,7 +328,7 @@ class SupplierResponse:
         """Read one response. ``path`` is where it sits in the request (``responses[1]``): every refusal names the field to fix by that path."""
         if not isinstance(d, dict):
             raise ProcurementError(
-                f"{path or 'a response'} must be an object, not {type(d).__name__}")
+                f"{path + ': ' if path else ''}a response must be an object, not {type(d).__name__}")
         if not d.get("supplier"):
             raise ProcurementError(f"{_at(path, 'supplier')}: a response must name the supplier")
         if not d.get("received_on"):
