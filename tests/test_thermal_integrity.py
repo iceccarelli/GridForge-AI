@@ -756,3 +756,19 @@ class TestMetamorphicProperties:
                 if 0 < _racks(it, sid) < math.inf:
                     limited += 1
         assert limited >= 10, (name, limited)
+
+
+def test_the_water_gate_basis_shows_the_dry_bulb_plus_the_assumed_approach():
+    """The full-DLC water gate reads 'dry coolers at design dry-bulb (26 degC) plus an approach of 10 K (E0)': the 10 K is an assumption and the
+    reader sees where the achievable temperature comes from (second-pass numerics audit N8)."""
+    import json
+    from pathlib import Path
+    from gridforge.intake.loader import load
+    from gridforge.scenario import run_all
+    root = Path(__file__).resolve().parents[1]
+    intake = load(root / "examples" / "intake" / "dublin_hall.json")
+    results = run_all(intake.context, intake.scenarios)
+    bases = [c.basis for r in results if r.spec.id == "full_dlc" for c in r.envelope.constraints if c.id == "tcs_supply_achievable"]
+    assert bases, "dublin_hall must run full_dlc"
+    for b in bases:
+        assert "dry coolers at design dry-bulb (" in b and "plus an approach of 10 K (E0)" in b, b

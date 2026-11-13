@@ -125,7 +125,12 @@ def facility_water_supply(ctx: EnvelopeContext) -> FacilityWaterSupply:
         water = (ctx.site.design_drybulb_C + t.plant.dry_cooler_approach_K).relabel(
             "facility water temperature achievable by dry coolers at design dry bulb",
             "thermal.dry_cooler_fws", step_evidence=SIMULATED)
-        return FacilityWaterSupply(water, "dry_coolers", "dry coolers at design dry-bulb")
+        # Say the sum, not only its result: the approach is an ASSUMPTION when the client did not supply it (default 10 K, E0), and a reader
+        # of "36 degC" must be able to see that 26 degC of it is the site's dry bulb and 10 K is an approach nobody measured.
+        appr = t.plant.dry_cooler_approach_K
+        return FacilityWaterSupply(
+            water, "dry_coolers",
+            f"dry coolers at design dry-bulb ({ctx.site.design_drybulb_C.value:g} degC) plus an approach of {appr.value:g} K ({appr.evidence.short})")
     return FacilityWaterSupply(t.plant.design_supply_C, "existing_plant", "existing chilled-water plant")
 
 
