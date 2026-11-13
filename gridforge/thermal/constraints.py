@@ -217,18 +217,23 @@ def cdu_capacity(ctx: EnvelopeContext) -> ConstraintResult:
     notes = ("TCS water quality per OCP: conductivity <1500 uS/cm, pH 8.0-10.5, 50 um inline "
              "filtration, sidestream <5 um at 10% of flow.",)
 
-    # No approach at all on dry-cooler water that the gate has already refused. Adding CDU units cannot help (0 x n = 0) and the two
-    # zero-rack constraints tie, so the first in evaluation order would be "binding" and the ladder would end at zero racks with the
-    # trim chiller that relieves BOTH never reached. The gate holds the hall at zero and owns the relief; the CDU is assessed once the
-    # water is. (The relief stays on this row: the assumed CDU kit's lead time is read from it.)
-    if (fws.source == "dry_coolers" and available_approach.value <= 0
+    # Dry-cooler water that the gate has already refused, and a CDU row that comes to zero whole racks as well (no approach at all, OR so
+    # little that the derated duty rounds to nothing: a few tenths of a kelvin below the TCS target leaves duty for no rack). Adding CDU units
+    # cannot help while the water is too warm (0 x n = 0) and the two zero-rack constraints tie, so the first in evaluation order would be
+    # "binding" and the ladder would end at zero racks with the trim chiller that relieves BOTH never reached. The gate holds the hall at zero
+    # and owns the relief; the CDU is assessed once the water is. (The relief stays on this row: the assumed CDU kit's lead time is read from
+    # it.) The test is the TIE, not "approach <= 0": the earlier test left a window just below the target where the CDU row floored to zero,
+    # won the tie, and the ladder stalled at zero racks (review R1).
+    if (fws.source == "dry_coolers" and _floor(racks.value) < 1
             and not leq(fws_supply.value, _required_fws(t).value)):
         return ConstraintResult(
             "cdu_capacity", "thermal", "CDU capacity (derated to site water temperature)",
             V(float("inf"), "racks", "CDU capacity: not assessed until the water-temperature gate is relieved", ESTIMATED),
-            basis=(f"not assessed here: the facility water the dry coolers can supply ({fws_supply.render()}) is at or above the TCS "
-                   f"target ({t.tcs_target_supply_C.render()}), so a CDU has no approach to work with, and the water-temperature gate "
-                   f"(tcs_supply_achievable) already holds this hall at zero racks. CDU capacity is assessed once that gate is relieved"),
+            basis=(f"not assessed here: the facility water the dry coolers can supply ({fws_supply.render()}) leaves a CDU "
+                   f"{'no' if available_approach.value <= 0 else 'too little'} approach against the TCS target "
+                   f"({t.tcs_target_supply_C.render()}) to carry a rack ({available_approach.value:g} K available), and the "
+                   f"water-temperature gate (tcs_supply_achievable) already holds this hall at zero racks. CDU capacity is assessed once "
+                   f"that gate is relieved"),
             relief=relief, notes=notes)
     return ConstraintResult(
         "cdu_capacity", "thermal", "CDU capacity (derated to site water temperature)",
