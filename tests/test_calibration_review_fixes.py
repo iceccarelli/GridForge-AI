@@ -158,6 +158,13 @@ def test_a_version_label_that_names_no_build_is_unrecorded_not_the_one_build_rec
     assert pub_mv["headline_build"] == "unrecorded" and "one build recorded" not in json.dumps(pub_mv)
 
 
+def test_the_api_registers_its_version_label_so_records_made_against_it_are_recognised():
+    from gridforge.api import server
+    from gridforge.calibration import publication
+    assert publication.build_relation(server.VERSION) == "running" and publication.build_relation("0.0.1-other") == "other"
+    assert publication.build_relation(publication.running_build_ids()[-1]) == "running", "and the sha256 of the engine's own code"
+
+
 # ---------------------------------------------------------------------------------------------------------------- R8
 
 def test_published_figures_come_only_from_readings_that_count():

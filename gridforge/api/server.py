@@ -124,6 +124,8 @@ from .tiers import Tier, redact
 from .tools import PROTOCOL_VERSION, TOOLS_BY_NAME, catalogue, mcp_tools
 
 VERSION = "0.9.0"
+from ..calibration import publication as _calibration_publication  # noqa: E402
+_calibration_publication.register_running_build(VERSION)     # a calibration record made against this label is a record of the build answering
 MAX_BODY_BYTES = 512 * 1024
 RATE_LIMIT_PER_MINUTE = int(os.environ.get("GRIDFORGE_RATE_LIMIT", "30"))
 #: GET routes that cost almost nothing and are the first thing a health check, a directory or an agent reads: they are not charged to the main
