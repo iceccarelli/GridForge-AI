@@ -528,7 +528,8 @@ def _equipment_list(items, section: str, report: "IntakeReport | None" = None) -
     if items is None:
         return []
     if not isinstance(items, list):
-        raise IntakeError(f"{section} must be a list of objects, not {type(items).__name__}")
+        raise IntakeError(f"{section} must be a list of objects, not {type(items).__name__}. Leave it out, or send null or [], to declare none: "
+                          f"only a list is a declaration (0, false, \"\" and {{}} used to be read as an empty list and counted as supplied)")
     if len(items) > MAX_EQUIPMENT_ITEMS:
         raise IntakeError(f"{section} lists {len(items)} items, more than the {MAX_EQUIPMENT_ITEMS} one request may carry. Identical units "
                           "are one item with `units`; split a campus into one request per hall")
@@ -585,6 +586,8 @@ def _refuse_repeated_ids(items, section: str) -> None:
 #: REQUIRED ones: omitted, a 2N bank was read as N+1 and gave 29 racks where 4 were declared, and the intake still counted as 100% complete.
 DEFAULT_BANK_UNITS = 2
 DEFAULT_BANK_REDUNDANCY = "N+1"
+#: A CDU entry that omits `units` is one CDU (its long-standing default; transformers and UPS default to two).
+DEFAULT_CDU_UNITS = 1
 DEFAULT_TRANSFORMER_DERATING = 0.9
 DEFAULT_UPS_STEP_LOAD = 0.5
 
@@ -605,28 +608,32 @@ def _item_ref(item: dict, n: int) -> str:
 
 
 def _bank_gaps(section: str, n: int, item: dict) -> list[DataGap]:
-    """Named gaps for what the author of a transformer bank or UPS block left out: `units` and `redundancy` are REQUIRED (they set the usable capacity
+    """Named gaps for what the author of a transformer bank, UPS block or CDU bank left out: `units` and `redundancy` are REQUIRED (they set the usable capacity
     outright), the transformer's `derating_factor` and the UPS's `step_load_capability` are optional (a labelled library default, E0). A key present
     with a bad value is refused by the number parser, not listed here: this is only about what was not said."""
-    ups = section == "ups"
-    noun = "UPS block" if ups else "Transformer bank"
+    ups, cdu = section == "ups", section == "thermal.cdus"
+    noun = "UPS block" if ups else ("CDU bank" if cdu else "Transformer bank")
     parts = "modules" if ups else "units"
+    part = "module" if ups else "unit"
+    default_units = DEFAULT_CDU_UNITS if cdu else DEFAULT_BANK_UNITS
     ref = _item_ref(item, n)
     who = ref if item.get("id") is not None else f"{section}[{n}]"
     out: list[DataGap] = []
     if "units" not in item:
         out.append(DataGap(
             path=f"{section}[{ref}].units", label=f"{noun} {who}: number of {parts}", unit="units", required=True,
-            fallback_description=(f"nobody declared it: {DEFAULT_BANK_UNITS} {parts} are assumed (E0), the engine's default, not a count from your drawings"),
-            why_it_binds=(f"usable capacity is the {parts} left after the redundancy reserve times the {'module' if ups else 'unit'} rating: the same rating is a "
+            fallback_description=(f"nobody declared it: {default_units} {part if default_units == 1 else parts} {'is' if default_units == 1 else 'are'} "
+                                  f"assumed (E0), the engine's default, not a count from your drawings"),
+            why_it_binds=(f"usable capacity is the {parts} left after the redundancy reserve times the {part} rating: the same rating is a "
                           f"different {'block' if ups else 'bank'} at 2 {parts} and at 6, and so permits a different number of racks"),
             how_to_get_it=("The UPS schedule or single-line diagram: how many identical modules make up the block" if ups else
+                           "The CDU nameplates and the mechanical single-line diagram: how many identical CDUs make up the bank" if cdu else
                            "The single-line diagram or the transformer nameplates: how many identical units make up the bank")))
     if "redundancy" not in item:
         out.append(DataGap(
             path=f"{section}[{ref}].redundancy", label=f"{noun} {who}: redundancy scheme", unit="-", required=True,
-            fallback_description=(f"nobody declared it: {DEFAULT_BANK_REDUNDANCY} is assumed (E0), one {'module' if ups else 'unit'} held in reserve"),
-            why_it_binds=(f"N+1 holds one {'module' if ups else 'unit'} back, 2N holds half and N holds none: the same four {parts} are 3, 2 or 4 usable. "
+            fallback_description=(f"nobody declared it: {DEFAULT_BANK_REDUNDANCY} is assumed (E0), one {part} held in reserve"),
+            why_it_binds=(f"N+1 holds one {part} back, 2N holds half and N holds none: the same four {parts} are 3, 2 or 4 usable. "
                           f"An omitted scheme was read as N+1, which overstates a 2N {'block' if ups else 'bank'} (and understates an N one)"),
             how_to_get_it="The resilience design or the single-line diagram: N, N+1, N+2 or 2N"))
     if ups and "step_load_capability" not in item:
@@ -636,7 +643,7 @@ def _bank_gaps(section: str, n: int, item: dict) -> list[DataGap]:
                                   f"as an instantaneous step"),
             why_it_binds="GPU racks present step loads; the share of its rating a UPS accepts at once decides whether it rides one through",
             how_to_get_it="The UPS datasheet: the instantaneous step-load acceptance, as a fraction of rating"))
-    if not ups and "derating_factor" not in item:
+    if not ups and not cdu and "derating_factor" not in item:
         out.append(DataGap(
             path=f"{section}[{ref}].derating_factor", label=f"{noun} {who}: derating factor", unit="-", required=False,
             fallback_description=(f"nobody declared it: {DEFAULT_TRANSFORMER_DERATING:g} is assumed (E0), band 0.85-0.95, as the share of nameplate usable"),
@@ -1170,7 +1177,7 @@ def _load_document(doc: dict) -> Intake:
 
     transformers = []
     equipment_gaps: list[DataGap] = []          # per-item gaps for what an equipment list left out; appended after the long-standing rows (below)
-    tx_items = _equipment_list(r.raw("transformers", [], gap_text=UNASSESSED_BANK_TEXT) or [], "transformers", r.report)
+    tx_items = _equipment_list(r.raw("transformers", [], gap_text=UNASSESSED_BANK_TEXT), "transformers", r.report)
     for n, t in enumerate(tx_items):
         equipment_gaps.extend(_bank_gaps("transformers", n, t))
         transformers.append(TransformerBank(
@@ -1200,7 +1207,7 @@ def _load_document(doc: dict) -> Intake:
     else:
         report.supplied.append(lead_path)
     ups = []
-    ups_items = _equipment_list(r.raw("ups", [], gap_text=UNASSESSED_BANK_TEXT) or [], "ups", r.report)
+    ups_items = _equipment_list(r.raw("ups", [], gap_text=UNASSESSED_BANK_TEXT), "ups", r.report)
     for n, u in enumerate(ups_items):
         equipment_gaps.extend(_bank_gaps("ups", n, u))
         ups.append(UPSBlock(
@@ -1215,7 +1222,7 @@ def _load_document(doc: dict) -> Intake:
         ))
 
     options = []
-    btm_items = _equipment_list(r.raw("btm_options", []) or [], "btm_options", r.report)
+    btm_items = _equipment_list(r.raw("btm_options", []), "btm_options", r.report)
     for o in btm_items:
         opt = GenerationOption(
             id=str(o.get("id", o.get("kind", "BTM"))),
@@ -1362,13 +1369,14 @@ def _load_document(doc: dict) -> Intake:
 
     cdus = []
     approach_omitted = flow_omitted = False
-    for c in _equipment_list(r.raw("thermal.cdus", [], gap_text=ASSUMED_CDU_KIT_TEXT) or [], "thermal.cdus"):
+    for c in _equipment_list(r.raw("thermal.cdus", [], gap_text=ASSUMED_CDU_KIT_TEXT), "thermal.cdus"):
         approach_given, flow_given = "rated_approach_K" in c, "rated_flow_l_per_min" in c
         approach_omitted, flow_omitted = approach_omitted or not approach_given, flow_omitted or not flow_given
         approach = _pos_max(c.get("rated_approach_K", 5), "thermal.cdus.rated_approach_K", "rated_approach_K", "K")
         problem = thermal_inputs.approach_problem(f"thermal.cdus.rated_approach_K ({c.get('id', 'CDU')})", approach) if approach_given else None
         if problem:
             raise IntakeError(problem)
+        equipment_gaps.extend(_bank_gaps("thermal.cdus", len(cdus), c))
         cdus.append(CDUSpec(
             id=str(c.get("id", "CDU")),
             rated_capacity_kW=V(_pos_max(c["rated_capacity_kW"], "thermal.cdus.rated_capacity_kW", "rated_capacity_kW", "kW"), "kW",
@@ -1377,9 +1385,11 @@ def _load_document(doc: dict) -> Intake:
             rated_approach_K=V(approach, "K", f"{c.get('id','CDU')} rated approach", CUSTOMER if approach_given else ASSUMED),
             rated_flow_l_per_min=V(_pos_max(c.get("rated_flow_l_per_min", 2000), "thermal.cdus.rated_flow_l_per_min", "rated_flow_l_per_min", "l/min"),
                                    "l/min", f"{c.get('id','CDU')} rated flow", CUSTOMER if flow_given else ASSUMED),
-            units=_int_max(c.get("units", 1), "thermal.cdus.units", "CDU units"),
-            redundancy=_redundancy(c.get("redundancy", "N+1"), "CDU"),
+            units=_int_max(c.get("units", DEFAULT_CDU_UNITS), "thermal.cdus.units", "CDU units"),
+            redundancy=_redundancy(c.get("redundancy", DEFAULT_BANK_REDUNDANCY), "CDU"),
             rated_flow_declared=flow_given,
+            units_declared="units" in c,
+            redundancy_declared="redundancy" in c,
         ))
     if cdus:
         for cdu_path, omitted, fallback in (

@@ -308,8 +308,15 @@ class IntakeReport:
     @property
     def engagement_recommendation(self) -> str:
         if self.can_issue:
-            return ("The intake is complete. This supports a full Capacity & Density Envelope Study "
-                    "with site-specific conclusions.")
+            if not self.gaps:
+                return ("The intake is complete. This supports a full Capacity & Density Envelope Study "
+                        "with site-specific conclusions.")
+            # "Complete" is reserved for a document with no gap at all: the screen printed "Intake completeness is 90%" and then "The intake is
+            # complete" beside the optional rows still assumed.
+            n = len(self.gaps)
+            return (f"No required inputs are missing, so this supports a full Capacity & Density Envelope Study, but the intake is not complete: "
+                    f"{n} optional input{'s are' if n != 1 else ' is'} still {'assumptions' if n != 1 else 'an assumption'} (listed in the data request), "
+                    f"and the study names each one.")
         if len(self.required_gaps) <= 3:
             return (f"{len(self.required_gaps)} required inputs missing. Request them before "
                     "starting; the study can proceed in parallel on everything else.")

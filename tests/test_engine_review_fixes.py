@@ -90,7 +90,9 @@ def test_the_procurement_specification_states_the_same_rating_the_model_tested()
     assert round(need.value) == 394
     from gridforge.procurement.build import _tapoff
     reqs = _tapoff(intake.context, 5)
-    assert round(reqs[0].value.value) == 394
+    # E-01 is a "not less than" rating, so the specification states the model's tested current ROUNDED UP to the 3 significant figures it prints
+    # (tests/test_intake_integrity_review.py R6): 394.x A is stated as 395 A. It used to be rounded to nearest (394) and could print under the exact need.
+    assert need.value <= reqs[0].value.value <= need.value + 1 and round(reqs[0].value.value) == 395
 
 
 # ---- 3. a supplied lead time carries a range around itself ----------------------------------------------------------------------

@@ -75,6 +75,28 @@ def _q(value: float, unit: str, label: str, model: str, inputs: Iterable[Quantit
     return Quantity(float(value), unit, Provenance.derive(label, model, ins, step_evidence=ceiling), float(value), float(value))
 
 
+def _ceil_sig(x: float, n: int) -> float:
+    """`x` rounded UP to `n` significant figures (the precision `Quantity.render` prints it at)."""
+    if not math.isfinite(x) or x <= 0:
+        return x
+    unit = 10.0 ** (math.floor(math.log10(x)) - n + 1)
+    return round(math.ceil(x / unit - 1e-9) * unit, 12)
+
+
+def _floor(q: Quantity | None) -> Quantity | None:
+    """A "not less than" requirement value, rounded UP to the precision it is printed at, and stored as that figure so the printed number and the
+    value agree. `Quantity.render` rounds to NEAREST, so a minimum could print up to 0.5% under what the engine sized it for (T-20 = 531 kW for an exact
+    531.4: the plant it asked for then reached 68 racks, not the 69 it was sized for). Applied per requirement, to the clauses that say "not less
+    than" only: a stated CONDITION (a water temperature, an approach, a head) or a count is not a floor, and rounding an approach up would overstate it."""
+    if q is None:
+        return None
+    v = _ceil_sig(q.value, q.sigfigs())
+    if v == q.value:
+        return q
+    lo, hi = q.band
+    return replace(q, value=v, lo=min(lo, v), hi=max(hi, v))
+
+
 def _count(n: int, ev: EvidenceClass = SPEC_CEILING) -> Quantity:
     """The rack count the duties are sized for, as an input. Its class is that of the rack count the capacity model reached
     (the weakest constraint behind it), capped at the engineering-estimate ceiling."""
@@ -135,7 +157,7 @@ def _tapoff(ctx: EnvelopeContext, racks: int, count_ev: EvidenceClass = SPEC_CEI
             statement=(f"Each rack tap-off unit shall be rated for continuous operation at "
                        f"not less than the rack feed current stated in the response "
                        f"schedule, at the busway voltage and the hall's design ambient."),
-            value=need_A, unit="A", derived_from="rack_feed_tapoff",
+            value=_floor(need_A), unit="A", derived_from="rack_feed_tapoff",
             basis=(f"{plat.name} draws {need_A.render() if need_A else 'the stated current'} "
                    f"per rack; the installed tap-offs are rated "
                    f"{lv.tapoff_max_A.render()}."),
@@ -184,8 +206,8 @@ def _busway(ctx: EnvelopeContext, racks: int, count_ev: EvidenceClass = SPEC_CEI
             statement=("Each busway run shall have a continuous ampacity not less than the "
                        "figure stated, at the hall's design ambient and installed "
                        "configuration."),
-            value=_q(required, "A", "required busway ampacity per run", "spec.busway_ampacity",
-                     [plat.rack_kW, lv.voltage_V, lv.busway_utilisation_limit, _count(racks, count_ev)]),
+            value=_floor(_q(required, "A", "required busway ampacity per run", "spec.busway_ampacity",
+                            [plat.rack_kW, lv.voltage_V, lv.busway_utilisation_limit, _count(racks, count_ev)])),
             unit="A", derived_from="busway_ampacity",
             basis=(f"{racks} racks at {plat.rack_kW.render()} over {per_run} run(s) at "
                    f"{lv.voltage_V.render()}, three phase, power factor 0.95, derated to "
@@ -221,8 +243,8 @@ def _transformer(ctx: EnvelopeContext, racks: int, count_ev: EvidenceClass = SPE
             id="E-20", clause="Transformer rating",
             statement=("Transformer capacity shall be not less than the figure stated, after "
                        "the site's derating policy and at the specified redundancy."),
-            value=_q(mva, "MVA", "required transformer capacity", "spec.transformer_rating",
-                     [plat.rack_kW, pue, _count(racks, count_ev)]),
+            value=_floor(_q(mva, "MVA", "required transformer capacity", "spec.transformer_rating",
+                            [plat.rack_kW, pue, _count(racks, count_ev)])),
             unit="MVA", derived_from="transformer_capacity",
             basis=(f"{racks} racks at {plat.rack_kW.render()}, PUE {pue.render()}, power "
                    f"factor 0.95. Site derating {derate}."),
@@ -263,8 +285,8 @@ def _ups(ctx: EnvelopeContext, racks: int, count_ev: EvidenceClass = SPEC_CEILIN
         Requirement(
             id="E-30", clause="Protected capacity",
             statement="Additional protected capacity shall be not less than the figure stated.",
-            value=_q(kW, "kW", "additional protected load", "spec.ups_capacity",
-                     [plat.rack_kW, _count(racks, count_ev)]),
+            value=_floor(_q(kW, "kW", "additional protected load", "spec.ups_capacity",
+                            [plat.rack_kW, _count(racks, count_ev)])),
             unit="kW", derived_from="ups_capacity",
             basis=f"{racks} racks at {plat.rack_kW.render()}.",
             verification="Rating and factory test certificate."),
@@ -325,7 +347,7 @@ def _cdu(ctx: EnvelopeContext, racks: int, count_ev: EvidenceClass = SPEC_CEILIN
             statement=("CDU duty shall be not less than the figure stated WHEN RATED AT THE "
                        "SITE FACILITY WATER TEMPERATURE below, not at the manufacturer's "
                        "reference approach."),
-            value=_q(duty.value, "kW", "required CDU duty at site conditions", "spec.cdu_duty", [duty]),
+            value=_floor(_q(duty.value, "kW", "required CDU duty at site conditions", "spec.cdu_duty", [duty])),
             unit="kW", derived_from="cdu_capacity",
             basis=(f"{racks} racks at {plat.liquid_kW().render()} liquid load per rack. Rated with facility water supplied "
                    f"at {fws_t.render()} ({fws.mechanism}); the design operating point of the technology loop is the TCS "
@@ -346,7 +368,7 @@ def _cdu(ctx: EnvelopeContext, racks: int, count_ev: EvidenceClass = SPEC_CEILIN
         Requirement(
             id="T-03", clause="Technology loop flow",
             statement="Technology-side flow shall be not less than the figure stated.",
-            value=_q(flow.value, "l/min", "required technology loop flow", "spec.tcs_flow", [flow]),
+            value=_floor(_q(flow.value, "l/min", "required technology loop flow", "spec.tcs_flow", [flow])),
             unit="l/min", derived_from="cdu_capacity",
             basis=f"{racks} racks at {plat.flow_l_per_min_per_rack.render()}.",
             verification="Pump curve and duty point."),
@@ -447,7 +469,7 @@ def _plant(ctx: EnvelopeContext, racks: int, count_ev: EvidenceClass = SPEC_CEIL
             statement=("Additional chilled-water plant capacity, over and above the installed plant, shall be not less than "
                        f"the figure stated, which is the plant load of {racks} racks ({load_text}) less the existing plant "
                        f"headroom ({headroom.render(with_band=False)})."),
-            value=value, unit="kW", derived_from="plant_capacity",
+            value=_floor(value), unit="kW", derived_from="plant_capacity",
             basis=(f"Load for {racks} racks: {racks} x {per_rack.render()} per rack = {load_text} on the existing plant, "
                    f"{route}.{scope_note} Existing plant headroom: {headroom_text}. {result_text} {limit_text}"),
             verification="Selection output at site design ambient."),
@@ -477,7 +499,7 @@ def _hydraulic(ctx: EnvelopeContext, racks: int, count_ev: EvidenceClass = SPEC_
         Requirement(
             id="T-40", clause="Pumped flow",
             statement="Available pumped flow shall be not less than the figure stated.",
-            value=_q(flow.value, "l/min", "required pumped flow", "spec.pumped_flow", [flow]),
+            value=_floor(_q(flow.value, "l/min", "required pumped flow", "spec.pumped_flow", [flow])),
             unit="l/min", derived_from="hydraulic_flow",
             basis=(f"{racks} racks at {plat.flow_l_per_min_per_rack.render()}. Installed "
                    f"capacity {plant.pump_flow_capacity_l_per_min.render()} at "
@@ -675,11 +697,20 @@ def site_conditions(intake, ctx: EnvelopeContext) -> list[SiteCondition]:
                 text=f"{b.redundancy} on {b.units} units"))
     for c in ctx.thermal.cdus:
         n += 1
-        rows.append(SiteCondition(
-            f"SC-{n}", f"Redundancy, CDU bank {c.id}", SC_SUPPLIED if c.installed else SC_ASSUMED,
-            "as declared in the CDU schedule" if c.installed else
-            f"not supplied: no CDU schedule; the model assumed {c.units} units at {c.redundancy} (E0)",
-            text=f"{c.redundancy} on {c.units} units"))
+        # An installed CDU is the client's, but only what the client WROTE is supplied: a bank whose units or redundancy were left out is read at the
+        # library default (1 unit, N+1) and must say so, as the transformer and UPS rows do.
+        assumed = []
+        if not c.units_declared:
+            assumed.append(f"assumed {c.units} unit(s)")
+        if not c.redundancy_declared:
+            assumed.append(f"assumed {c.redundancy}")
+        if not c.installed:
+            status, stmt = SC_ASSUMED, f"not supplied: no CDU schedule; the model assumed {c.units} units at {c.redundancy} (E0)"
+        elif assumed:
+            status, stmt = SC_ASSUMED, f"not supplied: {' and '.join(assumed)} (E0); the rest as declared in the CDU schedule"
+        else:
+            status, stmt = SC_SUPPLIED, "as declared in the CDU schedule"
+        rows.append(SiteCondition(f"SC-{n}", f"Redundancy, CDU bank {c.id}", status, stmt, text=f"{c.redundancy} on {c.units} units"))
     return rows
 
 
