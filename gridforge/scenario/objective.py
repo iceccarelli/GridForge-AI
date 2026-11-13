@@ -9,6 +9,7 @@ from dataclasses import dataclass
 from enum import Enum
 
 from ..numerics import leq
+from ..thermal.schema import Architecture
 from .run import ScenarioResult
 
 
@@ -47,8 +48,8 @@ class Recommendation:
     ``pick_with_reason``), and ``note`` says so in the words a reader is shown."""
     result: ScenarioResult
     tied_with: tuple[str, ...] = ()
-    #: "" (no tie), "behind_the_meter" (the tied scenarios differ in behind-the-meter equipment: the one without won) or "scenario_id"
-    #: (they do not differ in it: the first by scenario id won).
+    #: "" (no tie), "behind_the_meter" (the tied scenarios differ in behind-the-meter equipment: the one with least won), "architecture"
+    #: (they do not differ in it but differ in architecture: the simpler won) or "scenario_id" (they differ in neither: the first by id won).
     decided_by: str = ""
     note: str = ""
 
@@ -70,6 +71,16 @@ def _btm_dependence(r) -> int:
     return 1 if options else 0
 
 
+_ARCHITECTURE_ORDER = tuple(Architecture)         # retained air, rear door, hybrid DLC, full DLC: the order of what has to be built
+
+
+def _architecture_rank(r) -> int:
+    """How much cooling has to be built: 0 retained air, 1 rear door, 2 hybrid DLC, 3 full DLC. A result with no architecture (a bare stand-in)
+    ranks 0, so the choice falls through to the scenario id."""
+    arch = getattr(getattr(r, "spec", None), "architecture", None)
+    return _ARCHITECTURE_ORDER.index(arch) if arch in _ARCHITECTURE_ORDER else 0
+
+
 def _cmp(a: tuple, b: tuple) -> int:
     """-1, 0 or 1 comparing two keys term by term; two floats within ``numerics.LIMIT_REL_TOL`` of each other are level (a capex or a date that
     differs by the rounding of a sum is not a difference), anything else is compared exactly."""
@@ -89,16 +100,20 @@ def _tie_sentence(chosen_id: str, tied: list[str], objective: Objective, decided
     if decided_by == "behind_the_meter":
         return (f"Tied with {others} on {objective.value}; chose the one without behind-the-meter equipment ({chosen_id}). "
                 f"The objective could not separate them.")
-    return (f"Tied with {others} on {objective.value}, and none of them differs in behind-the-meter equipment; chose {chosen_id}, "
-            f"the first by scenario id. The objective could not separate them.")
+    if decided_by == "architecture":
+        return (f"Tied with {others} on {objective.value}, and none of them differs in behind-the-meter equipment; chose {chosen_id}, "
+                f"the simplest cooling architecture of them. The objective could not separate them.")
+    return (f"Tied with {others} on {objective.value}, and none of them differs in behind-the-meter equipment or architecture; chose "
+            f"{chosen_id}, the first by scenario id. The objective could not separate them.")
 
 
 def pick_with_reason(results: list[ScenarioResult], objective: Objective = Objective.MAX_COMPUTE) -> Recommendation:
     """The scenario ``objective`` selects, and a statement of any tie that decided it.
 
     The ranking is the objective's own (below). Scenarios it ranks LEVEL are tied, and a tie is broken the same way whatever order the
-    scenarios were listed in: first on the simpler option (the one with less behind-the-meter equipment, ``_btm_dependence``), then on the scenario
-    id. Before this, the first of the tied scenarios in the caller's own order won, so ``[full_dlc, full_dlc_btm]`` and its reverse recommended
+    scenarios were listed in: first on the simpler option (the one with less behind-the-meter equipment, ``_btm_dependence``), then on the simpler
+    cooling architecture (retained air, rear door, hybrid DLC, full DLC: the order a default study lists them in, so a caller who listed them
+    that way sees the same answer as before), and last on the scenario id. Before this, the first of the tied scenarios in the caller's own order won, so ``[full_dlc, full_dlc_btm]`` and its reverse recommended
     different scenarios at identical racks and identical capex, for all three objectives.
 
     The answer is a function of the SET of scenarios: the candidates are put in scenario-id order before anything is compared."""
@@ -139,11 +154,11 @@ def pick_with_reason(results: list[ScenarioResult], objective: Objective = Objec
         if _cmp(keys[id(r)], keys[id(best)]) < 0:
             best = r
     tied = [r for r in cands if _cmp(keys[id(r)], keys[id(best)]) == 0]
-    chosen = min(tied, key=lambda r: (_btm_dependence(r), _sid(r)))
+    chosen = min(tied, key=lambda r: (_btm_dependence(r), _architecture_rank(r), _sid(r)))
     if len(tied) == 1:
         return Recommendation(chosen)
-    differ = len({_btm_dependence(r) for r in tied}) > 1
-    decided_by = "behind_the_meter" if differ else "scenario_id"
+    decided_by = ("behind_the_meter" if len({_btm_dependence(r) for r in tied}) > 1 else
+                  "architecture" if len({_architecture_rank(r) for r in tied}) > 1 else "scenario_id")
     others = sorted(_sid(r) for r in tied if r is not chosen)
     return Recommendation(chosen, tuple(others), decided_by, _tie_sentence(_sid(chosen), others, objective, decided_by))
 
