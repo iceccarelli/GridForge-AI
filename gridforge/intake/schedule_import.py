@@ -479,6 +479,13 @@ def _sniff_delimiter(text: str) -> str:
     raise ScheduleImportError("the file has no header line (it holds only blank and comment lines)")
 
 
+# The dialect reader's public names. The load-profile file reader (reporting/load_profile_csv.py) reuses this tokenizer and delimiter sniffer rather than
+# writing a second one: `power` may not import `intake`, so `reporting`, which may import both, hands the reader to `power.load_profile.from_csv`.
+Record = _Record
+sniff_delimiter = _sniff_delimiter
+tokenize = _tokenize
+
+
 # ------------------------------------------------------------------------------------------------------------------- parse a file
 @dataclass
 class Parsed:

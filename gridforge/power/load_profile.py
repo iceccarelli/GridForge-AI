@@ -20,8 +20,10 @@ from __future__ import annotations
 import csv
 import io
 import math
-from dataclasses import dataclass
+import re
+from dataclasses import dataclass, field
 from datetime import datetime
+from typing import Callable
 
 from ..common import ASSUMED, CUSTOMER, V
 from ..validation import EvidenceClass, Quantity
@@ -95,6 +97,9 @@ class LoadProfile:
     interval_minutes: float
     evidence: EvidenceClass
     source: str = ""  # free text: filename, "flat assumption from qualifier", etc.
+    #: What the reader did that the customer should know about (the file was semicolon-separated; numbers with a decimal comma were read as decimal
+    #: points). Surfaced as warnings by ``validate()``: a reading of the file that was a choice is never silent.
+    import_notes: list[str] = field(default_factory=list)
 
     def __post_init__(self) -> None:
         if not self.samples:
@@ -189,7 +194,7 @@ class LoadProfile:
         return [t for t, n in seen.items() if n > 1]
 
     def validate(self) -> "LoadProfileReport":
-        warnings: list[str] = []
+        warnings: list[str] = list(self.import_notes)
         gaps = self.gaps()
         if gaps:
             total_missing = sum(g.missing_intervals for g in gaps)
@@ -234,31 +239,119 @@ class LoadProfileReport:
 
 # --- construction ------------------------------------------------------------
 
-def from_csv(text: str, *, source: str = "customer CSV",
-            evidence: EvidenceClass = CUSTOMER) -> LoadProfile:
-    """Parse `timestamp,kW[,kVAR]` rows. Any other shape is refused, named, rather
-    than guessed at — a misread column is a fabricated load profile with extra
-    steps."""
+#: The delimiters a customer file may use, by name, for messages.
+_DELIMITER_NAMES = {",": "comma", ";": "semicolon", "\t": "tab"}
+
+
+@dataclass(frozen=True)
+class CsvRows:
+    """A file as a dialect reader hands it over: its records as ``(file row, cells)``, header first, and the delimiter it found. The file row is the
+    physical line the record starts on, so a refusal names the row the customer sees in their spreadsheet."""
+    rows: list[tuple[int, list[str]]]
+    delimiter: str = ","
+
+
+#: Reads text into rows. `from_csv` has a comma-only reader of its own; the BTM request path hands it the equipment-schedule importer's dialect reader
+#: (reporting/load_profile_csv.py), because `power` may not import `intake` (tests/test_architecture.py) and the one reader must not be written twice.
+CsvReader = Callable[[str], CsvRows]
+
+
+def _comma_reader(text: str) -> CsvRows:
     reader = csv.reader(io.StringIO(text))
-    rows = [r for r in reader if r and not r[0].strip().startswith("#")]
+    rows: list[tuple[int, list[str]]] = []
+    for cells in reader:
+        if not cells or not any(c.strip() for c in cells) or cells[0].strip().startswith("#"):
+            continue
+        rows.append((reader.line_num, cells))
+    return CsvRows(rows, ",")
+
+
+#: A decimal comma, `1234,5`; and the shape that could equally be a thousands separator, `1,234` / `12,345` / `123,456`.
+_DECIMAL_COMMA = re.compile(r"[+-]?[0-9]+,[0-9]+")
+_COMMA_OR_THOUSANDS = re.compile(r"[+-]?[1-9][0-9]{0,2},[0-9]{3}")
+_DAY_FIRST_DATE = re.compile(r"\s*[0-9]{1,4}[./-][0-9]{1,2}[./-][0-9]{1,4}")
+
+
+def _number(cell: str, where: str, delimiter: str, decimal_commas: list[str]) -> float:
+    """A cell as a float. A decimal point is always read. A decimal comma (`1234,5`) is read ONLY in a semicolon-separated file, where a comma cannot
+    be a column separator and the file is plainly a regional export; in a comma- or tab-separated file it is refused and the reason given. A cell that
+    could be a decimal comma or a thousands separator (`1,234`) is refused in every file, and so is one that mixes a point and a comma: this reader
+    never decides silently which a number meant. Every number it did read with a decimal comma is counted into ``decimal_commas``, for the warning."""
+    text = cell.strip()
+    if "_" in text or not text.isascii():          # float("1_000") and float("٣") are numbers to Python, not to a meter export
+        raise LoadProfileError(f"{where}: unparseable number {cell[:24]!r}")
+    if "," in text:
+        name = _DELIMITER_NAMES.get(delimiter, repr(delimiter))
+        if "." in text:
+            raise LoadProfileError(f"{where}: {text[:24]!r} mixes a decimal point and a comma. A thousands separator is not read; write the number "
+                                   f"plainly (1234.5{' or 1234,5' if delimiter == ';' else ''})")
+        if delimiter != ";":
+            raise LoadProfileError(f"{where}: {text[:24]!r} has a comma inside the number. A decimal comma is read only in a semicolon-separated file, "
+                                   f"where a comma cannot be a column separator; this file is {name}-separated, so it is refused rather than guessed "
+                                   f"at (1,234 could be 1.234 or 1234). Write the number with a decimal point, or re-export the file with semicolons")
+        if _COMMA_OR_THOUSANDS.fullmatch(text):
+            raise LoadProfileError(f"{where}: {text[:24]!r} could be a decimal comma (read as {text.replace(',', '.')}) or a thousands separator "
+                                   f"(read as {text.replace(',', '')}); this tool will not choose. Write it with a decimal point and no thousands separator")
+        if not _DECIMAL_COMMA.fullmatch(text):
+            raise LoadProfileError(f"{where}: {text[:24]!r} is not a number")
+        decimal_commas.append(text)
+        text = text.replace(",", ".")
+    try:
+        return float(text)
+    except ValueError as exc:
+        raise LoadProfileError(f"{where}: unparseable number {cell[:24]!r}") from exc
+
+
+def _timestamp(cell: str, row: int) -> datetime:
+    try:
+        return datetime.fromisoformat(cell.strip())
+    except ValueError as exc:
+        hint = ""
+        if _DAY_FIRST_DATE.match(cell) and not re.match(r"\s*[0-9]{4}-[0-9]{2}-[0-9]{2}", cell):
+            hint = (". Timestamps must be ISO 8601 (2026-01-01T00:15:00 or 2026-01-01 00:15:00): a date written day-first or month-first "
+                    "(01/02/2026) is not guessed, because it can be read two ways")
+        raise LoadProfileError(f"row {row}: unparseable timestamp {cell!r}{hint}") from exc
+
+
+def from_csv(text: str, *, source: str = "customer CSV", evidence: EvidenceClass = CUSTOMER,
+             reader: CsvReader | None = None) -> LoadProfile:
+    """Parse `timestamp,kW[,kVAR]` rows. Any other shape is refused, named, rather than guessed at — a misread column is a fabricated load profile
+    with extra steps.
+
+    A leading byte-order mark is dropped (a file read as UTF-8 keeps it as the character U+FEFF, which stuck to the first header). With no ``reader`` the
+    file must be comma-separated; the BTM assessment passes a reader that also takes semicolons and tabs (see ``CsvReader``)."""
+    if text.startswith("﻿"):
+        text = text[1:]
+    return from_rows((reader or _comma_reader)(text), source=source, evidence=evidence)
+
+
+def from_rows(parsed: CsvRows, *, source: str = "customer CSV", evidence: EvidenceClass = CUSTOMER) -> LoadProfile:
+    rows, delimiter = parsed.rows, parsed.delimiter
     if not rows:
         raise LoadProfileError("empty CSV — no rows to build a load profile from")
-    header = [c.strip().lower() for c in rows[0]]
+    header_row, header_cells = rows[0]
+    header = [c.strip().lstrip("﻿").lower() for c in header_cells]
     if header[:2] != ["timestamp", "kw"]:
-        raise LoadProfileError(
-            f"expected columns starting 'timestamp,kW[,kVAR]', got {rows[0]!r}")
+        got = [c.strip() for c in header_cells]
+        if len(got) == 1:
+            other = [d for d in (";", "\t") if d in got[0] and d != delimiter]
+            cause = (f"the header is a single cell, so the columns are not separated by {'a ' + _DELIMITER_NAMES[delimiter] if delimiter in _DELIMITER_NAMES else 'the delimiter'} "
+                     f"as this reader read them" + (f"; it contains a {_DELIMITER_NAMES[other[0]]}, so this looks like a {_DELIMITER_NAMES[other[0]]}-separated file "
+                                                    f"(a BTM assessment request reads commas, semicolons and tabs; the library's from_csv alone reads commas)"
+                                                    if other else
+                                                    " (a comma, semicolon or tab; any other separator, or a file that is not a CSV, cannot be read)"))
+            raise LoadProfileError(f"row {header_row}: expected columns starting 'timestamp,kW[,kVAR]', got {got!r}: {cause}")
+        raise LoadProfileError(f"row {header_row}: expected columns starting 'timestamp,kW[,kVAR]', got {got!r}")
     has_kvar = len(header) > 2 and header[2] == "kvar"
     samples: list[LoadSample] = []
+    decimal_commas: list[str] = []
     first_seen: dict[datetime, int] = {}          # timestamp -> the first row that carried it
     repeats: list[tuple[int, int]] = []           # (row, the earlier row it repeats)
     first_aware: tuple[int, bool] | None = None   # (row, has a UTC offset) of the first timestamp
-    for i, row in enumerate(rows[1:], start=2):
+    for i, row in rows[1:]:
         if len(row) < 2:
             raise LoadProfileError(f"row {i}: expected at least timestamp,kW — got {row!r}")
-        try:
-            ts = datetime.fromisoformat(row[0].strip())
-        except ValueError as exc:
-            raise LoadProfileError(f"row {i}: unparseable timestamp {row[0]!r}") from exc
+        ts = _timestamp(row[0], i)
         aware = ts.tzinfo is not None
         if first_aware is None:
             first_aware = (i, aware)
@@ -271,17 +364,11 @@ def from_csv(text: str, *, source: str = "customer CSV",
             repeats.append((i, first_seen[ts]))
         else:
             first_seen[ts] = i
-        try:
-            kW = float(row[1])
-        except ValueError as exc:
-            raise LoadProfileError(f"row {i}: unparseable kW {row[1]!r}") from exc
+        kW = _number(row[1], f"row {i}: kW", delimiter, decimal_commas)
         kW = _sane_kW(kW, f"row {i}: kW {row[1].strip()[:24]!r}")
         kVAR = None
         if has_kvar and len(row) > 2 and row[2].strip():
-            try:
-                kVAR = float(row[2])
-            except ValueError as exc:
-                raise LoadProfileError(f"row {i}: unparseable kVAR {row[2]!r}") from exc
+            kVAR = _number(row[2], f"row {i}: kVAR", delimiter, decimal_commas)
             kVAR = _sane_kW(kVAR, f"row {i}: kVAR {row[2].strip()[:24]!r}")
         samples.append(LoadSample(ts, kW, kVAR))
     if repeats:
@@ -295,8 +382,13 @@ def from_csv(text: str, *, source: str = "customer CSV",
             f"fold give the timestamps an offset")
     samples.sort(key=lambda s: s.timestamp)
     interval = _infer_interval_minutes(samples)
-    return LoadProfile(samples=samples, interval_minutes=interval, evidence=evidence,
-                       source=source)
+    notes: list[str] = []
+    if delimiter != ",":
+        notes.append(f"the file was read as {_DELIMITER_NAMES.get(delimiter, delimiter)}-separated.")
+    if decimal_commas:
+        notes.append(f"{len(decimal_commas)} number(s) were written with a decimal comma (first: {decimal_commas[0]!r}) and were read as decimal points, "
+                     f"because the file is semicolon-separated; check one against the source before relying on the profile.")
+    return LoadProfile(samples=samples, interval_minutes=interval, evidence=evidence, source=source, import_notes=notes)
 
 
 def _infer_interval_minutes(samples: list[LoadSample]) -> float:
