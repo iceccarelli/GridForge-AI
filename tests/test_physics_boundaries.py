@@ -189,7 +189,12 @@ class TestInfeasibleIsNeverFeasible:
         ctx.power.lv.tapoff_max_A = V(205.0, "A", "tap-off at the platform feed current", CUSTOMER)
         from gridforge.power.constraints import rack_feed_tapoff
         assert rack_feed_tapoff(ctx).racks == math.inf
-        ctx.power.lv.tapoff_max_A = V(math.nextafter(205.0, 0.0), "A", "tap-off just below", CUSTOMER)
+        # One ULP below the need is float noise, not a smaller part: the gate compares with numerics.leq (a relative 1e-9; audit N10: 76 A x 400 V /
+        # 500 V is 60.800000000000004, so a 60.8 A tap-off failed the rack it exactly carries). It used to be pinned as "fails" with a raw <=; the
+        # step below that genuinely fails is a part one millionth smaller (a thousand times the tolerance), as for the thermal and floor-loading gates.
+        ctx.power.lv.tapoff_max_A = V(math.nextafter(205.0, 0.0), "A", "tap-off one ULP below", CUSTOMER)
+        assert rack_feed_tapoff(ctx).racks == math.inf
+        ctx.power.lv.tapoff_max_A = V(205.0 * (1 - 1e-6), "A", "tap-off a millionth below", CUSTOMER)
         assert rack_feed_tapoff(ctx).racks == 0.0
 
     def test_a_solved_envelope_never_exceeds_any_constraint(self):

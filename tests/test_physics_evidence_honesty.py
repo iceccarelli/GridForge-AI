@@ -200,8 +200,11 @@ def test_pick_recommended_for_fastest_does_not_fall_back_to_racks_when_every_can
     monkeypatch.setattr(ttp, "schedule", lambda ladder: SimpleNamespace(weeks_to_full=None))
     cands = [SimpleNamespace(spec=SimpleNamespace(id=n), unlocked_racks=n, ladder=None) for n in (10, 50, 30)]
     first = pick_recommended(cands, Objective.FASTEST_TO_POWER)
-    assert first is cands[0], "no date, so no winner on capacity: the caller's own order stands"
-    assert pick_recommended(list(reversed(cands)), Objective.FASTEST_TO_POWER) is cands[-1]
+    assert first is not max(cands, key=lambda c: c.unlocked_racks), "no date, so no winner on capacity"
+    # The caller's own order used to decide here (the first listed was returned, so reversing the list changed the recommendation: audit N9).
+    # Nothing separates the candidates, so the tie-break decides, the same whatever the order: the scenario id (none declares equipment here).
+    assert first is cands[0]
+    assert pick_recommended(list(reversed(cands)), Objective.FASTEST_TO_POWER) is cands[0]
 
 
 def test_pick_recommended_for_fastest_prefers_a_dated_candidate_whatever_the_racks(monkeypatch):

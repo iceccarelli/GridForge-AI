@@ -8,12 +8,13 @@ is a genuine proprietary asset; these placeholders are not.
 """
 from __future__ import annotations
 
+import math
 from dataclasses import dataclass, field, replace
 
 from ..common import ASSUMED, ESTIMATED, MODELLED, V
 from ..costs import AACE_BY_EVIDENCE, ARCHITECTURE_UNPRICED, BAND_BY_EVIDENCE, cdu_cost, cost, library
 from ..envelope.solver import EnvelopeResult, HeadroomLadder, rack_evidence
-from ..validation import EvidenceClass, Quantity
+from ..validation import EvidenceClass, Quantity, qsum
 
 #: Below this class a priced line, or the capex total built from them, is not a basis for a capital decision.
 DECISION_GRADE_FLOOR = EvidenceClass.E3_ENGINEERING_ESTIMATE
@@ -26,6 +27,22 @@ def conversion_capex_per_rack():
                 "in-hall conversion per rack (manifolds, QDs, rack fit-out, commissioning)",
                 note="Excludes IT hardware, migration and lost tenancy revenue. This default is "
                      "neither a quotation nor a benchmark.")
+
+def annuity_factor(rate: float | None, years: int) -> float:
+    """Years of recurring cost a stream of ``years`` end-of-year payments is worth today: ``(1 - (1 + r)^-n) / r``, and exactly ``n`` for r = 0
+    (or no rate: undiscounted).
+
+    The closed form as written loses everything for a small positive rate. ``1 + r`` rounds to 1.0 once r is below about 1.1e-16, so the
+    numerator is exactly 0 and the energy bill VANISHED from the lifecycle cost (at r = 1e-16 the lifecycle came out as the capex alone, 6.6 MEUR
+    instead of 90.6 MEUR); at r = 1e-15 the rounding of ``1 + r`` left a factor of 22.2 for 20 years. The same quantity in ``expm1`` / ``log1p``
+    form, ``-expm1(-n * log1p(r)) / r``, is accurate to a few ulps for every r > 0 (it tends to n as r tends to 0, which is the r = 0 case). A
+    rate of -1 or below (the loader refuses a rate outside [0, 0.5)) has no log1p and keeps the plain formula."""
+    if not rate:
+        return float(years)
+    if rate <= -1.0:
+        return (1.0 - (1.0 + rate) ** (-years)) / rate
+    return -math.expm1(-years * math.log1p(rate)) / rate
+
 
 ELECTRICITY_EUR_PER_MWH = V(140, "EUR/MWh", "all-in electricity price", ASSUMED, band=(90, 220),
                             assumptions=["Placeholder. Replace with the site's actual contracted tariff."])
@@ -212,9 +229,9 @@ def _btm_opex(options: list, facility_energy_MWh: Quantity) -> BtmOpex:
     if missing:
         return BtmOpex(applied=False, options=rows, missing=missing)
 
-    gen_total = None
+    gens: list[Quantity] = []
+    fixeds: list[Quantity] = []
     var_cost = []
-    fixed_total = None
     for o, row in zip(options, rows):
         gen = (o.capacity_MW * o.annual_run_hours).convert(1.0, "MWh", f"{o.id} annual generation")
         per_MWh = o.opex_eur_per_MWh if o.opex_eur_per_MWh is not None else (
@@ -223,17 +240,16 @@ def _btm_opex(options: list, facility_energy_MWh: Quantity) -> BtmOpex:
         fixed = (o.capacity_MW.convert(1000.0, "kW", f"{o.id} capacity in kW") * o.fixed_om_eur_per_kW_year).convert(
             1.0, "EUR", f"{o.id} fixed O&M per year")
         row.update({"generated_MWh": gen.value, "cost_eur_per_MWh": per_MWh.value, "fixed_eur": fixed.value})
-        gen_total = gen if gen_total is None else gen_total + gen
+        gens.append(gen)
         var_cost.append((gen, per_MWh))
-        fixed_total = fixed if fixed_total is None else fixed_total + fixed
+        fixeds.append(fixed)
+    # qsum: the plant's energy and fixed cost do not depend on the order the options are listed in (math.fsum)
+    gen_total, fixed_total = qsum(gens), qsum(fixeds)
     # Generation beyond what the hall consumes is not valued (export is not modelled): cap it, and say so.
     used_frac = min(1.0, facility_energy_MWh.value / gen_total.value) if gen_total.value > 0 else 0.0
     used = gen_total * V(used_frac, "1", "share of BTM generation consumed on site", MODELLED)
-    variable = None
-    for gen, per_MWh in var_cost:
-        v = (gen * per_MWh * V(used_frac, "1", "share consumed on site", MODELLED)).relabel(
-            "BTM variable operating cost", "economics.btm_variable", step_evidence=MODELLED)
-        variable = v if variable is None else variable + v
+    variable = qsum([(gen * per_MWh * V(used_frac, "1", "share consumed on site", MODELLED)).relabel(
+        "BTM variable operating cost", "economics.btm_variable", step_evidence=MODELLED) for gen, per_MWh in var_cost])
     return BtmOpex(applied=True, options=rows, generated_MWh=gen_total, used_MWh=used.relabel(
         "BTM generation consumed on site", "economics.btm_used", step_evidence=MODELLED),
         variable_eur=variable, fixed_eur=fixed_total, curtailed=used_frac < 1.0)
@@ -370,7 +386,7 @@ def evaluate(res: EnvelopeResult, lad: HeadroomLadder, utilisation: Quantity) ->
         horizon = settings.horizon_years
         r_ = settings.discount_rate.value if settings.discount_rate is not None else None
         rate = r_
-        factor = float(horizon) if not r_ else (1.0 - (1.0 + r_) ** (-horizon)) / r_
+        factor = annuity_factor(r_, horizon)
         life = (total + cost_ * V(factor, "1", "years of recurring cost (annuity factor)", MODELLED)).relabel(
             f"lifecycle cost over {horizon} years", "economics.lifecycle_cost", step_evidence=MODELLED)
         basis = (f"capex at year 0 plus the annual energy cost for {horizon} years, "

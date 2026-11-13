@@ -260,10 +260,68 @@ def _fmt(x: float, n: int) -> str:
     return f"{r:.3g}"
 
 
+def _lineage_key(q: Quantity) -> tuple:
+    """A total order over quantities that does not depend on where a caller listed them: provenance first, then the numbers."""
+    p = q.prov
+    return (p.label, p.model_id, int(p.evidence), q.unit, q.value, q.band)
+
+
+def qsum(qs: Iterable[Quantity]) -> Quantity:
+    """The sum of quantities, the same whatever order they are given in.
+
+    Adding floats one at a time (``a + b + c``) rounds after every addition, so ``(a + b) + c`` and ``(b + c) + a`` can differ in the last bit.
+    A capacity built from a LIST (UPS blocks, transformer banks, CDU banks) therefore changed with the order the customer happened to write it
+    in, and at an exact boundary one bit is a whole rack. Here the value and each end of the band are added with ``math.fsum`` (the correctly
+    rounded sum, which has no order), and the provenance is built from the inputs in a fixed order (label, then number), so neither the figure
+    nor its lineage depends on the listing. The band is the interval sum, as ``+`` computes it. One input is returned as it is. A non-finite
+    term (or a sum too large for ``fsum``) falls back to adding in that fixed order: still deterministic, with ``+``'s own treatment of infinities."""
+    items = sorted(qs, key=_lineage_key)
+    if not items:
+        raise ValueError("qsum() needs at least one quantity")
+    if len(items) == 1:
+        return items[0]
+    unit = items[0].unit
+    for q in items[1:]:
+        nxt = _addable(unit, q.unit)
+        if nxt is None:
+            raise ValueError(f"unit mismatch: {unit} + {q.unit}")
+        unit = nxt
+    ends = [(min(q.band[0], q.value, q.band[1]), q.value, max(q.band[0], q.value, q.band[1])) for q in items]
+    try:
+        if not all(math.isfinite(x) for e in ends for x in e):
+            raise ValueError("non-finite term")
+        lo = math.fsum(e[0] for e in ends)
+        val = math.fsum(e[1] for e in ends)
+        hi = math.fsum(e[2] for e in ends)
+    except (ValueError, OverflowError):
+        total = items[0]
+        for q in items[1:]:
+            total = total + q
+        return total
+    prov = Provenance.derive("(" + " + ".join(q.prov.label for q in items) + ")", "arith:+", [q.prov for q in items],
+                             step_evidence=EvidenceClass.E7_DEPLOYED)
+    return Quantity(val, unit, prov, lo, hi)
+
+
 def qmin(*qs: Quantity) -> Quantity:
-    """Minimum of quantities, preserving the provenance of the winner."""
+    """The smallest of the quantities, carrying the evidence and the interval of ALL of them.
+
+    The value is the smallest value (the first of equals, as before; an undetermined NaN makes the result NaN rather than being skipped by
+    argument order). The old version returned the WINNER itself, so its provenance was the winner's alone: "the ceiling is the contracted
+    figure" kept the contracted figure's class when the firm figure that was found to be higher was only an assumption, and the true minimum
+    could fall below the winner's own band. Now the provenance is derived from every input (the result is no better evidenced than the weakest
+    of them, a min being a conclusion drawn from all of them) and the band is the lower of each end, the interval minimum."""
+    if not qs:
+        raise ValueError("qmin() needs at least one quantity")
     best = qs[0]
     for q in qs[1:]:
         if q.value < best.value:
             best = q
-    return best
+    if len(qs) == 1:
+        return best
+    value = float("nan") if any(math.isnan(q.value) for q in qs) else best.value
+    lo = min(q.band[0] for q in qs)
+    hi = min(q.band[1] for q in qs)
+    prov = Provenance.derive("min(" + ", ".join(q.prov.label for q in qs) + ")", "arith:min", [q.prov for q in qs],
+                             step_evidence=EvidenceClass.E7_DEPLOYED)
+    return Quantity(value, best.unit, prov, lo, hi)

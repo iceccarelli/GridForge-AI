@@ -19,7 +19,7 @@ produce a study that gets a customer's project stopped at the utility's desk.
 from __future__ import annotations
 
 from ..common import ASSUMED, ESTIMATED, V
-from ..validation import Quantity
+from ..validation import Quantity, qsum
 from .redundancy import DEFAULT_GENERATION_REDUNDANCY, usable_units
 from .schema import GenerationOption, PowerInput
 
@@ -168,10 +168,9 @@ def firm_contribution_kW(option: GenerationOption) -> Quantity:
 
 def installed_firm_kW(power: PowerInput) -> Quantity:
     """Total firm capacity from options already taken."""
-    total = V(0.0, "kW", "installed behind-the-meter firm capacity", ESTIMATED)
-    for o in power.options:
-        if o.installed:
-            total = total + firm_contribution_kW(o)
+    # qsum, not a running +: the same options listed in another order are the same plant, and an exact boundary is a whole rack.
+    total = qsum([V(0.0, "kW", "installed behind-the-meter firm capacity", ESTIMATED)]
+                 + [firm_contribution_kW(o) for o in power.options if o.installed])
     return total.relabel("installed behind-the-meter firm capacity", "power.btm_installed",
                          step_evidence=ESTIMATED)
 

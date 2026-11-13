@@ -16,11 +16,13 @@ way, which is a more honest and more useful answer than a badge.
 """
 from __future__ import annotations
 
+import math
 from dataclasses import dataclass, field
 from enum import Enum
 
 from ..common import ASSUMED, V
-from ..validation import Quantity
+from ..numerics import leq
+from ..validation import Quantity, qsum
 from .generation import GenerationUnit
 from .storage import BatteryEnergyStorageSystem
 
@@ -70,15 +72,10 @@ class ContingencyResult:
 def _total_firm_MW(case: ContingencyCase, *,
                    excluded_generation: set[str] = frozenset(),
                    excluded_bess: set[str] = frozenset()) -> Quantity:
-    total = case.grid_firm_MW
-    for g in case.generation:
-        if g.id in excluded_generation:
-            continue
-        total = total + g.firm_MW().convert(1.0, "MW", f"{g.id} firm MW")
-    for b in case.bess:
-        if b.id in excluded_bess:
-            continue
-        total = total + b.firm_MW_for_duration(case.ride_through_hours)
+    parts = [case.grid_firm_MW]
+    parts += [g.firm_MW().convert(1.0, "MW", f"{g.id} firm MW") for g in case.generation if g.id not in excluded_generation]
+    parts += [b.firm_MW_for_duration(case.ride_through_hours) for b in case.bess if b.id not in excluded_bess]
+    total = qsum(parts)        # order-independent: the same units listed in another order are the same plant
     return total.relabel("available firm capacity under this scenario",
                          "power.contingency_available")
 
@@ -101,19 +98,21 @@ def _startup_bridge_notes(case: ContingencyCase, excl_gen: set[str], excl_bess: 
     if not standby:
         return []
     bess = [b for b in case.bess if b.id not in excl_bess]
-    others = case.grid_firm_MW.value + sum(b.firm_MW_for_duration(case.ride_through_hours).value for b in bess)
+    others = math.fsum([case.grid_firm_MW.value, *(b.firm_MW_for_duration(case.ride_through_hours).value for b in bess)])
     gap_MW = case.critical_load_MW.value - others
-    if gap_MW <= 0:
-        return []                                  # the load is carried without the generation; its start is not on the critical path
-    bridge_MW = sum(b.available_power_MW().value for b in bess)
-    bridge_MWh = sum(b.usable_energy_MWh().value for b in bess)
+    if leq(case.critical_load_MW.value, others):
+        # the load is carried without the generation (a load EXACTLY met by the rest counts: 0.1 + 0.7 is 0.7999999999999999 in binary);
+        # its start is not on the critical path
+        return []
+    bridge_MW = math.fsum(b.available_power_MW().value for b in bess)
+    bridge_MWh = math.fsum(b.usable_energy_MWh().value for b in bess)
     notes: list[str] = []
     for g in standby:
         t = g.startup_time_min
         if t is None:
             notes.append(f"{g.id} is declared standby with no start-up time. This case relies on generation for at least {gap_MW:.2f} MW, "
                          f"and how long the load must be carried until it is online has not been checked: declare its start-up time.")
-        elif t.value > 0 and not (bridge_MW >= gap_MW and bridge_MWh >= gap_MW * t.value / 60.0):
+        elif t.value > 0 and not (leq(gap_MW, bridge_MW) and leq(gap_MW * t.value / 60.0, bridge_MWh)):
             notes.append(f"{g.id} is declared standby and takes {t.value:g} min to start. This case relies on generation for at least "
                          f"{gap_MW:.2f} MW; the declared storage ({bridge_MW:.2f} MW, {bridge_MWh:.2f} MWh usable) cannot carry that for "
                          f"{t.value:g} min, so the load would drop until it is online unless something not declared here bridges it.")
@@ -177,6 +176,14 @@ def evaluate(case: ContingencyCase) -> ContingencyResult:
     available = _total_firm_MW(case, excluded_generation=excl_gen, excluded_bess=excl_bess)
     margin = (available - case.critical_load_MW).relabel(
         "margin under this contingency", "power.contingency_margin")
+    # A plant sized EXACTLY to the load meets it. ``margin >= 0`` did not say so: 0.1 + 0.7 is 0.7999999999999999 in binary, so a 0.8 MW load on
+    # 0.1 MW of grid and 0.7 MW of storage came out a FAIL with a margin of -1.1e-16 (473 of 4,000 random exactly-sized plants did). The test is
+    # leq (a relative 1e-9, numerics.LIMIT_REL_TOL); a shortfall of one part in a million is still a FAIL. A margin that is only that noise is
+    # reported as the zero it is, so a PASS never prints a negative margin.
+    meets_load = leq(case.critical_load_MW.value, available.value)
+    if meets_load and margin.value < 0:
+        lo, hi = margin.band
+        margin = Quantity(0.0, margin.unit, margin.prov, min(lo, 0.0), max(hi, 0.0))
     weak_evidence = any(
         g.forced_outage_rate is None and g.availability is None for g in case.generation)
     if weak_evidence:
@@ -192,10 +199,10 @@ def evaluate(case: ContingencyCase) -> ContingencyResult:
             "no ride-through window was declared: the battery figure above uses a 2 h library default. Declare "
             "the outage window the site's own reliability policy requires before relying on this result.")
 
-    if blocking and margin.value >= 0:
+    if blocking and meets_load:
         status = ContingencyStatus.REQUIRES_ENGINEERING_STUDY
     else:
-        status = ContingencyStatus.PASS if margin.value >= 0 else ContingencyStatus.FAIL
+        status = ContingencyStatus.PASS if meets_load else ContingencyStatus.FAIL
 
     undeclared = [g.id for g in case.generation if g.operating_mode is None and g.id not in excl_gen]
     mode_note = (f" Operating mode not declared for {', '.join(undeclared)}: treated as running, so no start-up is bridged; "

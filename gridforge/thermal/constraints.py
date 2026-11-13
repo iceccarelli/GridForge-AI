@@ -15,10 +15,10 @@ from ..common import ASSUMED, ESTIMATED, SIMULATED, V
 from ..costs import cdu_cost, cost, scaled_cost
 from ..constraints import (ConstraintResult, EnvelopeContext, ReliefOption, constraint, floor_racks,
                            gate_racks)
-from ..numerics import leq
+from ..numerics import floor_whole, leq
 from ..thermal.library import ARCH_RACK_CAPABILITY_kW, implied_delta_T_K
 from ..thermal.schema import Architecture
-from ..validation import Provenance, Quantity
+from ..validation import Provenance, Quantity, qsum
 
 
 def _effective_units(units: int, redundancy: str) -> int:
@@ -28,6 +28,44 @@ def _effective_units(units: int, redundancy: str) -> int:
     if r not in table:
         raise ValueError(f"unknown redundancy {redundancy!r}; expected one of {sorted(table)}")
     return table[r]
+
+
+def _active_cdus(cdus) -> list:
+    """The CDU banks that exist: those with at least one unit. A bank with no units is a planned or empty bank, not equipment: it adds no capacity,
+    sets no flow, is not priced and receives no relief, so it is ignored (the same rule as ``power.constraints.active_banks``, including its one
+    exception: a list in which no bank has a unit is kept as declared, a declaration of zero capacity; thermal may not import power)."""
+    return [c for c in cdus if c.units >= 1] or list(cdus)
+
+
+def _cdu_derate_ratio(c, available_approach_K: float) -> float:
+    """The share of a CDU's rating it keeps at the approach the site offers: linear, capped at 1. A non-positive rated approach is not a rating:
+    refuse to derate against it (fail closed, no capacity) instead of dividing by zero."""
+    return 0.0 if c.rated_approach_K.value <= 0 else min(1.0, max(0.0, available_approach_K / c.rated_approach_K.value))
+
+
+def _cdu_host(ctx: EnvelopeContext):
+    """The CDU bank that receives a relief's unit(s), or None when no bank has a unit.
+
+    THE RULE: a relief buys ONE further usable unit in total (a matched pair under 2N, where a single added unit buys nothing) and puts it in ONE
+    bank, the fewest banks that can host it. The bank is fixed by the plant, never by how it was listed: the one whose added unit(s) carry the most
+    heat at the water temperature the site can supply (rating x derate x usable units gained), then the most declared flow, then the larger rating,
+    then the id. The price follows the units actually added.
+
+    The old relief added one unit to EVERY bank, priced on the sum, so the same CDUs listed as one bank or as several were priced differently, and an
+    empty bank doubled the step (audit N2). Banks with no units are not hosts."""
+    live = _active_cdus(ctx.thermal.cdus)
+    if not live:
+        return None
+    avail = (ctx.thermal.tcs_target_supply_C.value - facility_water_supply(ctx).temperature.value)
+
+    def gain(c) -> int:
+        return _effective_units(c.units + _units_per_relief_step(c.redundancy), c.redundancy) - _effective_units(c.units, c.redundancy)
+
+    def key(c):
+        flow = c.rated_flow_l_per_min.value * gain(c) if c.rated_flow_declared else 0.0
+        return (-(c.rated_capacity_kW.value * _cdu_derate_ratio(c, avail) * gain(c)), -flow, -c.rated_capacity_kW.value,
+                c.id, c.units, c.redundancy, c.rated_approach_K.value)
+    return min(live, key=key)
 
 
 def _units_per_relief_step(redundancy: str) -> int:
@@ -98,8 +136,10 @@ def _required_fws(t) -> Quantity:
 
 
 def _floor(x: float) -> int | float:
-    """Whole racks for a basis sentence: floor of a finite figure, the figure itself (inf, nan) otherwise."""
-    return math.floor(x) if math.isfinite(x) else x
+    """Whole racks for a basis sentence and for the tie tests below: floor of a finite figure, the figure itself (inf, nan) otherwise.
+    It rounds exactly as ``floor_racks`` does (``numerics.floor_whole``), so a sentence or a tie test never says 15 racks where the
+    constraint's own rack count says 16."""
+    return floor_whole(x) if math.isfinite(x) else x
 
 
 def _lesser(label: str, model_id: str, a: Quantity, b: Quantity) -> Quantity:
@@ -147,7 +187,8 @@ def architecture_capability(ctx: EnvelopeContext) -> ConstraintResult:
 @constraint
 def cdu_capacity(ctx: EnvelopeContext) -> ConstraintResult:
     t = ctx.thermal
-    if ctx.architecture in (Architecture.RETAINED_AIR, Architecture.RDHX) or not t.cdus:
+    cdus = _active_cdus(t.cdus)           # a bank with no units is not equipment: no capacity, no flow, no price
+    if ctx.architecture in (Architecture.RETAINED_AIR, Architecture.RDHX) or not cdus:
         return ConstraintResult("cdu_capacity", "thermal", "CDU capacity",
                                 V(float("inf"), "racks", "CDU capacity: not limiting", ESTIMATED),
                                 basis=("architecture does not use CDUs"
@@ -159,30 +200,30 @@ def cdu_capacity(ctx: EnvelopeContext) -> ConstraintResult:
     available_approach = (t.tcs_target_supply_C - fws_supply).relabel(
         "available CDU approach (TCS target minus facility water supply)",
         "thermal.available_approach", step_evidence=ESTIMATED)
-    total = None
+    caps: list[Quantity] = []
     # A CDU flow is a limit only when EVERY CDU in the schedule declared one: summing the declared flows alone would understate the bank's
     # flow and refuse racks it can carry. An undeclared flow is a library placeholder that nothing reads (and a named gap at load).
-    flow_declared = all(c.rated_flow_declared for c in t.cdus)
-    flow_total = None
-    for c in t.cdus:
+    flow_declared = all(c.rated_flow_declared for c in cdus)
+    flows: list[Quantity] = []
+    for c in cdus:
         n = _effective_units(c.units, c.redundancy)
         # Vendor ratings are stated AT a specific approach. Derate linearly, capped at rated.
         # A non-positive rated approach is not a rating: refuse to derate against it (fail closed, no capacity)
         # instead of dividing by zero.
-        ratio = (0.0 if c.rated_approach_K.value <= 0
-                 else min(1.0, max(0.0, available_approach.value / c.rated_approach_K.value)))
+        ratio = _cdu_derate_ratio(c, available_approach.value)
         derate = V(ratio, "1", f"{c.id} derate to site facility-water temperature", ESTIMATED,
                    band=(max(ratio * 0.85, 0.0), min(ratio * 1.1, 1.0)),
                    assumptions=[f"Rating quoted at {c.rated_approach_K.value:g} K approach; site offers "
                                 f"{available_approach.value:g} K. Linear derate is a screening "
                                 f"approximation - confirm against the manufacturer's performance curve."])
-        cap = (c.rated_capacity_kW * derate * V(float(n), "1", f"{c.id} usable units ({c.redundancy})", ASSUMED)
-               ).relabel(f"{c.id} usable capacity at site conditions", "thermal.cdu_usable")
-        total = cap if total is None else total + cap
+        caps.append((c.rated_capacity_kW * derate * V(float(n), "1", f"{c.id} usable units ({c.redundancy})", ASSUMED)
+                     ).relabel(f"{c.id} usable capacity at site conditions", "thermal.cdu_usable"))
         if flow_declared:
-            flow = (c.rated_flow_l_per_min * V(float(n), "1", f"{c.id} usable units ({c.redundancy})", ASSUMED)
-                    ).relabel(f"{c.id} usable CDU flow", "thermal.cdu_flow_usable")
-            flow_total = flow if flow_total is None else flow_total + flow
+            flows.append((c.rated_flow_l_per_min * V(float(n), "1", f"{c.id} usable units ({c.redundancy})", ASSUMED)
+                          ).relabel(f"{c.id} usable CDU flow", "thermal.cdu_flow_usable"))
+    # qsum: order-independent (math.fsum), so the same banks listed in another order are the same capacity and the same rack count.
+    total = qsum(caps)
+    flow_total = qsum(flows) if flows else None
     plat = ctx.cluster.platform
     racks = total / plat.liquid_kW()
     flow_text = ""
@@ -197,19 +238,26 @@ def cdu_capacity(ctx: EnvelopeContext) -> ConstraintResult:
 
     def _apply(c: EnvelopeContext) -> EnvelopeContext:
         c = c.copy()
-        for cdu in c.thermal.cdus:
-            cdu.units += _units_per_relief_step(cdu.redundancy)
+        host = _cdu_host(c)           # the same bank the price below was formed on (the ladder applies a relief to the context it came from)
+        if host is not None:
+            host.units += _units_per_relief_step(host.redundancy)
         return c
 
-    # One further usable unit per bank (a matched pair under 2N): the price follows the units actually added.
-    added_units = sum(_units_per_relief_step(c.redundancy) for c in t.cdus)
+    # One further usable unit in total (a matched pair under 2N), in the one bank that gains most (``_cdu_host``): the price follows the units
+    # actually added, so the same CDUs listed as one bank or as several get the same step.
+    host = _cdu_host(ctx)
+    added_units = _units_per_relief_step(host.redundancy)
     cdu_capex, cdu_kind, cdu_scope, cdu_unpriced, cdu_extra, cdu_limited, cdu_note = cdu_cost(
         added_units, "additional CDU")
+    rule = (f"Each step buys {added_units} CDU unit(s) in total ({'a matched pair under 2N' if added_units == 2 else 'one further usable unit'}), "
+            f"put in one bank ({host.id}): the fewest banks that can host it, chosen as the bank whose added unit carries the most heat at the site's "
+            f"water temperature (then the most declared flow, the larger rating, the id). The price follows the units added, so the same CDUs listed as "
+            f"one bank or as several are priced the same; a bank declared with no units is ignored.")
     relief = ReliefOption(
-        description="Add CDU capacity (one further unit per bank)",
+        description="Add CDU capacity (one further usable unit, in one bank)",
         capex_eur=cdu_capex, cost_kind=cdu_kind, scope=cdu_scope, unpriced=cdu_unpriced,
         extra_cost_keys=cdu_extra, quantity=float(added_units), quantity_unit="unit", limited=cdu_limited,
-        basis_note=cdu_note,
+        basis_note="; ".join(x for x in (cdu_note, rule) if x),
         cost_key="cdu.addition",
         lead_time_weeks=V(26, "weeks", "CDU lead time", ASSUMED, band=(16, 40)),
         apply=_apply,

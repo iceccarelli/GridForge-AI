@@ -17,6 +17,7 @@ from dataclasses import dataclass, field
 from typing import Callable, Optional
 
 from .compute.schema import ClusterSpec
+from .numerics import floor_whole
 from .power.schema import PowerInput
 from .site.schema import HallSpec, SiteSpec
 from .thermal.schema import Architecture, ThermalInput
@@ -133,11 +134,13 @@ def all_constraints() -> list[Constraint]:
 
 def _floor_whole(x: float, zero=0.0):
     """floor() that does not crash on, or invent a number from, non-finite input: NaN is zero racks (fail closed),
-    -inf is zero, +inf stays +inf (genuinely unlimited by this constraint). Finite values floor to an int exactly
-    as before, so serialised output of finite results is unchanged."""
+    -inf is zero, +inf stays +inf (genuinely unlimited by this constraint). A finite value floors to an int, with the
+    relative allowance for float noise at an exact whole number that ``numerics.floor_whole`` documents (``LIMIT_REL_TOL``):
+    the ONE rounding every constraint's rack count goes through, so a hall exactly at a limit gets that many racks
+    whichever way the arithmetic on the way to it happened to round."""
     if math.isnan(x) or x < 0:
         return zero
-    return x if math.isinf(x) else math.floor(x)
+    return x if math.isinf(x) else floor_whole(x)
 
 
 def floor_racks(q: Quantity) -> Quantity:

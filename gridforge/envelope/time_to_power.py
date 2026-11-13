@@ -367,19 +367,23 @@ def step_lead_source(step, document: dict | None) -> str:
         return LEAD_SOURCE_UNKNOWN
     if step.binding_id == "transformer_capacity":
         vals = []
-        for bank in _doc_list(document, "transformers"):
+        banks = _doc_list(document, "transformers")
+
+        def _empty(b) -> bool:
+            u = b.get("units")
+            return isinstance(u, (int, float)) and not isinstance(u, bool) and u < 1
+        # a bank with no units is not equipment and sets no date (power.constraints.active_banks), unless every listed bank is empty
+        for bank in [b for b in banks if not _empty(b)] or banks:
             raw = bank.get("replacement_lead_time_weeks")
             ok = isinstance(raw, (int, float)) and not isinstance(raw, bool)
             vals.append((float(raw) if ok else _TRANSFORMER_PLACEHOLDER_WEEKS, ok))
         if not vals:
             return LEAD_SOURCE_LIBRARY
-        top_val, top_supplied = vals[0]
-        for val, supplied in vals[1:]:
-            if val > top_val:                       # the first bank among equals, as the constraint picks it
-                top_val, top_supplied = val, supplied
+        top_val = max(v for v, _ in vals)
         if abs(top_val - lt.value) > 1e-9:
             return LEAD_SOURCE_UNKNOWN              # the document and the solved value disagree: say so, do not guess
-        return LEAD_SOURCE_SUPPLIED if top_supplied else LEAD_SOURCE_LIBRARY
+        # banks equally slow set the date together: it is the customer's figure only if every one of them is (the listing order decides nothing)
+        return LEAD_SOURCE_SUPPLIED if all(ok for v, ok in vals if v == top_val) else LEAD_SOURCE_LIBRARY
     for opt in _doc_list(document, "btm_options"):
         oid = str(opt.get("id", opt.get("kind", "BTM")))
         if lt.prov.label == f"{oid} lead time" and opt.get("lead_time_weeks") is not None:
