@@ -162,7 +162,7 @@ describe.runIf(hasPython)("hostile numbers in the hall form", () => {
     expect((await send({ hall: { ...HALL, firmCapacityMVA: 5e6 } })).status).toBe(422);
   });
 
-  it.fails("confirmed defect: REFUSE a required figure that is blank, null, an empty list or a boolean - the schema's z.coerce.number() reads '' / null / [] as 0 and true as 1, so a blank contracted capacity is answered as a confident 0-rack hall - lib/engagement-intake.ts:40 (num = z.coerce.number()), lib/ttp-compare.ts:35", async () => {
+  it("REFUSE a required figure that is blank, null, an empty list or a boolean - the schema's z.coerce.number() reads '' / null / [] as 0 and true as 1, so a blank contracted capacity is answered as a confident 0-rack hall - lib/engagement-intake.ts:40 (num = z.coerce.number()), lib/ttp-compare.ts:35", async () => {
     // Reproducer: POST /api/power/compare {"hall": {...contractedMW: ""}} -> 200, every scenario 0 racks.
     for (const bad of ["", null, [], true, false]) {
       const r = await send({ hall: { ...HALL, contractedMW: bad } });

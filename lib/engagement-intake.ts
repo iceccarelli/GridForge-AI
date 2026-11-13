@@ -36,24 +36,30 @@
 
 import { z } from "zod";
 import { PRODUCT_BY_KIND } from "@/lib/products";
-import { typedNumber } from "@/lib/qualify-number";
+import { typedNumber, typedNumberInput } from "@/lib/qualify-number";
 import { PORTFOLIO_FORM_MAX_HALLS, PORTFOLIO_FORM_MIN_HALLS } from "@/lib/portfolio-scope";
 
-const num = (max: number) => z.coerce.number().nonnegative().max(max);
+// A figure the visitor TYPED is read with typedNumberInput (lib/qualify-number.ts), never z.coerce: coerce is Number(value), which reads null, "", "  ",
+// false and [] as 0, and for a required rating, load or capacity that makes "not given" a zero sent to the engine as the client's own figure. Here a
+// blank string is NOT GIVEN (undefined): an optional figure stays absent (the engine names it as an assumption), a required one is refused ("Required").
+const blank = (v: unknown) => (typeof v === "string" && v.trim() === "" ? undefined : v);
+const read = (v: unknown) => typedNumberInput(blank(v));
+export const num = (max: number) => z.preprocess(read, z.number().nonnegative().max(max));
+export const numOpt = (max: number) => z.preprocess(read, z.number().nonnegative().max(max).optional());
 
 export const transformerSchema = z.object({
   id: z.string().trim().max(40).default("TX"),
   unit_rating_MVA: num(500),
-  units: z.coerce.number().int().min(1).max(40),
+  units: z.preprocess(read, z.number().int().min(1).max(40)),
   // Optional with no default: a scheme the visitor did not pick is not sent as theirs (the engine then computes with N+1, labelled an assumption, and names the scheme as a REQUIRED gap: a Study cannot be issued until it is given; see ENGINE_LIBRARY_DEFAULTS.redundancy).
   redundancy: z.enum(["N", "N+1", "N+2", "2N"]).optional(),
-  replacement_lead_time_weeks: num(520).optional(),
+  replacement_lead_time_weeks: numOpt(520),
 });
 
 export const upsSchema = z.object({
   id: z.string().trim().max(40).default("UPS"),
   unit_rating_kW: num(5000),
-  units: z.coerce.number().int().min(1).max(60),
+  units: z.preprocess(read, z.number().int().min(1).max(60)),
   redundancy: z.enum(["N", "N+1", "N+2", "2N"]).optional(),
 });
 
@@ -111,7 +117,7 @@ const baseShape = {
   hallId: z.string().trim().min(1).max(60),
   metro: z.string().trim().max(80).optional(),
   country: z.string().trim().max(80).optional(),
-  buildYear: z.coerce.number().int().min(1960).max(2035).optional(),
+  buildYear: z.preprocess(read, z.number().int().min(1960).max(2035).optional()),
   // Optional with no default: the engine's own default is a raised floor (ENGINE_LIBRARY_DEFAULTS.floorType); a hall that did not say is not sent as raised.
   floorType: z.enum(["raised_floor", "slab"]).optional(),
 
@@ -123,47 +129,47 @@ const baseShape = {
   currentItLoadMW: num(2000),
   // powerFactor, voltageV and buswayRuns are OPTIONAL with no schema default: see ENGINE_LIBRARY_DEFAULTS below. A value the
   // visitor did not give is not parsed into 0.97 / 400 / 6 and sent as if it were theirs.
-  powerFactor: z.coerce.number().min(0.7).max(1).optional(),
+  powerFactor: z.preprocess(read, z.number().min(0.7).max(1).optional()),
   queueNote: z.string().trim().max(1200).optional(),
 
   // LV distribution — usually what actually binds
   buswayAmpacityA: num(6300),
-  buswayRuns: z.coerce.number().int().min(1).max(64).optional(),
+  buswayRuns: z.preprocess(read, z.number().int().min(1).max(64).optional()),
   tapoffMaxA: num(1600),
-  voltageV: num(1000).optional(),
+  voltageV: numOpt(1000),
 
   // hall
   floorLoadingKPa: num(100),
   // Zero free positions is a real answer (the free qualifier accepts it and intakePrefill carries it here; the engine accepts it), so the floor is 0.
   // Read with typedNumber, not z.coerce, because coerce would turn a blank field (null, "", false, []) into that 0.
   positionsAvailable: typedNumber(z.number().int().min(0).max(20000)),
-  rackPositions: z.coerce.number().int().min(1).max(20000).optional(),
-  netWhiteSpaceM2: num(200000).optional(),
-  clearHeightM: num(20).optional(),
-  aislePitchM: num(10).optional(),
-  designDensityKWPerRack: num(400).optional(),
+  rackPositions: z.preprocess(read, z.number().int().min(1).max(20000).optional()),
+  netWhiteSpaceM2: numOpt(200000),
+  clearHeightM: numOpt(20),
+  aislePitchM: numOpt(10),
+  designDensityKWPerRack: numOpt(400),
 
   // thermal
   plantCapacityKW: num(200000),
-  plantSupplyC: z.coerce.number().min(-5).max(45),
-  plantReturnC: z.coerce.number().min(-5).max(60).optional(),
-  pumpFlowLPerMin: num(200000).optional(),
+  plantSupplyC: z.preprocess(read, z.number().min(-5).max(45)),
+  plantReturnC: z.preprocess(read, z.number().min(-5).max(60).optional()),
+  pumpFlowLPerMin: numOpt(200000),
   /** Flow the existing hall already draws on the plant (l/min). Optional: when given, the engine subtracts it from the pumped flow. */
-  existingFlowLPerMin: num(200000).optional(),
+  existingFlowLPerMin: numOpt(200000),
   /**
    * Other heat the chilled-water plant already carries in the existing hall beyond the IT load (UPS and distribution losses, fan-wall and
    * pump power rejected to the plant, lighting), kW. Optional: when given, the engine subtracts it from the plant headroom as well.
    */
-  existingNonItHeatKW: num(200000).optional(),
-  residualAirKWPerRack: num(200).optional(),
+  existingNonItHeatKW: numOpt(200000),
+  residualAirKWPerRack: numOpt(200),
 
   // site conditions
-  designDrybulbC: z.coerce.number().min(0).max(55).optional(),
+  designDrybulbC: z.preprocess(read, z.number().min(0).max(55).optional()),
 
   // compute
   platform: z.enum(["gb300_nvl72", "gb200_nvl72", "generic_dlc_50"]).default("gb300_nvl72"),
   // Optional with no default: the engine records a supplied utilisation as an estimate (E3), counts it in completeness and drops its named gap.
-  utilisation: z.coerce.number().min(0.1).max(1).optional(),
+  utilisation: z.preprocess(read, z.number().min(0.1).max(1).optional()),
 
   // schedules
   transformers: z.array(transformerSchema).max(20).default([]),
