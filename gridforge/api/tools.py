@@ -305,13 +305,17 @@ TOOLS: list[dict] = [
         {"type": "object", "required": ["after"],
          "properties": {"before": _INTAKE_SCHEMA,
                         "previous_state": {"type": "object", "additionalProperties": True,
-                                           "description": "A recorded envelope state from an earlier run."},
+                                           "description": ("A recorded envelope state from an earlier run. It keeps fingerprints of that run's inputs, "
+                                                           "not the inputs: a change is detected (inputs: changed) but no driver can be named, and "
+                                                           "drivers_note says so. Send before to get the drivers.")},
                         "after": _INTAKE_SCHEMA, "objective": _OBJECTIVE,
                         "attribute": {"type": "boolean", "default": True},
                         "format": {"type": "string", "enum": ["json", "md", "html"],
                                    "default": "json"}},
          "additionalProperties": False},
-        returns="headline, racks/weeks/capex deltas, ranked drivers, explained and residual.",
+        returns=("headline, racks/weeks/capex deltas, ranked drivers, explained and residual; changed_inputs_known and drivers_note say when the "
+                 "inputs moved but cannot be named (a diff against previous_state), evidence_changed_inputs names the inputs whose declared evidence "
+                 "class moved."),
         boundary=("Attributes a change to the inputs that moved it using single-input probes, and reports what the probes do not explain as a "
                   "residual rather than distributing it."),
     ),

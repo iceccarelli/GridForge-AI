@@ -907,6 +907,21 @@ def handle_study(body: dict, tier: Tier) -> dict:
     return pack
 
 
+def _state_drivers_note(d) -> str | None:
+    """Why a diff against a recorded state names no driver. A state keeps fingerprints of the earlier inputs, not the inputs, so a changed input
+    cannot be located from it; the caller who needs the driver sends `before`. None when the inputs are verifiably unchanged (nothing to name:
+    what moved is ours, in `model_drift`)."""
+    if d.inputs == "unchanged":
+        return None
+    if d.inputs == "changed":
+        note = "the earlier inputs were not stored, so the driver cannot be named; send `before` to get it"
+        if d.evidence_digest_changed:
+            note += " (the declared evidence classes also differ from the earlier record, which kept only a fingerprint of them)"
+        return note
+    return ("the earlier record carries no fingerprint of its inputs, so whether they moved cannot be told and no driver can be named; "
+            "send `before` to get it")
+
+
 def handle_diff(body: dict, tier: Tier) -> dict:
     after = body.get("after") or body.get("intake")
     if not isinstance(after, dict):
@@ -914,7 +929,8 @@ def handle_diff(body: dict, tier: Tier) -> dict:
                             '{"previous_state": {...}, "after": {...}}')
     objective = _objective(body)
     prev = body.get("previous_state")
-    if isinstance(prev, dict):
+    from_state = isinstance(prev, dict)
+    if from_state:
         try:
             state = EnvelopeState.from_record(prev)
         except StateError as exc:
@@ -940,6 +956,12 @@ def handle_diff(body: dict, tier: Tier) -> dict:
         "capex_delta_eur": d.capex_delta,
         "binding_moved": d.binding_moved,
         "changed_inputs": d.changed_paths,
+        # Additive. `changed_inputs` and `drivers` are empty when the earlier inputs were never stored (a recorded state keeps fingerprints of them, not
+        # the inputs): that is "cannot be named", not "nothing moved", and `inputs` / `changed_inputs_known` / `drivers_note` say which. With `before`
+        # the paths are compared and named; `evidence_changed_inputs` names the inputs whose declared evidence class moved (what `before` can see).
+        "changed_inputs_known": not (from_state and d.inputs != "unchanged"),
+        "evidence_changed_inputs": list(d.evidence_changes),
+        "drivers_note": _state_drivers_note(d) if from_state else None,
         "drivers": [dr.__dict__ for dr in d.drivers],
         "explained_racks": d.explained,
         "unexplained_racks": d.residual,
