@@ -210,6 +210,10 @@ def refusal(token: str) -> dict:
             verify(token)
         except KeyError_ as exc:
             return {"error": str(exc), "key": "signed"}
+    if token and token.strip():
+        # A key WAS sent and is not one of ours (mistyped, rotated away, from another deployment): telling this caller that a key is required
+        # sends them looking for a key they already have. The key itself is never echoed.
+        return {"error": "the API key sent was not recognised"}
     return {"error": "an API key is required for this endpoint"}
 
 

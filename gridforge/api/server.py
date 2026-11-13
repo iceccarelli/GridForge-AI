@@ -1582,6 +1582,36 @@ ROUTES = {
     "/v1/revoke": (handle_revoke, Tier.INTERNAL),
 }
 
+#: The `format` each route that renders a document honours, as (allowed values in the order its published schema lists them, the value used when
+#: `format` is absent). The published enums are the source: a value outside them used to be answered as if it were the default (and billed), so
+#: `format: "pdf"` on /v1/screen was a 200 JSON answer and a charge. /v1/deck has no schema (it is REST only) and always renders html.
+ROUTE_FORMATS: dict[str, tuple[tuple[str, ...], str]] = {
+    "/v1/screen": (("json", "md", "html"), "json"),
+    "/v1/study": (("json", "md", "html", "csv"), "json"),
+    "/v1/portfolio": (("json", "md", "html"), "json"),
+    "/v1/diff": (("json", "md", "html"), "json"),
+    "/v1/proposal": (("html", "md"), "html"),
+    "/v1/spec": (("html", "md"), "html"),
+    "/v1/deck": (("html",), "html"),
+}
+
+
+def validate_format(endpoint: str, body) -> None:
+    """Refuse a `format` the route does not render, naming the allowed ones (422, the same shape /v1/portfolio always gave).
+
+    Runs BEFORE the call is metered (REST: before `_charge`; MCP: before the tool is charged), so a request that can never be answered is
+    refused for nothing, not billed and refunded. A route with no entry here, or a body that is not an object, is not looked at; absent, null
+    and empty `format` are the route's default, as they always were; case is ignored, as it always was."""
+    spec = ROUTE_FORMATS.get(endpoint)
+    if spec is None or not isinstance(body, dict):
+        return
+    allowed, default = spec
+    raw = body.get("format")
+    fmt = str(raw or default).lower()
+    if fmt not in allowed:
+        raise ApiError(422, f"unknown format {fmt[:40]!r}", allowed=list(allowed))
+
+
 #: Routes whose result depends on prices and can therefore take accepted cost evidence for that one request.
 EVIDENCE_ROUTES = frozenset({"/v1/screen", "/v1/study", "/v1/compare", "/v1/diff", "/v1/deck", "/v1/spec"})
 MAX_EVIDENCE_LINES = 200
@@ -1630,6 +1660,7 @@ def _invoke_inner(endpoint: str, handler, body, tier):
     The evidence applies to THIS call only (a request-scoped overlay over the library); an entry that is not accepted,
     has expired, is not in EUR, or is superseded by a newer one in the same request is ignored with a reason that is
     returned and printed. The answer says which evidence it used and, for a screen or study, what that changed."""
+    validate_format(endpoint, body)            # already checked before the charge on both transports; this covers any other caller of `_invoke`
     if _nests_deeper_than(body, MAX_BODY_DEPTH):
         raise ApiError(422, f"the request nests more than {MAX_BODY_DEPTH} levels deep; no field of any route needs that")
     if not isinstance(body, dict) or "cost_evidence" not in body:
@@ -1696,6 +1727,10 @@ def _mcp_call_tool(params: dict, tier: Tier, charge) -> dict:
     args = params.get("arguments")
     if not isinstance(args, dict):
         raise RpcError(-32602, "arguments must be an object")
+    try:
+        validate_format(endpoint, args)        # before the idempotency lookup and the charge: nothing to refund
+    except ApiError as exc:
+        raise RpcError(-32602, exc.message, exc.extra)
     # Idempotency-Key, exactly as REST honours it: a retry after a timeout is neither charged twice nor handed a
     # different answer, and a key reused for another request is refused. `idem` is None when there is no key,
     # no valid API key to scope it to, or the tool is the estimator.
@@ -2323,6 +2358,10 @@ class Handler(BaseHTTPRequestHandler):
 
         if not isinstance(body, dict):
             return self._send(400, {"error": "expected a JSON object"})
+        try:
+            validate_format(path, body)        # a format the route cannot render is refused before anything is metered
+        except ApiError as exc:
+            return self._send(exc.status, {"error": exc.message, **exc.extra})
 
         idem = (self.headers.get("Idempotency-Key") or "").strip()
         idem_key = None
