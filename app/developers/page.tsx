@@ -21,6 +21,7 @@ import { callableRates, isCallable, parseToolRates, unavailableLabel, type ToolR
 import { availabilityIn, deployedEngineRoutes, mcpAvailabilityIn, type Availability } from "@/lib/engine-capabilities";
 import { estimateEndpointServed } from "@/lib/tool-rates";
 import { ENGINE_DISCOVERY, ENGINE_ESTIMATE_GET, ERROR_STATUSES, MAX_MCP_BATCH, idempotencyStatement } from "@/lib/openapi";
+import { GridForgeVisual } from "@/components/GridForgeVisual";
 
 // What is callable follows the DEPLOYED engine (its /v1/version), which changes when the engine is redeployed, not when
 // this site is: regenerate at most every five minutes rather than freezing the answer at build time.
@@ -123,8 +124,13 @@ export default async function DevelopersPage() {
   const mcpState: Availability = mcpAvailabilityIn(routes);
   const qualifyState = state("/v1/qualify");
 
-  return (
-    <div className="mx-auto w-full max-w-6xl px-5 pb-24 pt-28 sm:px-8">
+  return (<div className="mx-auto w-full max-w-6xl px-5 pb-24 pt-28 sm:px-8">
+      <div className="mt-12 mb-12">
+        <GridForgeVisual
+          slug="gridforge-deterministic-api-architecture"
+          alt="Layered system architecture from client JSON payload through schema validation, three parallel solvers, perturbation ranker and E0–E7 provenance tagger to REST outputs."
+        />
+      </div>
       <PageJsonLd
         data={[
           webPageJsonLd(
