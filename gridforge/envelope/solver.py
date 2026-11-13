@@ -165,9 +165,10 @@ class HeadroomLadder:
         if ctx is None:
             return ()
         out = []
-        if not ctx.power.transformers:
+        # a bank declared with no units is not equipment (power.constraints.active_banks): a list of only such banks is no declaration
+        if not any(t.units >= 1 for t in ctx.power.transformers):
             out.append("transformers")
-        if not ctx.power.ups:
+        if not any(u.units >= 1 for u in ctx.power.ups):
             out.append("UPS")
         return tuple(out)
 
@@ -272,7 +273,7 @@ def ladder_step_budget(ctx: EnvelopeContext) -> int:
     """How many rungs the ladder may take for this hall: LADDER_STEP_FLOOR plus LADDER_STEPS_PER_MW for every MW of the hall's size,
     never more than LADDER_STEP_CAP.
 
-    Every relief adds a fixed increment (two busway runs, one CDU per bank, two UPS modules per block), so the rungs needed grow with how
+    Every relief adds a fixed increment (two busway runs, one further CDU unit, two UPS modules: each in total, not per bank or block, so how a plant is listed does not change the number of rungs), so the rungs needed grow with how
     much capacity there is to unlock. That is the smaller of what the supply could carry (the lesser of the firm connection and the
     contract, plus every behind-the-meter option) and what the free positions could hold at the platform's rack power. A fixed 200
     rungs refused ordinary halls above roughly 150 MVA. Non-finite or non-positive figures count as zero (they cannot enlarge the budget)."""

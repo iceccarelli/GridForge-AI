@@ -1,7 +1,7 @@
 """The headroom ladder answers any hall inside the plausibility ceilings, or refuses it by name. It never gives up on a fixed step count.
 
 Defect (stress review, 2026-11-06): ``ladder(max_steps=200)`` raised ``LadderDidNotConverge`` for any hall that needs more than 200 rungs.
-Each rung adds a fixed increment (two busway runs, one CDU per bank, two UPS modules per block), so the rungs needed grow with the size of
+Each rung adds a fixed increment (two busway runs, one further CDU unit, two UPS modules: each in total, not per bank or block, so how a plant is listed does not change the number of rungs), so the rungs needed grow with the size of
 the hall: a 200 MVA Dublin-style hall with behind-the-meter supply needs about 230. The API turned the exception into a generic 422, so a
 perfectly ordinary large hall was "could not be processed as given" while the fuzzer counted the 422 as a clean refusal.
 

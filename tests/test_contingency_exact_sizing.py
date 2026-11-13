@@ -10,10 +10,10 @@ Expected figures are decimal (``fractions.Fraction``): the supply is built to eq
 from __future__ import annotations
 
 import itertools
+import json
 import random
 from fractions import Fraction as F
-
-import pytest
+from pathlib import Path
 
 from gridforge.api.server import handle_power_deploy_assess
 from gridforge.api.tiers import Tier
@@ -23,9 +23,6 @@ from gridforge.power.generation import GenerationUnit
 from gridforge.power.plausibility import plausibility_findings
 from gridforge.power.reliability import ContingencyCase, ContingencyStatus, Redundancy, _startup_bridge_notes, evaluate
 from gridforge.power.storage import BatteryEnergyStorageSystem
-
-import json
-from pathlib import Path
 
 DUBLIN = json.loads((Path(__file__).resolve().parent.parent / "examples" / "intake" / "dublin_hall.json").read_text())
 

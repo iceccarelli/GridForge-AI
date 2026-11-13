@@ -287,7 +287,7 @@ def evaluate(res: EnvelopeResult, lad: HeadroomLadder, utilisation: Quantity) ->
     conv = (racks * conversion_capex_per_rack()).relabel(
         "in-hall conversion capex", "economics.conversion_capex", step_evidence=MODELLED)
     unpriced = _unpriced_rows(lad)
-    assumed_units = sum(c.units for c in (ctx_i.thermal.cdus if ctx_i is not None else []) if not c.installed)
+    assumed_units = sum(c.units for c in (ctx_i.thermal.cdus if ctx_i is not None else []) if not c.installed and c.units >= 1)
     allocated = _allocated_quotes(lad, assumed_units if res.max_racks > 0 else 0)
     # Lines whose price rests on a quotation of limited comparability: scaled to a quantity the supplier did not quote,
     # or quoted with no stated scope. They stay in the total, visibly limited, never treated as a clean benchmark.

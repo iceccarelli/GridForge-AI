@@ -28,6 +28,47 @@ TRANSFORMER_UPRATE = 1.6
 #: a grid of units x schemes. (`thermal.constraints` keeps its own: thermal may not import power.)
 _effective_units = usable_units
 
+#: Modules a UPS relief buys, IN TOTAL (not per block): see ``_ups_host``.
+UPS_MODULES_PER_RELIEF = 2
+
+
+def active_banks(banks):
+    """The banks that exist: those with at least one unit. A bank declared with ``units`` 0 is a planned or empty bank, not equipment: it adds no
+    capacity, is not priced, sets no lead time, and no relief puts units into it, so it is IGNORED wherever banks are counted, priced or dated
+    (adding such a bank to a hall changes nothing). Before this a zero-unit transformer bank with a 300-week lead time moved the date from 160 to 300
+    weeks, and a zero-unit UPS block doubled the UPS step's price. Refusing or warning about such a bank is the loader's concern, not this one's."""
+    return [b for b in banks if b.units >= 1]
+
+
+def _ups_usable_gain_kW(u) -> float:
+    """Usable kW the relief's modules add if they go into block ``u``: the block's own redundancy decides how many of them count (two modules
+    under N or N+1 are two usable, under 2N one)."""
+    return u.unit_rating_kW.value * (_effective_units(u.units + UPS_MODULES_PER_RELIEF, u.redundancy) - _effective_units(u.units, u.redundancy))
+
+
+def _ups_host(blocks):
+    """The block that receives a UPS relief's modules, or None when no block has a module.
+
+    THE RULE: a relief buys ``UPS_MODULES_PER_RELIEF`` (two) modules in total and puts them all in ONE block, the fewest blocks that can host them
+    (nothing in the library caps the modules in a block). Which block is fixed by the plant and never by how it was listed: the block whose added
+    modules carry the most usable kW (so a rung unlocks as much as the plant allows), then the larger module, then the smaller id, then the rest of
+    the block's own figures. The price follows the kW actually added (two modules of that block's rating).
+
+    The old relief added two modules to EVERY listed block, priced on the sum, so the same 6 x 1200 kW plant listed as 1, 2 or 6 blocks cost
+    5.86, 6.63 and 9.70 MEUR for the same racks (audit N2, hybrid DLC on the reference hall with the UPS under N). Banks with no units are not hosts
+    (``active_banks``)."""
+    live = active_banks(blocks)
+    if not live:
+        return None
+    return min(live, key=lambda u: (-_ups_usable_gain_kW(u), -u.unit_rating_kW.value, u.id, u.units, u.redundancy, u.step_load_capability.value))
+
+
+def _lead_key(t_or_q) -> tuple:
+    """Order of two lead times for "the slowest bank sets the date": the figure, then (among equals) the wider band, then the id of the bank."""
+    q = getattr(t_or_q, "replacement_lead_time_weeks", t_or_q)
+    lo, hi = q.band
+    return (q.value, hi, -lo, getattr(t_or_q, "id", ""))
+
 
 def _lesser_of(a: Quantity, b: Quantity, label: str) -> Quantity:
     """min(a, b) with the interval and the evidence of BOTH. Picking the nominal winner and returning its own
@@ -132,17 +173,20 @@ def grid_firm_capacity(ctx: EnvelopeContext) -> ConstraintResult:
 
 @constraint
 def transformer_capacity(ctx: EnvelopeContext) -> ConstraintResult:
-    if not ctx.power.transformers:
-        return _unbounded("transformer_capacity", "electrical", "Transformer capacity", "no transformers declared")
+    banks = active_banks(ctx.power.transformers)         # a bank with no units is not equipment: no capacity, no price, no lead time
+    if not banks:
+        return _unbounded("transformer_capacity", "electrical", "Transformer capacity",
+                          "no transformers declared" if not ctx.power.transformers else "no transformer bank with a unit is declared (every listed bank has 0 units)")
     caps = []
-    lead = None
-    for t in ctx.power.transformers:
+    lead, lead_bank = None, None
+    for t in banks:
         n = _effective_units(t.units, t.redundancy)
         caps.append((t.unit_rating_MVA * ctx.power.grid.power_factor * t.derating_factor).convert(
             1000.0 * n, "kW", f"{t.id} usable capacity ({t.redundancy}, {n} of {t.units} units)"))
-        if t.replacement_lead_time_weeks is not None and (
-                lead is None or t.replacement_lead_time_weeks.value > lead.value):
-            lead = t.replacement_lead_time_weeks      # the slowest bank sets the date
+        # the slowest bank sets the date; among banks equally slow, the one with the wider band (then the larger upper end, then the id), so the
+        # listing order cannot choose which band the date carries
+        if t.replacement_lead_time_weeks is not None and (lead is None or _lead_key(t) > _lead_key(lead_bank)):
+            lead, lead_bank = t.replacement_lead_time_weeks, t
     total = qsum(caps)         # order-independent (math.fsum): the same banks listed in another order are the same capacity
     headroom = (total - ctx.power.grid.current_site_peak_MW.convert(1000.0, "kW", "current site peak")).relabel(
         "transformer headroom", "power.transformer_headroom", step_evidence=ESTIMATED)
@@ -150,12 +194,12 @@ def transformer_capacity(ctx: EnvelopeContext) -> ConstraintResult:
 
     def _apply(c: EnvelopeContext) -> EnvelopeContext:
         c = c.copy()
-        for tr in c.power.transformers:
+        for tr in active_banks(c.power.transformers):
             tr.unit_rating_MVA = tr.unit_rating_MVA * V(TRANSFORMER_UPRATE, "1", "uprated transformer factor", ASSUMED)
         return c
 
     # What is bought is nameplate MVA: every bank is uprated, so the price follows the MVA added.
-    added_MVA = math.fsum(t.units * t.unit_rating_MVA.value for t in ctx.power.transformers) * (TRANSFORMER_UPRATE - 1.0)
+    added_MVA = math.fsum(t.units * t.unit_rating_MVA.value for t in banks) * (TRANSFORMER_UPRATE - 1.0)
     price = scaled_cost(
         "transformer.replacement", 1_200_000 / 9.0, "EUR/MVA", added_MVA, "MVA",
         "transformer and switchgear uprate",
@@ -184,10 +228,13 @@ def transformer_capacity(ctx: EnvelopeContext) -> ConstraintResult:
 
 @constraint
 def ups_capacity(ctx: EnvelopeContext) -> ConstraintResult:
-    if not ctx.power.ups:
-        return _unbounded("ups_capacity", "electrical", "UPS capacity", "no UPS declared (unprotected load assumed)")
+    blocks = active_banks(ctx.power.ups)                  # a block with no units is not equipment (see active_banks)
+    if not blocks:
+        return _unbounded("ups_capacity", "electrical", "UPS capacity",
+                          "no UPS declared (unprotected load assumed)" if not ctx.power.ups else
+                          "no UPS block with a module is declared (every listed block has 0 units; unprotected load assumed)")
     caps = []
-    for u in ctx.power.ups:
+    for u in blocks:
         n = _effective_units(u.units, u.redundancy)
         caps.append((u.unit_rating_kW * V(float(n), "1", f"{u.id} usable units ({u.redundancy})", ASSUMED)).relabel(
             f"{u.id} usable UPS capacity", "power.ups_capacity"))
@@ -198,24 +245,32 @@ def ups_capacity(ctx: EnvelopeContext) -> ConstraintResult:
 
     def _apply(c: EnvelopeContext) -> EnvelopeContext:
         c = c.copy()
-        for u in c.power.ups:
-            u.units += 2
+        host = _ups_host(c.power.ups)           # the same block the price below was formed on (the ladder applies a relief to the context it came from)
+        if host is not None:
+            host.units += UPS_MODULES_PER_RELIEF
         return c
 
-    # The relief adds two modules to every block; the price follows the nameplate kW actually added.
-    added_kW = math.fsum(2 * u.unit_rating_kW.value for u in ctx.power.ups)
+    # The relief buys two modules in total, in the one block that gains most (``_ups_host``); the price follows the nameplate kW actually added.
+    # The same plant listed as one block or as several therefore gets the same step, the same price and the same date.
+    host = _ups_host(ctx.power.ups)
+    added_kW = UPS_MODULES_PER_RELIEF * host.unit_rating_kW.value
     price = scaled_cost("ups.per_kW", 320, "EUR/kW", added_kW, "kW", "UPS module addition, installed",
                         note="Placeholder per nameplate kW of UPS added.")
+    rule = (f"Each step buys {UPS_MODULES_PER_RELIEF} modules in total ({UPS_MODULES_PER_RELIEF} x {host.unit_rating_kW.value:g} kW = {added_kW:g} kW), "
+            f"put in one block ({host.id}): the fewest blocks that can host them, chosen as the block whose added modules carry the most usable kW "
+            f"(then the larger module, then the id). The price follows the kW added, so the same plant listed as one block or as several is priced "
+            f"and dated the same; a block declared with no units is ignored.")
+    schemes = ", ".join(sorted({u.redundancy for u in blocks}))
     return ConstraintResult(
         "ups_capacity", "electrical", "UPS capacity (protected load)",
         floor_racks(racks),
-        basis=(f"{headroom.render()} of protected-load headroom after {ctx.power.ups[0].redundancy} redundancy "
+        basis=(f"{headroom.render()} of protected-load headroom after {schemes} redundancy "
                f"(sized on sustained rack power; transients above it are not added, so headroom may be overstated)"),
         relief=ReliefOption(
             description="Add UPS modules / new UPS block",
             capex_eur=price.capex, cost_kind=price.kind, scope=price.scope,
             quantity=price.quantity, quantity_unit=price.quantity_unit, limited=price.limited,
-            basis_note=price.note,
+            basis_note=" ".join(x for x in (price.note, rule) if x),
             cost_key="ups.per_kW",
             lead_time_weeks=V(30, "weeks", "UPS lead time", ASSUMED, band=(20, 52)),
             apply=_apply,
