@@ -14,7 +14,7 @@ from datetime import timedelta
 
 from ..clock import report_date
 
-from ..commercial import Engagement
+from ..commercial import SCREEN_CREDIT_SENTENCE, Engagement
 from ..common import ASSUMED, ESTIMATED, V
 from ..constraints import EnvelopeContext
 from ..envelope.time_to_power import schedule
@@ -53,6 +53,15 @@ def _fee_caption(eng: Engagement) -> str:
 
 def _fee_statement_label(eng: Engagement) -> str:
     return (f"{eng.name} fee (quoted band, agreed in writing)" if _banded(eng) else f"{eng.name} fixed fee")
+
+def _credit_terms(eng: Engagement) -> str:
+    """What the engagement is credited against, with the conditions the code that honours the credit applies (never 'credits in full' alone)."""
+    if not eng.credits_against:
+        return "—"
+    if eng.id == "density_screen":
+        return SCREEN_CREDIT_SENTENCE
+    return f"Credited against the {eng.credits_against.replace('_', ' ')}, on the conditions stated in the Terms."
+
 
 def build(intake: Intake, results: list[ScenarioResult], eng: Engagement, *,
           objective: Objective = Objective.MAX_COMPUTE,
@@ -145,9 +154,7 @@ def build(intake: Intake, results: list[ScenarioResult], eng: Engagement, *,
         [["Fee", Lit(_fee_terms(eng))],
          ["Turnaround", Lit(f"{eng.turnaround_days} working days from a complete intake")],
          ["Payment", Lit(eng.payment_terms)],
-         ["Credit", Lit(
-             f"Credits in full against the {eng.credits_against.replace('_', ' ')}."
-             if eng.credits_against else "—")],
+         ["Credit", Lit(_credit_terms(eng))],
          ["Validity", Lit(f"This proposal is valid to {valid_to.isoformat()}.")],
          ["Independence", Lit("We quote no equipment and take no margin on hardware. Nothing in "
                               "the deliverable routes you to a supplier we are paid by.")]],

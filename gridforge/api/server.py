@@ -337,6 +337,26 @@ class ApiError(Exception):
         self.extra = extra
 
 
+def _whole_number(body: dict, key: str, default: int | None, lo: int, hi: int) -> int | None:
+    """A whole number the caller sent under `key`, or `default` when it is absent or null. A value that is not a whole number in [lo, hi] is
+    refused BY NAME (422) rather than escaping as the raw `ValueError: invalid literal for int()` text; a numeric string that is a whole number
+    is still accepted, as it always was, and a boolean is not a number here."""
+    raw = body.get(key)
+    if raw is None or raw == "":
+        return default
+    if isinstance(raw, bool):
+        raise ApiError(422, f"{key} must be a whole number from {lo} to {hi}, not a boolean", field=key)
+    try:
+        n = int(float(raw)) if isinstance(raw, str) and raw.strip().lstrip("+-").replace(".", "", 1).isdigit() and float(raw) == int(float(raw)) else int(raw)
+    except (TypeError, ValueError, OverflowError):
+        raise ApiError(422, f"{key} must be a whole number from {lo} to {hi}", field=key)
+    if isinstance(raw, float) and raw != n:
+        raise ApiError(422, f"{key} must be a whole number from {lo} to {hi}", field=key)
+    if not lo <= n <= hi:
+        raise ApiError(422, f"{key} must be a whole number from {lo} to {hi}", field=key, minimum=lo, maximum=hi)
+    return n
+
+
 API_SCHEMA = "gridforge/api/1"
 
 
@@ -1018,7 +1038,7 @@ def handle_proposal(body: dict, tier: Tier) -> dict:
         raise ApiError(422, str(exc), available=sorted(ENGAGEMENTS))
     report = build_proposal_report(
         intake, results, eng, objective=_objective(body),
-        valid_days=int(body.get("valid_days") or 30), contact=str(body.get("contact") or ""))
+        valid_days=_whole_number(body, "valid_days", 30, 1, 3650) or 30, contact=str(body.get("contact") or ""))
     out = _rendered(report, results, str(body.get("format") or "html").lower())
     out["engagement"] = {"id": eng.id, "name": eng.name, "price_eur": eng.price_eur,
                          "turnaround_days": eng.turnaround_days}
@@ -1093,9 +1113,8 @@ def handle_power_assess(body: dict, tier: Tier) -> dict:
     other endpoint reads. No new physics — see gridforge/power/readiness.py."""
     from ..reporting.readiness import assess
     intake, results = _run(body.get("intake") or body)
-    target = body.get("target_racks")
-    case = assess(intake, results, objective=_objective(body),
-                  target_racks=int(target) if target is not None else None)
+    target = _whole_number(body, "target_racks", None, 0, 100_000)
+    case = assess(intake, results, objective=_objective(body), target_racks=target)
     return redact(case, tier)
 
 

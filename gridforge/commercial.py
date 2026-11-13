@@ -28,6 +28,16 @@ class Engagement:
     payment_terms: str = "100% on commissioning. The engagement opens when payment clears."
 
 
+#: What "credits in full" means for a Density Screen, in ONE sentence. It is the same sentence as lib/credits-terms.ts SCREEN_CREDIT_SENTENCE on the
+#: website (tests/test_credit_sentence_parity.py reads that file and fails if the two differ), because a promise about money must state the
+#: conditions the code that honours it applies, on every surface that makes it: the site, an email, an agent block and the documents the engine writes.
+SCREEN_CREDIT_SENTENCE = (
+    "The fee paid for a Density Screen is credited once against the fee agreed for an Envelope Study: for the same email address, after we confirm it is the same buyer "
+    "(the address typed at checkout is not verified), applied whole and only while the deposit and the credit together stay within the agreed fee. "
+    "It reduces what is owed and is never paid out as cash, and a refunded or disputed purchase carries no credit."
+)
+
+
 SCOPE_OUT_COMMON = (
     "Stamped design drawings, or any deliverable requiring a professional engineering signature.",
     "CFD of the hall — available as a priced add-on or a later phase.",

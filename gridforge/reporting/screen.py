@@ -7,7 +7,7 @@ to be the one a competent engineer would write.
 """
 from __future__ import annotations
 
-from ..commercial import ENGAGEMENTS
+from ..commercial import ENGAGEMENTS, SCREEN_CREDIT_SENTENCE
 from ..common import ASSUMED, ESTIMATED, V
 from ..envelope.time_to_power import schedule
 from ..intake.loader import Intake
@@ -162,7 +162,7 @@ def build(intake: Intake, results: list[ScenarioResult],
         f"{ENGAGEMENTS['envelope_study'].name} — full ladder, all architectures, scenario and "
         "sensitivity analysis, economics, risk register, machine-readable model pack. "
         f"{ENGAGEMENTS['envelope_study'].turnaround_days} working days from a complete intake.",
-        "This screen's fee credits in full against it.",
+        SCREEN_CREDIT_SENTENCE,
         "Before anything else: get the DSO position in writing on firm capacity and any "
         "flexibility product. It costs nothing but time and it can end the question.",
     ]))

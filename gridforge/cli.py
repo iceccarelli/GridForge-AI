@@ -1068,8 +1068,14 @@ def cmd_bids(args) -> int:
     ranked = rank_bids(pkg, responses)
     print(f"{pkg.relief_title} — {len(ranked)} response(s), sized for "
           f"{pkg.sized_for_racks} racks\n")
-    for i, a in enumerate(ranked, 1):
-        print(f"{i}. {a.headline()}")
+    ordinal = 0
+    for a in ranked:
+        if a.disqualified:
+            label = "-"                    # a disqualified bid is not ranked: no ordinal (the API sends rank: null for it)
+        else:
+            ordinal += 1
+            label = f"{ordinal}."
+        print(f"{label} {a.headline()}")
         print(f"     {schedule_impact(pkg, a)}")
         if a.eur_per_rack:
             print(f"     EUR {a.eur_per_rack:,.0f} per rack enabled")
