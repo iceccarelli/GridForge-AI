@@ -113,8 +113,8 @@ describe("every surface that makes the promise prints the constant", () => {
     expect(block.label).not.toMatch(/credits in full/i);
   });
 
-  it("the pages that cannot be rendered here (a stored result, a share link, the pricing page's data, the qualifier) import it and type no copy", () => {
-    for (const f of ["app/q/[token]/page.tsx", "app/p/[shareToken]/page.tsx", "app/pricing/page.tsx", "components/CapacityQualifier.tsx"]) {
+  it("the pages that cannot be rendered here (a stored result, a share link, the pricing page's data, the qualifier's engagement text) import it and type no copy", () => {
+    for (const f of ["app/q/[token]/page.tsx", "app/p/[shareToken]/page.tsx", "app/pricing/page.tsx", "lib/qualify-engagement.ts"]) {
       const src = strip(read(f));
       expect(src, f).toContain('from "@/lib/credits-terms"');
       expect(src, f).toContain("SCREEN_CREDIT_SENTENCE");

@@ -7,12 +7,13 @@ import { constraintHref, type ConstraintSlugs } from "@/lib/constraint-links";
 import type { QualifyResult } from "@/lib/qualify";
 import { assumedText } from "@/lib/assumed-text";
 import { PRODUCTS } from "@/lib/products";
-import { SCREEN_CREDIT_SENTENCE } from "@/lib/credits-terms";
 import { eur } from "@/lib/commerce";
 import { PAYG } from "@/lib/products";
 import { formatSetsTheDate } from "@/lib/date-basis";
 import FreeAllowanceForm from "@/components/FreeAllowanceForm";
 import { NEXT_STEP_HREFS } from "@/lib/qualify-next-steps";
+import { engagementAdvice, type EngagementAdvice } from "@/lib/qualify-engagement";
+import { isInputProblem, joinNames, orderedWarnings, rackNoun, splitGaps, upperBoundInputs, type QualifyGap } from "@/lib/qualify-readout";
 import { assumedRecordMatches, type QualifyAssumable } from "@/lib/qualify-assumed";
 import {
   HALL_PRESETS,
@@ -51,7 +52,8 @@ import {
  * nothing of this is rendered and the form is exactly what it was.
  */
 
-interface FieldDef {
+/** Exported, with FIELDS and fieldProblem, so the suite (which has no DOM) can run the form's own rule on typed text. */
+export interface FieldDef {
   key: keyof typeof DEFAULTS;
   label: string;
   unit: string;
@@ -80,7 +82,7 @@ const DEFAULTS = {
   positionsAvailable: 180,
 };
 
-const FIELDS: FieldDef[] = [
+export const FIELDS: FieldDef[] = [
   { key: "contractedMW", label: "Contracted capacity", unit: "MW", step: "0.1", min: 0, max: 2000, positive: true,
     hint: "From the supply contract, not the connection nameplate." },
   { key: "currentPeakMW", label: "Current site peak", unit: "MW", step: "0.1", min: 0, max: 2000,
@@ -93,8 +95,9 @@ const FIELDS: FieldDef[] = [
     hint: "A rack that cannot be fed cannot be placed." },
   { key: "plantSupplyC", label: "Plant supply temperature", unit: "°C", step: "0.5", min: -5, max: 45,
     hint: "Chilled water flow setpoint. Legacy plant runs 6–7 °C." },
-  { key: "positionsAvailable", label: "Rack positions available", unit: "", min: 0, max: 20000, positive: true, integer: true,
-    hint: "Positions you could actually release from tenancy." },
+  // Zero is an answer: the engine accepts it and reports that rack positions are what stops the hall.
+  { key: "positionsAvailable", label: "Rack positions available", unit: "", min: 0, max: 20000, integer: true,
+    hint: "Positions you could actually release from tenancy. Enter 0 if none are free." },
 ];
 
 const PLATFORMS = [
@@ -109,7 +112,7 @@ const EMPTY_RAW = Object.fromEntries(Object.keys(DEFAULTS).map((k) => [k, ""])) 
 type FieldErrors = Partial<Record<keyof Values, string>>;
 
 /** The first problem with one field's text, or null. Mirrors the engine's bounds so the message sits beside the field. */
-function fieldProblem(f: FieldDef, raw: string): string | null {
+export function fieldProblem(f: FieldDef, raw: string): string | null {
   if (raw.trim() === "") return "Enter a value.";
   const n = Number(raw);
   if (!Number.isFinite(n)) return "Enter a number.";
@@ -537,17 +540,29 @@ export function QualifyReadout({
   constraintSlugs?: ConstraintSlugs;
 }) {
   const { as_found: found, after_relief: after, intake } = result;
+  // The inputs the engine treated as "no limit": the rack counts are then upper bounds, and the page says so beside them.
+  const unevaluated = upperBoundInputs(result);
+  // Everything the engine warned about, the unit and inconsistency findings first. The verdict below is not a finding about the hall while one stands.
+  const warnings = orderedWarnings(result);
+  // Every required gap is shown, then optional ones up to a cap; the rest sit behind a disclosure. The footer counts the starred rows.
+  const gapRows = splitGaps(intake.gaps);
   return (
     <div className="mt-8 animate-slide-up">
       {template ? <TemplateNotice template={template} recorded={result.inputs_declared_assumed ?? []} /> : null}
+      {warnings.length ? <EngineWarnings warnings={warnings} /> : null}
       <p ref={headlineRef} tabIndex={-1} className="text-lg text-ghost leading-snug max-w-3xl outline-none focus-visible:ring-2 focus-visible:ring-power/60">{headline}</p>
       {share ? <ShareLink href={share} /> : null}
 
       <div className="mt-5 grid gap-3 sm:grid-cols-3">
-        <Readout label="Deployable today" value={String(found.racks)} suffix="racks" tone="ghost" />
-        <Readout label="After the ladder" value={String(after.racks)} suffix="racks" tone="power" />
+        <Readout label={`Deployable today${unevaluated.length ? " · upper bound" : ""}`} value={String(found.racks)} suffix={rackNoun(found.racks)} tone="ghost" />
+        <Readout label={`After the ladder${unevaluated.length ? " · upper bound" : ""}`} value={String(after.racks)} suffix={rackNoun(after.racks)} tone="power" />
         <SetsTheDate after={after} />
       </div>
+      {unevaluated.length ? (
+        <p data-testid="qualify-upper-bound" className="mt-2 max-w-3xl text-[11px] leading-snug text-queue">
+          Upper bound: {joinNames(unevaluated)} {unevaluated.length === 1 ? "was" : "were"} not evaluated (treated as no limit), so the hall may carry fewer racks than this.
+        </p>
+      ) : null}
 
       <div className="mt-5 rounded border border-line bg-panel-2 p-4">
         <p className="font-mono text-[10px] uppercase tracking-[0.14em] text-queue">
@@ -581,48 +596,25 @@ export function QualifyReadout({
         </div>
       ) : null}
 
-      {intake.gaps.length ? (
+      {gapRows.shown.length ? (
         <div className="mt-6">
           <p className="font-mono text-[10px] uppercase tracking-[0.14em] text-faint mb-2">
             Assumed, because nobody supplied it
             {template ? "" : ` · intake ${Math.round(intake.completeness * 100)}% complete`}
           </p>
-          <div role="region" aria-label="Inputs the engine assumed" tabIndex={0} className="overflow-x-auto rounded border border-line focus:outline-none focus-visible:ring-2 focus-visible:ring-power/60">
-            <table className="w-full text-sm">
-              <thead>
-                <tr className="bg-panel">
-                  {["Input", "Assumed", "Why it binds"].map((h) => (
-                    <th
-                      key={h}
-                      className="text-left font-mono text-[10px] uppercase tracking-[0.12em] text-faint px-3 py-2"
-                    >
-                      {h}
-                    </th>
-                  ))}
-                </tr>
-              </thead>
-              <tbody>
-                {intake.gaps.slice(0, 8).map((g) => (
-                  <tr key={g.input} className="border-t border-line align-top">
-                    <td className="px-3 py-2 text-ghost">
-                      {g.input}
-                      {g.required ? <span className="text-flag"> *</span> : null}
-                    </td>
-                    <td className="px-3 py-2 font-mono text-mute">{assumedText(g.assumed)}</td>
-                    <td className="px-3 py-2 text-faint">
-                      {g.why_it_binds}
-                      {g.how_to_get_it ? (
-                        <span className="mt-1 block text-mute">Where to find it: {g.how_to_get_it}</span>
-                      ) : null}
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
+          <GapTable rows={gapRows.shown} label="Inputs the engine assumed" />
+          {gapRows.more.length ? (
+            <details data-testid="qualify-more-gaps" className="mt-3">
+              <summary className="flex min-h-11 cursor-pointer items-center text-sm text-power underline decoration-power/60 underline-offset-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-power/60">
+                +{gapRows.more.length} more optional input{gapRows.more.length === 1 ? "" : "s"}
+              </summary>
+              <div className="mt-2">
+                <GapTable rows={gapRows.more} label="More optional inputs the engine assumed" />
+              </div>
+            </details>
+          ) : null}
           <p className="text-[11px] text-faint mt-2">
-            {intake.required_inputs_missing} required input
-            {intake.required_inputs_missing === 1 ? "" : "s"} assumed. Each one moves the answer. A * marks an input the paid document requires.
+            {gapRows.requiredCount === 0 ? "No required inputs assumed. Each optional one still moves the answer." : `${gapRows.requiredCount} required input${gapRows.requiredCount === 1 ? "" : "s"} assumed. Each one moves the answer.`} A * marks an input the paid document requires.
             {template ? " The figures that are still the template's are assumed too (listed above); the engine's completeness score would count them as supplied, so it is not shown for a template." : ""}
           </p>
         </div>
@@ -633,8 +625,8 @@ export function QualifyReadout({
         templateDerived={template !== null}
         commission={
           <CommissionPanel
-            recommendation={intake.recommended_engagement}
-            summary={`${headline} Binding constraint: ${found.binding_constraint}. ${intake.required_inputs_missing} required inputs still assumed.`}
+            advice={engagementAdvice(result)}
+            summary={`${headline} Binding constraint: ${found.binding_constraint}. ${gapRows.requiredCount} required input${gapRows.requiredCount === 1 ? "" : "s"} still assumed.`}
             capacityMW={Math.round((found.it_load_kW?.value ?? 0) / 1000)}
             qualificationId={qualificationId}
             qualificationToken={qualificationToken}
@@ -643,6 +635,73 @@ export function QualifyReadout({
       />
 
       <p className="text-[11px] text-faint mt-5 leading-relaxed max-w-3xl">{result.notice}</p>
+    </div>
+  );
+}
+
+/** One table of assumed inputs. A required one carries a star; the paid document needs it. */
+function GapTable({ rows, label }: { rows: QualifyGap[]; label: string }) {
+  return (
+    <div role="region" aria-label={label} tabIndex={0} className="overflow-x-auto rounded border border-line focus:outline-none focus-visible:ring-2 focus-visible:ring-power/60">
+      <table className="w-full text-sm">
+        <thead>
+          <tr className="bg-panel">
+            {["Input", "Assumed", "Why it binds"].map((h) => (
+              <th
+                key={h}
+                className="text-left font-mono text-[10px] uppercase tracking-[0.12em] text-faint px-3 py-2"
+              >
+                {h}
+              </th>
+            ))}
+          </tr>
+        </thead>
+        <tbody>
+          {rows.map((g, i) => (
+            <tr key={`${g.input}-${i}`} className="border-t border-line align-top">
+              <td className="px-3 py-2 text-ghost">
+                {g.input}
+                {g.required ? <span className="text-flag"> *</span> : null}
+              </td>
+              <td className="px-3 py-2 font-mono text-mute">{assumedText(g.assumed)}</td>
+              <td className="px-3 py-2 text-faint">
+                {g.why_it_binds}
+                {g.how_to_get_it ? (
+                  <span className="mt-1 block text-mute">Where to find it: {g.how_to_get_it}</span>
+                ) : null}
+              </td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
+/**
+ * What the engine warned about, above the verdict it qualifies. Each warning is text the engine wrote about THESE inputs; it is rendered as
+ * text (React escapes it), never as markup. A unit or consistency finding (a peak below the IT load, a MW/MVA/kW slip) is listed first and the
+ * box says so: the zero beside it can then be a sign of a typo rather than of a full hall.
+ */
+function EngineWarnings({ warnings }: { warnings: string[] }) {
+  const problems = warnings.filter(isInputProblem).length;
+  return (
+    <div
+      role="note"
+      aria-label="Warnings from the engine"
+      data-testid="qualify-warnings"
+      className={`mb-4 rounded border p-4 text-sm text-ghost ${problems ? "border-flag/50 bg-flag/10" : "border-line bg-panel-2"}`}
+    >
+      <p className={`font-mono text-[10px] uppercase tracking-[0.14em] ${problems ? "text-flag" : "text-faint"}`}>
+        {problems ? `Check these figures · ${warnings.length === 1 ? "1 warning" : `${warnings.length} warnings`} from the engine` : `Noted by the engine · ${warnings.length === 1 ? "1 warning" : `${warnings.length} warnings`}`}
+      </p>
+      <ul className="mt-2 grid gap-2">
+        {warnings.map((w, i) => (
+          <li key={i} className={isInputProblem(w) ? "text-ghost" : "text-mute"}>
+            {w}
+          </li>
+        ))}
+      </ul>
     </div>
   );
 }
@@ -749,13 +808,14 @@ export function TemplateNotice({ template, recorded }: { template: TemplateUsed;
 }
 
 function CommissionPanel({
-  recommendation,
+  advice,
   summary,
   capacityMW,
   qualificationId,
   qualificationToken,
 }: {
-  recommendation: string;
+  /** The buyer-facing words about the paid step (lib/qualify-engagement.ts). The engine's own engagement recommendation is written to our salesperson and is not shown. */
+  advice: EngagementAdvice;
   summary: string;
   capacityMW: number;
   /** The read being commissioned, so the engagement opens joined to it. */
@@ -803,10 +863,9 @@ function CommissionPanel({
 
   return (
     <div className="mt-6 rounded border border-line bg-panel-2 p-4">
-      <p className="text-sm text-ghost">{recommendation}</p>
-      <p className="mt-2 text-xs text-faint">
-        {screen.deliverable} {screen.turnaroundDays} working days from a complete intake. {SCREEN_CREDIT_SENTENCE}
-      </p>
+      {advice.situation ? <p data-testid="qualify-engagement" className="text-sm text-ghost">{advice.situation}</p> : null}
+      <p className={`${advice.situation ? "mt-2 " : ""}text-sm text-mute`}>{advice.offer}</p>
+      {advice.next ? <p className="mt-2 text-xs text-faint">{advice.next}</p> : null}
       <div className="mt-4 flex flex-wrap items-center gap-3">
         <button
           type="button"
