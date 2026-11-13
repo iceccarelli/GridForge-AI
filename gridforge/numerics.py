@@ -38,4 +38,3 @@ def floor_whole(x: float) -> int:
 
     Callers handle NaN and infinities first (``constraints._floor_whole``); this function is for finite input."""
     return math.floor(x + LIMIT_REL_TOL * max(1.0, abs(x)))
-
