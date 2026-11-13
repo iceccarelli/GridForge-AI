@@ -1627,7 +1627,7 @@
           "scope": "2,400 kW added",
           "cost_basis": "library_default",
           "unpriced_components": [],
-          "basis_note": "Each step buys 2 modules in total (2 x 1200 kW = 2400 kW), put in one block (UPS-1): the fewest blocks that can host them, chosen as the block whose added modules carry the most usable kW (then the larger module, then the id). The price follows the kW added, so the same plant listed as one block or as several is priced and dated the same; a block declared with no units is ignored.",
+          "basis_note": "Each step buys 2 modules in total (2 x 1200 kW = 2400 kW), put in one block (UPS-1): the fewest blocks that can host them, chosen as the block whose added modules cost least per usable kW gained after its own redundancy (320 EUR per usable kW (2400 usable kW gained); a 2N block installs two kW for each usable one), then the larger gain, then the id. The price follows the kW added, so the same plant listed as one block or as several is priced and dated the same; a block declared with no units is ignored.",
           "not_taken_reason": null
         },
         {
@@ -1754,7 +1754,7 @@
               "quantity": 1.0
             }
           ],
-          "basis_note": "Each step buys 1 CDU unit(s) in total (one further usable unit), put in one bank (CDU-ROW-assumed): the fewest banks that can host it, chosen as the bank whose added unit carries the most heat at the site's water temperature (then the most declared flow, the larger rating, the id). The price follows the units added, so the same CDUs listed as one bank or as several are priced the same; a bank declared with no units is ignored.",
+          "basis_note": "Each step buys 1 CDU unit(s) in total (one further usable unit), put in one bank (CDU-ROW-assumed): the fewest banks that can host it, chosen as the bank whose added unit costs least per kW of usable heat gained at the site's water temperature (133.3 EUR per kW of usable heat (1,350 kW gained); a 2N bank buys two units to gain one), then the larger heat gain, the most declared flow, the id. The price follows the units added, so the same CDUs listed as one bank or as several are priced the same; a bank declared with no units is ignored.",
           "not_taken_reason": null
         },
         {
@@ -1792,7 +1792,7 @@
           "scope": "2,400 kW added",
           "cost_basis": "library_default",
           "unpriced_components": [],
-          "basis_note": "Each step buys 2 modules in total (2 x 1200 kW = 2400 kW), put in one block (UPS-1): the fewest blocks that can host them, chosen as the block whose added modules carry the most usable kW (then the larger module, then the id). The price follows the kW added, so the same plant listed as one block or as several is priced and dated the same; a block declared with no units is ignored.",
+          "basis_note": "Each step buys 2 modules in total (2 x 1200 kW = 2400 kW), put in one block (UPS-1): the fewest blocks that can host them, chosen as the block whose added modules cost least per usable kW gained after its own redundancy (320 EUR per usable kW (2400 usable kW gained); a 2N block installs two kW for each usable one), then the larger gain, then the id. The price follows the kW added, so the same plant listed as one block or as several is priced and dated the same; a block declared with no units is ignored.",
           "not_taken_reason": null
         },
         {
@@ -2682,7 +2682,7 @@
           "scope": "2,400 kW added",
           "cost_basis": "library_default",
           "unpriced_components": [],
-          "basis_note": "Each step buys 2 modules in total (2 x 1200 kW = 2400 kW), put in one block (UPS-1): the fewest blocks that can host them, chosen as the block whose added modules carry the most usable kW (then the larger module, then the id). The price follows the kW added, so the same plant listed as one block or as several is priced and dated the same; a block declared with no units is ignored.",
+          "basis_note": "Each step buys 2 modules in total (2 x 1200 kW = 2400 kW), put in one block (UPS-1): the fewest blocks that can host them, chosen as the block whose added modules cost least per usable kW gained after its own redundancy (320 EUR per usable kW (2400 usable kW gained); a 2N block installs two kW for each usable one), then the larger gain, then the id. The price follows the kW added, so the same plant listed as one block or as several is priced and dated the same; a block declared with no units is ignored.",
           "not_taken_reason": null
         },
         {
@@ -2771,7 +2771,7 @@
               "quantity": 1.0
             }
           ],
-          "basis_note": "Each step buys 1 CDU unit(s) in total (one further usable unit), put in one bank (CDU-ROW-assumed): the fewest banks that can host it, chosen as the bank whose added unit carries the most heat at the site's water temperature (then the most declared flow, the larger rating, the id). The price follows the units added, so the same CDUs listed as one bank or as several are priced the same; a bank declared with no units is ignored.",
+          "basis_note": "Each step buys 1 CDU unit(s) in total (one further usable unit), put in one bank (CDU-ROW-assumed): the fewest banks that can host it, chosen as the bank whose added unit costs least per kW of usable heat gained at the site's water temperature (133.3 EUR per kW of usable heat (1,350 kW gained); a 2N bank buys two units to gain one), then the larger heat gain, the most declared flow, the id. The price follows the units added, so the same CDUs listed as one bank or as several are priced the same; a bank declared with no units is ignored.",
           "not_taken_reason": null
         },
         {
@@ -2809,7 +2809,7 @@
           "scope": "2,400 kW added",
           "cost_basis": "library_default",
           "unpriced_components": [],
-          "basis_note": "Each step buys 2 modules in total (2 x 1200 kW = 2400 kW), put in one block (UPS-1): the fewest blocks that can host them, chosen as the block whose added modules carry the most usable kW (then the larger module, then the id). The price follows the kW added, so the same plant listed as one block or as several is priced and dated the same; a block declared with no units is ignored.",
+          "basis_note": "Each step buys 2 modules in total (2 x 1200 kW = 2400 kW), put in one block (UPS-1): the fewest blocks that can host them, chosen as the block whose added modules cost least per usable kW gained after its own redundancy (320 EUR per usable kW (2400 usable kW gained); a 2N block installs two kW for each usable one), then the larger gain, then the id. The price follows the kW added, so the same plant listed as one block or as several is priced and dated the same; a block declared with no units is ignored.",
           "not_taken_reason": null
         },
         {
@@ -3697,7 +3697,7 @@
           "scope": "2,400 kW added",
           "cost_basis": "library_default",
           "unpriced_components": [],
-          "basis_note": "Each step buys 2 modules in total (2 x 1200 kW = 2400 kW), put in one block (UPS-1): the fewest blocks that can host them, chosen as the block whose added modules carry the most usable kW (then the larger module, then the id). The price follows the kW added, so the same plant listed as one block or as several is priced and dated the same; a block declared with no units is ignored.",
+          "basis_note": "Each step buys 2 modules in total (2 x 1200 kW = 2400 kW), put in one block (UPS-1): the fewest blocks that can host them, chosen as the block whose added modules cost least per usable kW gained after its own redundancy (320 EUR per usable kW (2400 usable kW gained); a 2N block installs two kW for each usable one), then the larger gain, then the id. The price follows the kW added, so the same plant listed as one block or as several is priced and dated the same; a block declared with no units is ignored.",
           "not_taken_reason": null
         },
         {
@@ -3786,7 +3786,7 @@
               "quantity": 1.0
             }
           ],
-          "basis_note": "Each step buys 1 CDU unit(s) in total (one further usable unit), put in one bank (CDU-ROW-assumed): the fewest banks that can host it, chosen as the bank whose added unit carries the most heat at the site's water temperature (then the most declared flow, the larger rating, the id). The price follows the units added, so the same CDUs listed as one bank or as several are priced the same; a bank declared with no units is ignored.",
+          "basis_note": "Each step buys 1 CDU unit(s) in total (one further usable unit), put in one bank (CDU-ROW-assumed): the fewest banks that can host it, chosen as the bank whose added unit costs least per kW of usable heat gained at the site's water temperature (133.3 EUR per kW of usable heat (1,350 kW gained); a 2N bank buys two units to gain one), then the larger heat gain, the most declared flow, the id. The price follows the units added, so the same CDUs listed as one bank or as several are priced the same; a bank declared with no units is ignored.",
           "not_taken_reason": null
         },
         {
@@ -3824,7 +3824,7 @@
           "scope": "2,400 kW added",
           "cost_basis": "library_default",
           "unpriced_components": [],
-          "basis_note": "Each step buys 2 modules in total (2 x 1200 kW = 2400 kW), put in one block (UPS-1): the fewest blocks that can host them, chosen as the block whose added modules carry the most usable kW (then the larger module, then the id). The price follows the kW added, so the same plant listed as one block or as several is priced and dated the same; a block declared with no units is ignored.",
+          "basis_note": "Each step buys 2 modules in total (2 x 1200 kW = 2400 kW), put in one block (UPS-1): the fewest blocks that can host them, chosen as the block whose added modules cost least per usable kW gained after its own redundancy (320 EUR per usable kW (2400 usable kW gained); a 2N block installs two kW for each usable one), then the larger gain, then the id. The price follows the kW added, so the same plant listed as one block or as several is priced and dated the same; a block declared with no units is ignored.",
           "not_taken_reason": null
         },
         {
@@ -3951,7 +3951,7 @@
               "quantity": 1.0
             }
           ],
-          "basis_note": "Each step buys 1 CDU unit(s) in total (one further usable unit), put in one bank (CDU-ROW-assumed): the fewest banks that can host it, chosen as the bank whose added unit carries the most heat at the site's water temperature (then the most declared flow, the larger rating, the id). The price follows the units added, so the same CDUs listed as one bank or as several are priced the same; a bank declared with no units is ignored.",
+          "basis_note": "Each step buys 1 CDU unit(s) in total (one further usable unit), put in one bank (CDU-ROW-assumed): the fewest banks that can host it, chosen as the bank whose added unit costs least per kW of usable heat gained at the site's water temperature (133.3 EUR per kW of usable heat (1,350 kW gained); a 2N bank buys two units to gain one), then the larger heat gain, the most declared flow, the id. The price follows the units added, so the same CDUs listed as one bank or as several are priced the same; a bank declared with no units is ignored.",
           "not_taken_reason": null
         },
         {
@@ -4103,7 +4103,7 @@
           "scope": "2,400 kW added",
           "cost_basis": "library_default",
           "unpriced_components": [],
-          "basis_note": "Each step buys 2 modules in total (2 x 1200 kW = 2400 kW), put in one block (UPS-1): the fewest blocks that can host them, chosen as the block whose added modules carry the most usable kW (then the larger module, then the id). The price follows the kW added, so the same plant listed as one block or as several is priced and dated the same; a block declared with no units is ignored.",
+          "basis_note": "Each step buys 2 modules in total (2 x 1200 kW = 2400 kW), put in one block (UPS-1): the fewest blocks that can host them, chosen as the block whose added modules cost least per usable kW gained after its own redundancy (320 EUR per usable kW (2400 usable kW gained); a 2N block installs two kW for each usable one), then the larger gain, then the id. The price follows the kW added, so the same plant listed as one block or as several is priced and dated the same; a block declared with no units is ignored.",
           "not_taken_reason": null
         },
         {
@@ -4154,7 +4154,7 @@
               "quantity": 1.0
             }
           ],
-          "basis_note": "Each step buys 1 CDU unit(s) in total (one further usable unit), put in one bank (CDU-ROW-assumed): the fewest banks that can host it, chosen as the bank whose added unit carries the most heat at the site's water temperature (then the most declared flow, the larger rating, the id). The price follows the units added, so the same CDUs listed as one bank or as several are priced the same; a bank declared with no units is ignored.",
+          "basis_note": "Each step buys 1 CDU unit(s) in total (one further usable unit), put in one bank (CDU-ROW-assumed): the fewest banks that can host it, chosen as the bank whose added unit costs least per kW of usable heat gained at the site's water temperature (133.3 EUR per kW of usable heat (1,350 kW gained); a 2N bank buys two units to gain one), then the larger heat gain, the most declared flow, the id. The price follows the units added, so the same CDUs listed as one bank or as several are priced the same; a bank declared with no units is ignored.",
           "not_taken_reason": null
         },
         {
@@ -4281,7 +4281,7 @@
               "quantity": 1.0
             }
           ],
-          "basis_note": "Each step buys 1 CDU unit(s) in total (one further usable unit), put in one bank (CDU-ROW-assumed): the fewest banks that can host it, chosen as the bank whose added unit carries the most heat at the site's water temperature (then the most declared flow, the larger rating, the id). The price follows the units added, so the same CDUs listed as one bank or as several are priced the same; a bank declared with no units is ignored.",
+          "basis_note": "Each step buys 1 CDU unit(s) in total (one further usable unit), put in one bank (CDU-ROW-assumed): the fewest banks that can host it, chosen as the bank whose added unit costs least per kW of usable heat gained at the site's water temperature (133.3 EUR per kW of usable heat (1,350 kW gained); a 2N bank buys two units to gain one), then the larger heat gain, the most declared flow, the id. The price follows the units added, so the same CDUs listed as one bank or as several are priced the same; a bank declared with no units is ignored.",
           "not_taken_reason": null
         },
         {
@@ -4319,7 +4319,7 @@
           "scope": "2,400 kW added",
           "cost_basis": "library_default",
           "unpriced_components": [],
-          "basis_note": "Each step buys 2 modules in total (2 x 1200 kW = 2400 kW), put in one block (UPS-1): the fewest blocks that can host them, chosen as the block whose added modules carry the most usable kW (then the larger module, then the id). The price follows the kW added, so the same plant listed as one block or as several is priced and dated the same; a block declared with no units is ignored.",
+          "basis_note": "Each step buys 2 modules in total (2 x 1200 kW = 2400 kW), put in one block (UPS-1): the fewest blocks that can host them, chosen as the block whose added modules cost least per usable kW gained after its own redundancy (320 EUR per usable kW (2400 usable kW gained); a 2N block installs two kW for each usable one), then the larger gain, then the id. The price follows the kW added, so the same plant listed as one block or as several is priced and dated the same; a block declared with no units is ignored.",
           "not_taken_reason": null
         },
         {

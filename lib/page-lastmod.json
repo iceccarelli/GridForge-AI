@@ -3,7 +3,7 @@
   "pages": {
     "/": {
       "lastmod": "2026-11-13",
-      "hash": "2e6a2ab9ce61fcb51948aa8f65d790972add2037ae4ff71b346ce62a26cf4328"
+      "hash": "24ec9703374a0f820cefcf952631bfc03830ca5021eda9f4490fc13fc0609459"
     },
     "/about": {
       "lastmod": "2026-11-13",
@@ -75,7 +75,7 @@
     },
     "/evidence": {
       "lastmod": "2026-11-13",
-      "hash": "902a5bb438e31d96bed2a23ccddeaef76ae054b533516c518abff45049404caa"
+      "hash": "671f3a3efbfcbfb509e9d6a322fa5f32afab1c9de3f1e25721f2e23ad4af6838"
     },
     "/for": {
       "lastmod": "2026-11-13",
@@ -111,11 +111,11 @@
     },
     "/guides/nameplate-vs-useful-compute": {
       "lastmod": "2026-11-13",
-      "hash": "3ccc96710d0875f664125f8df6f6bac442a21ef03ef8eb98dfc21db4498c2405"
+      "hash": "532b228d37bff1faac19c6530bdaa5d617ec06a6c08284734eba53f2661a6fe6"
     },
     "/guides/retrofit-order-of-limits": {
       "lastmod": "2026-11-13",
-      "hash": "fcf52ab428b1a9f78f4eb55817d3b848e962224d8aaf1ddfd26540f1c9e108ea"
+      "hash": "29c73c5e24676be6dc6a43f79f26a783f1630aaca8638e15d10210a2d0638af2"
     },
     "/intelligence": {
       "lastmod": "2026-11-13",
@@ -139,7 +139,7 @@
     },
     "/observatory": {
       "lastmod": "2026-11-13",
-      "hash": "5788d2da1c4b355a30d45ac3d20098bd88a705a07ec94be33e10ee6e76c49d89"
+      "hash": "94a4b941c44c402ee12611ab6d1a419cc6738e319ba9baf2ba8508a2d70e7d5a"
     },
     "/platforms": {
       "lastmod": "2026-11-08",
@@ -167,35 +167,35 @@
     },
     "/products": {
       "lastmod": "2026-11-13",
-      "hash": "3eeefe7c7064e40fd7b0999bedb2e15fbd5d64a86520d690d013c331ab60682f"
+      "hash": "f6d4f5529cf0e0def68085e399a7c0531bd5b442371d83cb11eff2e10c852078"
     },
     "/products/density-screen": {
       "lastmod": "2026-11-13",
-      "hash": "58be23d625a1b8fd5ae045aa29c6d8d267889c51acdfe9794bd3046c7fff61c2"
+      "hash": "4946930ae6fb5c1938fcad8743a9565f7cc43967fd196e2c5f058ed3bf2a9657"
     },
     "/products/envelope-study": {
       "lastmod": "2026-11-13",
-      "hash": "58be23d625a1b8fd5ae045aa29c6d8d267889c51acdfe9794bd3046c7fff61c2"
+      "hash": "4946930ae6fb5c1938fcad8743a9565f7cc43967fd196e2c5f058ed3bf2a9657"
     },
     "/products/hall-watch": {
       "lastmod": "2026-11-13",
-      "hash": "58be23d625a1b8fd5ae045aa29c6d8d267889c51acdfe9794bd3046c7fff61c2"
+      "hash": "4946930ae6fb5c1938fcad8743a9565f7cc43967fd196e2c5f058ed3bf2a9657"
     },
     "/products/portfolio-screen": {
       "lastmod": "2026-11-13",
-      "hash": "58be23d625a1b8fd5ae045aa29c6d8d267889c51acdfe9794bd3046c7fff61c2"
+      "hash": "4946930ae6fb5c1938fcad8743a9565f7cc43967fd196e2c5f058ed3bf2a9657"
     },
     "/products/procurement-specification": {
       "lastmod": "2026-11-13",
-      "hash": "58be23d625a1b8fd5ae045aa29c6d8d267889c51acdfe9794bd3046c7fff61c2"
+      "hash": "4946930ae6fb5c1938fcad8743a9565f7cc43967fd196e2c5f058ed3bf2a9657"
     },
     "/qualify": {
       "lastmod": "2026-11-13",
-      "hash": "308db2728132a7e30794a98c9a6f65d82428f75a404c756cf327a65308e4ad43"
+      "hash": "fdce07a3736ed1510a8e14e70abdf5e0fa1554db9abe3a4b198e8309d5faf5c9"
     },
     "/reference": {
       "lastmod": "2026-11-13",
-      "hash": "9204c2548c4dc4d8e8cd82e20cd867db929f3657ea235b8818cd353300cb3879"
+      "hash": "bc1b6603c5026cee2e9d78c8d80c71c453031d8df6322cc60b834cd92d42c000"
     },
     "/reference/board_summary.html": {
       "lastmod": "2026-11-13",
@@ -203,11 +203,11 @@
     },
     "/reference/density_screen.html": {
       "lastmod": "2026-11-13",
-      "hash": "1932c03917891c07d32d03f7884bddb635ed607b4ffdc8d71b50b0c36d07abe4"
+      "hash": "dc4bafd195af858c748cd50f0c0c565733811c4d2431397fef4a2bfff0303f69"
     },
     "/reference/envelope_study.html": {
       "lastmod": "2026-11-13",
-      "hash": "873e47b8588b654dabb740308adf18934867ca203d09a66c70d06f5e4b05dd0c"
+      "hash": "98058d16752c6582f8764a4da86eb3fd75ed8d378d6c6917da5a072d4b0d048c"
     },
     "/reference/proposal.html": {
       "lastmod": "2026-11-13",

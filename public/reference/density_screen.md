@@ -199,6 +199,6 @@ Every number in this report carries an evidence class. The class of a computed n
 
 ---
 
-Screening opinion supported by a documented model. The fee for this screen credits in full against a Capacity & Density Envelope Study.
+Screening opinion supported by a documented model. The fee paid for a Density Screen is credited once against the fee agreed for an Envelope Study: for the same email address, after we confirm it is the same buyer (the address typed at checkout is not verified), applied whole and only while the deposit and the credit together stay within the agreed fee. It reduces what is owed and is never paid out as cash, and a refunded or disputed purchase carries no credit.
 
 Generated 2026-09-14 by the GridForge-AI envelope engine.
