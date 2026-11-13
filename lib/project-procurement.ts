@@ -64,7 +64,7 @@ export interface ComparisonRow {
   architecture: string;
   response_ids: string[];
   result: {
-    ranked?: { rank: number; supplier: string; disqualified?: boolean; compliant?: boolean }[];
+    ranked?: { rank: number | null; supplier: string; disqualified?: boolean; compliant?: boolean }[];
     leading?: string | null;
     [k: string]: unknown;
   };

@@ -96,7 +96,7 @@
                 "values.lead_time_weeks": 30,
                 "values.install_weeks": 4,
                 "values.outage_hours_per_unit": 8,
-                "values.duty_at_site_conditions": 1,
+                "values.duty_at_site_conditions": 2000,
                 "values.validity_days": 90,
                 "compliance.E-10": "C",
                 "compliance.E-11": "C",

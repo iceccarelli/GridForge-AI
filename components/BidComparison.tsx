@@ -19,7 +19,8 @@ import { CircleAlert, Loader2, Upload } from "lucide-react";
  */
 
 interface Ranked {
-  rank: number;
+  /** null for a disqualified bid: it is not ranked, and no ordinal is shown for it. */
+  rank: number | null;
   supplier: string;
   headline?: string;
   capex_eur?: number;
@@ -359,8 +360,8 @@ export function BidComparison({
               </thead>
               <tbody className="text-mute">
                 {ranked.map((r) => (
-                  <tr key={`${r.rank}-${r.supplier}`} className="border-t border-line align-top">
-                    <td className="py-2 pr-3 font-mono text-xs">{r.rank}</td>
+                  <tr key={`${r.rank ?? "x"}-${r.supplier}`} className="border-t border-line align-top">
+                    <td className="py-2 pr-3 font-mono text-xs">{r.rank ?? "—"}</td>
                     <td className="py-2 pr-3">
                       <span className={r.rank === 1 ? "font-semibold text-ghost" : "text-ghost"}>
                         {r.supplier}
