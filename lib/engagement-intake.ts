@@ -36,6 +36,7 @@
 
 import { z } from "zod";
 import { PRODUCT_BY_KIND } from "@/lib/products";
+import { typedNumber } from "@/lib/qualify-number";
 import { PORTFOLIO_FORM_MAX_HALLS, PORTFOLIO_FORM_MIN_HALLS } from "@/lib/portfolio-scope";
 
 const num = (max: number) => z.coerce.number().nonnegative().max(max);
@@ -133,7 +134,9 @@ const baseShape = {
 
   // hall
   floorLoadingKPa: num(100),
-  positionsAvailable: z.coerce.number().int().min(1).max(20000),
+  // Zero free positions is a real answer (the free qualifier accepts it and intakePrefill carries it here; the engine accepts it), so the floor is 0.
+  // Read with typedNumber, not z.coerce, because coerce would turn a blank field (null, "", false, []) into that 0.
+  positionsAvailable: typedNumber(z.number().int().min(0).max(20000)),
   rackPositions: z.coerce.number().int().min(1).max(20000).optional(),
   netWhiteSpaceM2: num(200000).optional(),
   clearHeightM: num(20).optional(),
@@ -347,7 +350,9 @@ export function toIntakeDocument(i: ScreenIntake, company?: string): Record<stri
       floor_type: i.floorType,
       floor_loading_kPa: i.floorLoadingKPa,
       positions_available: i.positionsAvailable,
-      rack_positions: i.rackPositions ?? i.positionsAvailable,
+      // The free count stands in for a missing total (the engine says so in the document). Zero free positions does not: a total of zero would say
+      // the hall has no positions at all, which nobody declared, so the total is left out and the engine names its own default as an assumption.
+      rack_positions: i.rackPositions ?? (i.positionsAvailable > 0 ? i.positionsAvailable : undefined),
       net_white_space_m2: i.netWhiteSpaceM2,
       clear_height_m: i.clearHeightM,
       aisle_pitch_m: i.aislePitchM,
