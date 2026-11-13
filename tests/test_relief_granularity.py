@@ -261,15 +261,24 @@ class TestTheHostRule:
         after = ups_capacity(ctx).relief.apply(ctx)
         assert [(u.id, u.units) for u in after.power.ups] == [("AAA-EMPTY", 0), ("UPS-1", 8)]
 
-    def test_a_list_of_only_empty_banks_is_no_declaration_and_says_so(self):
+    def test_a_list_of_only_empty_banks_is_a_declaration_of_zero_capacity_not_an_unlimited_one(self):
+        """Ignoring empty banks must never turn "the client declared nothing but empty banks" into "nothing limits the hall". When no bank has a
+        unit the list is kept as declared: the constraint binds at zero (as test_adversarial_intake pins for a transformer bank of 0 units) and the
+        relief buys the first modules of the block that gains most. An empty LIST is a different thing: undeclared."""
         d = _doc("dublin_hall")
-        d["ups"] = [{"id": "U0", "unit_rating_kW": 1200, "units": 0, "redundancy": "N", "step_load_capability": 0.5}]
+        d["ups"] = [{"id": "U0", "unit_rating_kW": 1200, "units": 0, "redundancy": "N", "step_load_capability": 0.5},
+                    {"id": "U1", "unit_rating_kW": 1800, "units": 0, "redundancy": "N", "step_load_capability": 0.5}]
         d["transformers"] = [{"id": "T0", "unit_rating_MVA": 5.0, "units": 0, "redundancy": "N"}]
         ctx = _ctx(d)
-        assert _ups_host(ctx.power.ups) is None
-        assert ups_capacity(ctx).max_racks.value == float("inf") and "every listed block has 0 units" in ups_capacity(ctx).basis
-        assert transformer_capacity(ctx).max_racks.value == float("inf")
-        assert ladder(ctx).unassessed_banks == ("transformers", "UPS")      # so a date and a cost built on it are lower bounds, as for an omitted section
+        assert [u.id for u in active_banks(ctx.power.ups)] == ["U0", "U1"]          # nothing live: both stand as declared
+        assert ups_capacity(ctx).max_racks.value == 0 and transformer_capacity(ctx).max_racks.value == 0
+        host = _ups_host(ctx.power.ups)
+        assert host.id == "U1"                                                       # the larger module gains more kW per rung
+        after = ups_capacity(ctx).relief.apply(ctx)
+        assert {u.id: u.units for u in after.power.ups} == {"U0": 0, "U1": 2}
+        assert ladder(ctx).unassessed_banks == ()                                     # declared, so assessed: the plan and its date are complete
+        d["ups"], d["transformers"] = [], []
+        assert ladder(_ctx(d)).unassessed_banks == ("transformers", "UPS")            # an empty LIST is undeclared, as for an omitted section
 
     def test_one_further_cdu_unit_in_total_in_the_bank_with_most_heat(self):
         d = _doc("dublin_hall")

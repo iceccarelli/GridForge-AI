@@ -36,8 +36,13 @@ def active_banks(banks):
     """The banks that exist: those with at least one unit. A bank declared with ``units`` 0 is a planned or empty bank, not equipment: it adds no
     capacity, is not priced, sets no lead time, and no relief puts units into it, so it is IGNORED wherever banks are counted, priced or dated
     (adding such a bank to a hall changes nothing). Before this a zero-unit transformer bank with a 300-week lead time moved the date from 160 to 300
-    weeks, and a zero-unit UPS block doubled the UPS step's price. Refusing or warning about such a bank is the loader's concern, not this one's."""
-    return [b for b in banks if b.units >= 1]
+    weeks, and a zero-unit UPS block doubled the UPS step's price. Refusing or warning about such a bank is the loader's concern, not this one's.
+
+    The one exception is a list in which NO bank has a unit: that is a declaration of zero capacity, and it is kept as declared (the constraint binds
+    at zero racks and the relief buys the first modules of the block that gains most), exactly as before. Skipping every bank would read "the client
+    declared nothing but empty banks" as "nothing to limit", an unlimited answer from a hall whose declared equipment is nothing (a silent zero is
+    disclosed; a silent unlimited is worse). An empty LIST is a different thing again: the bank is undeclared, and the constraint says so."""
+    return [b for b in banks if b.units >= 1] or list(banks)
 
 
 def _ups_usable_gain_kW(u) -> float:
@@ -175,8 +180,7 @@ def grid_firm_capacity(ctx: EnvelopeContext) -> ConstraintResult:
 def transformer_capacity(ctx: EnvelopeContext) -> ConstraintResult:
     banks = active_banks(ctx.power.transformers)         # a bank with no units is not equipment: no capacity, no price, no lead time
     if not banks:
-        return _unbounded("transformer_capacity", "electrical", "Transformer capacity",
-                          "no transformers declared" if not ctx.power.transformers else "no transformer bank with a unit is declared (every listed bank has 0 units)")
+        return _unbounded("transformer_capacity", "electrical", "Transformer capacity", "no transformers declared")
     caps = []
     lead, lead_bank = None, None
     for t in banks:
@@ -230,9 +234,7 @@ def transformer_capacity(ctx: EnvelopeContext) -> ConstraintResult:
 def ups_capacity(ctx: EnvelopeContext) -> ConstraintResult:
     blocks = active_banks(ctx.power.ups)                  # a block with no units is not equipment (see active_banks)
     if not blocks:
-        return _unbounded("ups_capacity", "electrical", "UPS capacity",
-                          "no UPS declared (unprotected load assumed)" if not ctx.power.ups else
-                          "no UPS block with a module is declared (every listed block has 0 units; unprotected load assumed)")
+        return _unbounded("ups_capacity", "electrical", "UPS capacity", "no UPS declared (unprotected load assumed)")
     caps = []
     for u in blocks:
         n = _effective_units(u.units, u.redundancy)

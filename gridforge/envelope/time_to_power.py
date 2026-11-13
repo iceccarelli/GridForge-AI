@@ -329,10 +329,13 @@ def step_lead_source(step, document: dict | None) -> str:
         return LEAD_SOURCE_UNKNOWN
     if step.binding_id == "transformer_capacity":
         vals = []
-        for bank in _doc_list(document, "transformers"):
-            units = bank.get("units")
-            if isinstance(units, (int, float)) and not isinstance(units, bool) and units < 1:
-                continue                            # a bank with no units is not equipment and sets no date (power.constraints.active_banks)
+        banks = _doc_list(document, "transformers")
+
+        def _empty(b) -> bool:
+            u = b.get("units")
+            return isinstance(u, (int, float)) and not isinstance(u, bool) and u < 1
+        # a bank with no units is not equipment and sets no date (power.constraints.active_banks), unless every listed bank is empty
+        for bank in [b for b in banks if not _empty(b)] or banks:
             raw = bank.get("replacement_lead_time_weeks")
             ok = isinstance(raw, (int, float)) and not isinstance(raw, bool)
             vals.append((float(raw) if ok else _TRANSFORMER_PLACEHOLDER_WEEKS, ok))

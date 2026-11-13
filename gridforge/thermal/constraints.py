@@ -32,8 +32,9 @@ def _effective_units(units: int, redundancy: str) -> int:
 
 def _active_cdus(cdus) -> list:
     """The CDU banks that exist: those with at least one unit. A bank with no units is a planned or empty bank, not equipment: it adds no capacity,
-    sets no flow, is not priced and receives no relief, so it is ignored (the same rule as ``power.constraints.active_banks``; thermal may not import power)."""
-    return [c for c in cdus if c.units >= 1]
+    sets no flow, is not priced and receives no relief, so it is ignored (the same rule as ``power.constraints.active_banks``, including its one
+    exception: a list in which no bank has a unit is kept as declared, a declaration of zero capacity; thermal may not import power)."""
+    return [c for c in cdus if c.units >= 1] or list(cdus)
 
 
 def _cdu_derate_ratio(c, available_approach_K: float) -> float:

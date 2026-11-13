@@ -165,10 +165,9 @@ class HeadroomLadder:
         if ctx is None:
             return ()
         out = []
-        # a bank declared with no units is not equipment (power.constraints.active_banks): a list of only such banks is no declaration
-        if not any(t.units >= 1 for t in ctx.power.transformers):
+        if not ctx.power.transformers:
             out.append("transformers")
-        if not any(u.units >= 1 for u in ctx.power.ups):
+        if not ctx.power.ups:
             out.append("UPS")
         return tuple(out)
 
