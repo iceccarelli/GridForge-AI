@@ -2,6 +2,8 @@ import type { Metadata } from "next";
 import { OG_BASE } from "@/lib/site";
 import { PAYG } from "@/lib/products";
 import { eurExact } from "@/lib/payg-pricing";
+import { SCREEN_CREDIT_SENTENCE } from "@/lib/credits-terms";
+import { INTELLIGENCE_CANCEL_TERMS } from "@/lib/subscription-manage";
 import { pageImages } from "@/lib/page-cards";
 import { LegalShell, Note } from "@/components/LegalShell";
 
@@ -62,16 +64,17 @@ export default function Terms() {
         or settled.
       </p>
 
-      <h2 className="text-xl font-semibold text-ghost pt-2">4. Refunds, credits and billing holds</h2>
+      <h2 className="text-xl font-semibold text-ghost pt-2">4. Refunds, credits, cancellation and billing holds</h2>
       <p>
         Engagement reservation deposits are credited toward the agreed engagement
-        fee. Refund terms are not yet stated on this page; ask before you buy.
-        A Density Screen you have already paid for can be credited once against
-        the same fee after we confirm it is the same buyer (the email address
-        typed at checkout is not verified); a refunded or disputed purchase
-        carries no credit. A full refund or open
+        fee. Refund terms are not yet stated on this page; ask before you buy.{" "}
+        {SCREEN_CREDIT_SENTENCE} A full refund or open
         chargeback suspends access to the corresponding deliverable,
         subscription or API account while the hold stands.
+      </p>
+      <p>
+        <span className="font-semibold text-ghost">Cancelling a GridForge Intelligence subscription.</span>{" "}
+        {INTELLIGENCE_CANCEL_TERMS}
       </p>
 
       <h2 className="text-xl font-semibold text-ghost pt-2">5. Market figures and reference designs</h2>

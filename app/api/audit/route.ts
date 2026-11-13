@@ -6,6 +6,7 @@ import { guardRequest, mailRecipientAllowed } from "@/lib/rate-limit";
 import { leadSchema, scoreLead, parseCapacityMW, type LeadRecord } from "@/lib/lead";
 import { readBoundedJson } from "@/lib/http-body";
 import { PRODUCTS } from "@/lib/products";
+import { SCREEN_CREDIT_SENTENCE } from "@/lib/credits-terms";
 import { workingDays } from "@/lib/turnaround";
 
 export const runtime = "nodejs";
@@ -189,7 +190,7 @@ async function notify(record: LeadRecord): Promise<void> {
     // Template literals, not the double-quoted strings this used to be: those
     // mailed the characters ${siteUrl('/pricing')} to the customer verbatim.
     const nextSteps = hot
-      ? `Your site looks like a good fit for an engagement. We make no promise about when we will reply.\n\nThe entry point is the Density Screen \u2014 one hall, ${screenDays}, a fixed fee, and it credits in full against the full study:\n${siteUrl('/pricing')}`
+      ? `Your site looks like a good fit for an engagement. We make no promise about when we will reply.\n\nThe entry point is the Density Screen \u2014 one hall, ${screenDays}, a fixed fee. ${SCREEN_CREDIT_SENTENCE}\n\nDetails and pricing:\n${siteUrl('/pricing')}`
       : `We will review your site. We make no promise about when we will reply.\n\nThe entry point is the Density Screen (${screenDays}): what binds your hall, how many racks it carries, and the inputs nobody has measured. Details and pricing:\n${siteUrl('/pricing')}`;
     try {
       await sendMail({

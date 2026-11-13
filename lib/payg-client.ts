@@ -12,6 +12,7 @@
 // No React and no module-level state; `fetch` is injectable so the whole file is testable in node.
 
 import { PAYG, PRODUCTS, type ProductId } from "@/lib/products";
+import { INTELLIGENCE_PORTAL_REQUEST } from "@/lib/subscription-manage";
 
 export type FetchLike = (input: string, init?: RequestInit) => Promise<Response>;
 
@@ -441,6 +442,23 @@ export const FREE_CAPACITY_MESSAGE =
  */
 export function openBillingPortal(token: string, f: FetchLike = defaultFetch()): Promise<ClientResult<{ url: string }>> {
   return run(f, "/api/billing/portal", { method: "POST", headers: JSON_HEADERS, body: JSON.stringify({ token }) }, (j) => {
+    const url = safeCheckoutUrl(j.url);
+    return url ? { url } : null;
+  });
+}
+
+/**
+ * POST /api/billing/portal { account: "intelligence" } with the Supabase session in `auth` (an Authorization header, from the account page's
+ * authHeaders). Stripe's customer portal for the signed-in BILLING OWNER's Intelligence subscription: the server picks the customer from the
+ * owner's own row, and no customer id is sent or read. 401/402/403 (not signed in, no subscription, a seat member), 409 (no billing record)
+ * and 502/503 (the portal or billing is not available) come back as failures whose `message` is the server's own wording, which names the
+ * next step (the contact address).
+ */
+export function openIntelligencePortal(
+  auth: Record<string, string>,
+  f: FetchLike = defaultFetch()
+): Promise<ClientResult<{ url: string }>> {
+  return run(f, "/api/billing/portal", { method: "POST", headers: { ...JSON_HEADERS, ...auth }, body: JSON.stringify(INTELLIGENCE_PORTAL_REQUEST) }, (j) => {
     const url = safeCheckoutUrl(j.url);
     return url ? { url } : null;
   });

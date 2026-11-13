@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { ArrowRight } from "lucide-react";
 import { PAYG, PRODUCTS, eurFromCents } from "@/lib/products";
+import { SCREEN_CREDIT_SENTENCE } from "@/lib/credits-terms";
 import { QUALIFY_LINK } from "@/lib/nav";
 import { breakEvens, eurExact } from "@/lib/payg-pricing";
 
@@ -60,7 +61,7 @@ export default function ThreePaths() {
           <p className="mt-2 flex-1 text-sm text-mute">
             When you need a named engineer to review a hall, not an API response. The fee is fixed before work starts:
             at checkout, or agreed in writing after a deposit for the Study and the Portfolio Screen. Drafted by the engine, then reviewed and released by a named engineer (Hall Watch change notes are written automatically and are not engineer-reviewed). The first paid step is the {screen.name}, from{" "}
-            {eurFromCents(screen.amountCents)}, which credits in full against the Envelope Study. API
+            {eurFromCents(screen.amountCents)}. {SCREEN_CREDIT_SENTENCE} API
             responses are screening output and never carry an engineer&apos;s sign-off.
           </p>
           <Link href="/pricing#engagements" className={cta}>

@@ -4,6 +4,7 @@ import React, { useState } from "react";
 import { Loader2 } from "lucide-react";
 import { eur } from "@/lib/commerce";
 import { PRODUCTS } from "@/lib/products";
+import { HALL_WATCH_CANCEL_NOTE } from "@/lib/subscription-manage";
 
 /**
  * The follow-on offer, shown under a delivered study.
@@ -68,7 +69,7 @@ export function WatchUpsell() {
           {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
           Start a Hall Watch · {eur(watch.amountCents)} per quarter
         </button>
-        <span className="text-[11px] text-faint">Cancel any time; no minimum term.</span>
+        <span className="text-[11px] text-faint">{HALL_WATCH_CANCEL_NOTE}</span>
       </div>
       {error ? <p className="mt-3 text-sm text-flag">{error}</p> : null}
     </aside>

@@ -12,6 +12,7 @@ import { RackDensityChart } from "@/components/diagrams/RackDensityChart";
 import { figureCitation, marketFigure, verificationLabel } from "@/lib/market-evidence";
 import { QUALIFY_LINK } from "@/lib/nav";
 import { PAYG, PRODUCTS, eurFromCents } from "@/lib/products";
+import { SCREEN_CREDIT_SENTENCE } from "@/lib/credits-terms";
 import { MARKET_STATS, SITE, TECH, serviceCards } from "@/lib/site";
 import { loadWorkedResult, referenceLimitSentence } from "@/lib/worked-result";
 
@@ -232,8 +233,7 @@ export function Services() {
         ))}
       </div>
       <p className="mt-8 text-sm text-mute">
-        The {PRODUCTS.density_screen.name} ({eurFromCents(PRODUCTS.density_screen.amountCents)}) is the first paid step and credits in full against the
-        next study.{" "}
+        The {PRODUCTS.density_screen.name} ({eurFromCents(PRODUCTS.density_screen.amountCents)}) is the first paid step. {SCREEN_CREDIT_SENTENCE}{" "}
         <Link href="/products" className="text-power underline">What each one is, and what it is not</Link>.
       </p>
     </section>
@@ -347,7 +347,8 @@ export function FinalCta() {
         <div className="mt-9 flex justify-center">
           <CommissionScreen productId="density_screen" context="final" size="lg" />
         </div>
-        <div className="data mt-6 text-[11px] text-faint">Credits in full against the full study · NDA on request · {SITE.email}</div>
+        <p className="mx-auto mt-6 max-w-2xl text-[11px] leading-relaxed text-faint">{SCREEN_CREDIT_SENTENCE}</p>
+        <div className="data mt-3 text-[11px] text-faint">NDA on request · {SITE.email}</div>
         <TtpPhoto id="ttp-17" className="relative mt-12 aspect-[16/9] overflow-hidden rounded-2xl border border-line" />
       </div>
     </section>
