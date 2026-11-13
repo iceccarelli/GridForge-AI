@@ -10,7 +10,7 @@ from enum import Enum
 from ..common import ASSUMED, ESTIMATED, V
 from ..constraints import EnvelopeContext
 from ..envelope.time_to_power import TimeToPower, schedule
-from ..scenario.objective import OBJECTIVE_RATIONALE, Objective, pick_recommended
+from ..scenario.objective import OBJECTIVE_RATIONALE, Objective, pick_recommended, recommendation_rationale
 from ..scenario.run import ScenarioResult
 
 
@@ -185,7 +185,7 @@ def build(ctx: EnvelopeContext, results: list[ScenarioResult],
         s.blocks.append(Callout("answer",
             f"Recommended architecture: {rec.spec.name}. {rec.spec.rationale}"))
     s.blocks.append(Para(
-        f"Selection objective: {OBJECTIVE_RATIONALE[objective]} Section 9 shows every architecture "
+        f"Selection objective: {recommendation_rationale(results, objective)} Section 9 shows every architecture "
         "against all three objectives so the ranking can be overruled with the evidence in view."))
     dom = dominant_sensitivity(sensitivities, rec.unlocked_racks)
     if dom is not None and dom[1] != rec.unlocked_racks:
