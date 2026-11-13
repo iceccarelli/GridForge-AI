@@ -18,8 +18,8 @@ from dataclasses import dataclass, field
 
 from ..power.generation import GenerationUnit
 from ..power.storage import BatteryEnergyStorageSystem
-from ..procurement.schema import (INFORMATIVE, MANDATORY, PREFERRED, EvaluationCriterion,
-                                  ProcurementError, Requirement, ResponseField, ScopeItem)
+from ..procurement.schema import (INFORMATIVE, MANDATORY, MIN_PRICE_VALIDITY_DAYS, PREFERRED, EvaluationCriterion,
+                                  ProcurementError, Requirement, ResponseField, ScopeItem, validity_requirement)
 from ..validation import Quantity
 
 
@@ -210,7 +210,8 @@ def _response_fields() -> list[ResponseField]:
                      required=False),
         ResponseField("warranted_availability", "Warranted availability / forced-outage rate",
                      "fraction", required=False),
-        ResponseField("validity_days", "Price validity", "days", required=False),
+        ResponseField("validity_days", "Price validity", "days", required=False,
+                     note=f"Held to C-02: not less than {MIN_PRICE_VALIDITY_DAYS} days."),
     ]
 
 
@@ -237,10 +238,7 @@ def build_equipment_spec(architecture_label: str, *, project: str,
                             "EUR, with exclusions listed separately.",
                    basis="Comparability across responses.",
                    verification="Completed response schedule."),
-        Requirement(id="C-02", clause="Validity",
-                   statement="Prices shall remain valid for not less than 60 days.",
-                   basis="The evaluation and approval cycle on a capital item of this size.",
-                   verification="Stated on the quotation."),
+        validity_requirement(),
     ])
     dated = [u.lead_time_weeks for u in list(generation) + list(bess)]
     from .btm_assessment import _total_capex

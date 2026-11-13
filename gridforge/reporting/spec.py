@@ -181,6 +181,9 @@ def build(pkg: SpecPackage, *, reference: str = "", return_by: str = "",
         "(complies with deviation, deviation described) or N (non-compliant).",
         "Quote duties at the site conditions stated in section 2A, not at a reference condition. A "
         "duty at a reference condition is not a response to this document.",
+        "The figures in section 6 are held to the numeric 'shall' clauses they answer (the duty to its "
+        "minimum in section 3, the price validity to C-02). A figure that falls short is not compliant on that "
+        "clause, whatever code is returned for it. Scores are relative to the bids compared together, not absolute.",
         "List exclusions explicitly and price them separately where you can.",
         "State which long-lead component governs your delivery date.",
     ]))

@@ -939,14 +939,28 @@ def handle_proposal(body: dict, tier: Tier) -> dict:
     return out
 
 
+def _tender_scenario(body: dict, results, objective):
+    """The scenario a specification or a bid comparison is built for: the one the request names, else the recommended one. A named scenario
+    that is not one of the intake's is refused naming the field and the ids it has; it used to fall back silently to the recommended scenario,
+    so a typo tendered (and ranked bids against) a different scenario than the one asked for."""
+    from ..reporting.study import _pick_recommended
+    named = body.get("scenario")
+    if named in (None, ""):
+        return _pick_recommended(results, objective)
+    found = next((r for r in results if r.spec.id == named), None)
+    if found is None:
+        ids = [r.spec.id for r in results]
+        raise ApiError(422, f"scenario {str(named)[:60]!r} is not one of this intake's scenarios; omit `scenario` for the recommended one",
+                       field="scenario", allowed=ids)
+    return found
+
+
 def handle_spec(body: dict, tier: Tier) -> dict:
     from ..procurement import ProcurementError, build_spec, relief_steps
     from ..reporting.spec import build as build_spec_report
     intake, results = _run(body.get("intake") or body)
     objective = _objective(body)
-    from ..reporting.study import _pick_recommended
-    rec = _pick_recommended(results, objective)
-    result = next((r for r in results if r.spec.id == body.get("scenario")), rec)
+    result = _tender_scenario(body, results, objective)
 
     if body.get("list"):
         return {"reliefs": [
@@ -1012,7 +1026,7 @@ def handle_power_deploy_assess(body: dict, tier: Tier) -> dict:
     try:
         kwargs = deployment_request(body)
     except DeploymentRequestError as exc:
-        raise ApiError(422, str(exc))
+        raise ApiError(422, str(exc), **exc.extra)
     result = assess_deployment(**kwargs)
     result["calibration"] = btm_calibration_block()
     return redact(result, tier)
@@ -1031,7 +1045,7 @@ def _btm_spec_from_body(body: dict):
     try:
         kwargs = deployment_request(body)
     except DeploymentRequestError as exc:
-        raise ApiError(422, str(exc))
+        raise ApiError(422, str(exc), **exc.extra)
     label = str(body.get("architecture") or "Declared architecture")
     generation, bess = kwargs["generation"], kwargs["bess"]
     chosen = next((c for c in candidate_architectures(generation, bess) if c.label == label),
@@ -1110,7 +1124,7 @@ def handle_power_deploy_bids(body: dict, tier: Tier) -> dict:
         raise ApiError(422, 'expected a deployment request plus {"responses": [ ... ]}')
     spec = _btm_spec_from_body(body)
     try:
-        responses = [SupplierResponse.from_dict(d) for d in raw]
+        responses = [SupplierResponse.from_dict(d, path=f"responses[{i}]") for i, d in enumerate(raw)]
         ranked = rank_bids(spec, responses)
     except ProcurementError as exc:
         raise ApiError(422, str(exc))
@@ -1270,27 +1284,45 @@ def admin_ledger_page(after_seq: int, limit: int) -> dict:
             "head_seq": led.last_seq, "durable": led.available(), "status": led.status()}
 
 
+from ..procurement.evaluate import SCORE_BASIS  # noqa: E402
+
+
 _BID_NOTE = ("Installation method and evidence quality carry 15 of the 100 points and "
              "are scored by an engineer, not by this endpoint. A ranking that claimed "
-             "to have judged them would be inventing the part that needs judgement.")
+             "to have judged them would be inventing the part that needs judgement. "
+             "A bid's own figures are held to the numeric 'shall' clauses they answer (a duty below the "
+             "specified minimum, a price validity under 60 days): a bid that contradicts one is not compliant on it "
+             "whatever code it declared, and `figure_checks` names the clause, the figure asked and the figure offered. "
+             "A response that was not evaluated (`disqualified`) carries no rank, is never compliant and states no schedule effect. "
+             + SCORE_BASIS)
 
 
 def _ranked_rows(pkg, ranked) -> list[dict]:
     """The ranked-bid wire shape, shared by the hall (`/v1/bids`) and BTM
     (`/v1/power/deploy/bids`) comparisons so there is one ranking presentation."""
     from ..procurement.evaluate import schedule_impact
-    return [{
-        "rank": i, "supplier": a.supplier, "headline": a.headline(),
+    rank = 0
+    rows = []
+    for a in ranked:
+        # A response that was set aside has no rank: it was not compared, and a number there would read as its place in the comparison.
+        if not a.disqualified:
+            rank += 1
+        rows.append({
+        "rank": None if a.disqualified else rank, "supplier": a.supplier, "headline": a.headline(),
         "capex_eur": a.capex_eur, "weeks_to_energised": a.weeks_to_energised,
         "eur_per_rack": a.eur_per_rack, "compliant": a.compliant,
         "disqualified": a.disqualified, "score": round(a.total_score, 1),
         "scores": {k: round(v, 1) for k, v in a.scores.items()},
+        "score_basis": a.score_basis,
         "mandatory_failed": a.mandatory_failed, "notes": a.notes,
+        # Each numeric 'shall' the bid's own figure contradicts: the clause, the figure asked and the figure offered.
+        "figure_checks": [c.to_dict() for c in a.contradictions],
         "schedule_impact": schedule_impact(pkg, a),
         # A bid with no install time is ranked on its LEAD time only and says so: weeks_to_energised is then not an energisation time.
         "install_weeks_missing": a.install_weeks_missing, "programme_basis": a.programme_basis,
         "needs_engineering_review": a.needs_engineering_review,
-    } for i, a in enumerate(ranked, 1)]
+        })
+    return rows
 
 
 def handle_bids(body: dict, tier: Tier) -> dict:
@@ -1302,12 +1334,10 @@ def handle_bids(body: dict, tier: Tier) -> dict:
         raise ApiError(422, 'expected {"intake": {...}, "responses": [ ... ]}')
     intake, results = _run(body.get("intake") or {})
     objective = _objective(body)
-    from ..reporting.study import _pick_recommended
-    result = next((r for r in results if r.spec.id == body.get("scenario")),
-                  _pick_recommended(results, objective))
+    result = _tender_scenario(body, results, objective)
     try:
         pkg = build_spec(intake, result, constraint_id=str(body.get("constraint") or ""))
-        responses = [SupplierResponse.from_dict(d) for d in raw]
+        responses = [SupplierResponse.from_dict(d, path=f"responses[{i}]") for i, d in enumerate(raw)]
         if body.get("evidence_only"):
             # Structured, validated quote lines for the site to persist for human review. Nothing is
             # ranked and nothing is accepted here: a line is evidence only after a person accepts it.

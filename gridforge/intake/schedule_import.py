@@ -18,7 +18,9 @@ What it reads (exact header aliases only: casefolded, spaces / underscores / hyp
 What it refuses (the whole file, all-or-nothing; every problem found is named by file row and column; nothing is written)
   an empty required cell (id, rating); `TBC`, `n/a`, `-` or any placeholder; a thousands separator (`1,600`), a product (`2x1600`), a formula
   (`=1+1`), `nan`, `inf`, scientific notation, non-ASCII digits; zero or negative; a value above the loader's PLAUSIBLE_MAX; a non-integer
-  `units`; a repeated id; a redundancy outside the loader's accepted set; a ragged row. Only a plain decimal is read.
+  `units`; a repeated id (compared after trimming and ignoring letter case: `TX-A` and `tx-a` are one bank); a redundancy outside the loader's accepted
+  set; a ragged row. Only a plain decimal is read. A title row above the header is not skipped: the file is refused, and the message says which row looks like the title
+  and that the rows above the header are to be deleted.
   An EMPTY optional cell (or an absent optional column) is omitted from the item. The loader then names it as a gap. It is never defaulted, zeroed
   or inferred (identical rows with different ids are different items; `units` is never counted from repeated rows).
 
@@ -70,6 +72,7 @@ MAX_NUMBER_CHARS = 32
 MAX_LABEL_CHARS = 200
 MAX_INTAKE_BYTES = 512 * 1024     #: the `--into` document (the API's own request limit)
 MAX_PROBLEMS_SHOWN = 25
+TITLE_SCAN_LINES = 12             #: lines below the first row searched for the real header when the first row looks like a title
 LEDGER_FORMAT = "gridforge.schedule-import-ledger/1"
 KINDS = ("transformers", "ups")
 
@@ -479,7 +482,51 @@ def _sniff_delimiter(text: str) -> str:
     raise ScheduleImportError("the file has no header line (it holds only blank and comment lines)")
 
 
+# The dialect reader's public names. The load-profile file reader (reporting/load_profile_csv.py) reuses this tokenizer and delimiter sniffer rather than
+# writing a second one: `power` may not import `intake`, so `reporting`, which may import both, hands the reader to `power.load_profile.from_csv`.
+Record = _Record
+sniff_delimiter = _sniff_delimiter
+tokenize = _tokenize
+
+
 # ------------------------------------------------------------------------------------------------------------------- parse a file
+def _known_columns(kind: str, cells: list[str]) -> list[str]:
+    """The cells that are a header this importer recognises for `kind` (matched exactly as the mapping matches them, casefolded and spacing-collapsed)."""
+    table = _ALIASES[kind]
+    return [c.strip() for c in cells if c.strip() and _norm(c) in table]
+
+
+def _title_row_hint(kind: str, text: str, records: list[_Record]) -> str | None:
+    """A sentence saying the first row is probably a title, when the headers did not map and that is the likely reason; None otherwise.
+
+    A title row is the first non-blank row having no recognised column name while a later row (within the first TITLE_SCAN_LINES lines) has at least
+    two, or having a single non-empty cell. Without this the file is refused with 'no column gives unit_rating_MVA', which does not say what to do."""
+    if not records:
+        return None
+    first = records[0]
+    non_empty = [c.strip() for c in first.cells if c.strip()]
+    if _known_columns(kind, first.cells):
+        return None                                    # the first row IS (at least partly) a header: whatever is wrong is not a title above it
+    lines = re.split(r"\r\n|\n|\r", text)
+    for number, line in enumerate(lines[:TITLE_SCAN_LINES], start=1):
+        if number <= first.row or line.startswith("#") or not line.strip(" \t,;"):
+            continue
+        try:
+            delim = _sniff_delimiter(line)
+            cells = _tokenize(line, delim)[0]
+        except ScheduleImportError:
+            continue
+        if cells and len(_known_columns(kind, cells[0].cells)) >= 2:
+            found = ", ".join(_q(c, 30) for c in _known_columns(kind, cells[0].cells)[:4])
+            return (f"row {first.row}: this looks like a title row, not the header: it has {len(non_empty)} non-empty cell(s) and names no column this "
+                    f"importer knows, while row {number} does ({found}). Delete the rows above the header (the header must be the first row of the file, "
+                    f"apart from comment lines starting with #) and import again")
+    if len(non_empty) == 1:
+        return (f"row {first.row}: the first row has a single non-empty cell ({_q(non_empty[0], 60)}), which looks like a title, not a header. Delete the rows "
+                f"above the header (the header must be the first row of the file, apart from comment lines starting with #) and import again")
+    return None
+
+
 @dataclass
 class Parsed:
     kind: str
@@ -533,6 +580,9 @@ def parse_schedule(data: bytes, *, file_name: str, kind: str, rows_are_installed
         raise ScheduleImportError(problems)
     mapping = _map_headers(kind, headers, header.row, rows_are_installed, problems)
     if problems or mapping is None:
+        hint = _title_row_hint(kind, text, records)
+        if hint:
+            problems.insert(0, hint)
         raise ScheduleImportError(problems or ["the headers could not be mapped"])
     if not rows:
         raise ScheduleImportError(f"row {header.row}: the file has a header and no data rows")
@@ -544,7 +594,7 @@ def parse_schedule(data: bytes, *, file_name: str, kind: str, rows_are_installed
     items: list[dict] = []
     item_ledger: list[dict] = []
     excluded: list[dict] = []
-    seen_ids: dict[str, int] = {}
+    seen_ids: dict[str, tuple[int, str]] = {}          # casefolded id -> (the first row that had it, its spelling)
     for rec in rows:
         if len(rec.cells) != len(headers):
             problems.append(f"row {rec.row}: has {len(rec.cells)} cells but the header has {len(headers)}; a short or long row means a delimiter is missing "
@@ -563,12 +613,17 @@ def parse_schedule(data: bytes, *, file_name: str, kind: str, rows_are_installed
         if built is None:
             continue
         item, fields, omitted = built
-        prior = seen_ids.get(item["id"])
+        key = item["id"].casefold()          # `TX-A` and `tx-a` are one bank: counting both moved a date from 160 to 36 weeks
+        prior = seen_ids.get(key)
         if prior is not None:
-            problems.append(f"{_where(rec.row, cols['id'], headers)}: {_q(item['id'])} repeats row {prior}; the same equipment listed twice would be counted twice. "
-                            f"Give each item its own id (identical machines with different ids are different items; `units` is never inferred from repeats)")
+            prior_row, prior_id = prior
+            spelled = (f" ({_q(prior_id)}; the two ids differ only in letter case, and ids are compared ignoring case after trimming)"
+                       if prior_id != item["id"] else "")
+            problems.append(f"{_where(rec.row, cols['id'], headers)}: {_q(item['id'])} repeats row {prior_row}{spelled}; the same equipment listed twice would "
+                            f"be counted twice. Give each item its own id (identical machines with different ids are different items; `units` is never "
+                            f"inferred from repeats)")
             continue
-        seen_ids[item["id"]] = rec.row
+        seen_ids[key] = (rec.row, item["id"])
         items.append(item)
         item_ledger.append({"id": item["id"], "row": rec.row, "fields": fields, "omitted": omitted})
     if len(items) > MAX_EQUIPMENT_ITEMS:

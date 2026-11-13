@@ -26,9 +26,10 @@ from ..thermal.constraints import facility_water_supply
 from ..thermal.library import PUE_BY_ARCHITECTURE
 from ..thermal.schema import Architecture
 from ..validation import EvidenceClass, Provenance, Quantity
-from .schema import (INFORMATIVE, MANDATORY, PREFERRED, SC_ASSUMED, SC_LIBRARY, SC_NOT_MODELLED,
+from .schema import (BOUND_MIN, INFORMATIVE, MANDATORY, PREFERRED, SC_ASSUMED, SC_LIBRARY, SC_NOT_MODELLED,
                      SC_SUPPLIED, AssumedInput, EvaluationCriterion, ProcurementError,
-                     Requirement, ResponseField, ScopeItem, SiteCondition, SpecPackage)
+                     Requirement, ResponseField, ScopeItem, SiteCondition, SpecPackage, MIN_PRICE_VALIDITY_DAYS, figure_text,
+                     validity_requirement)
 
 
 def default_step(steps: list[LadderStep]) -> LadderStep:
@@ -145,6 +146,17 @@ def context_at_step(intake, result: ScenarioResult, step) -> EnvelopeContext:
 
 # --- per-constraint requirement generators ----------------------------------
 
+#: The response-schedule field a bidder states the duty it achieves in. The requirement that sets the duty floor for a constraint (the tap-off
+#: rating, the busway ampacity, the transformer MVA, the UPS kW, the CDU duty, the plant kW, the pumped flow) names it, so the bid's own figure
+#: is held to that "not less than" number instead of being taken on the strength of a C. Its unit in the schedule is that requirement's unit.
+DUTY_FIELD = "duty_at_site_conditions"
+
+
+def _duty_floor(value: Quantity | None) -> dict:
+    """Keyword arguments marking a requirement as the duty floor the response's ``duty_at_site_conditions`` is held to. Empty when the clause
+    has no figure to hold it to (a rack platform that states no feed current): such a clause stays a declaration, and says so."""
+    return {} if value is None else {"response_key": DUTY_FIELD, "bound": BOUND_MIN}
+
 def _tapoff(ctx: EnvelopeContext, racks: int, count_ev: EvidenceClass = SPEC_CEILING) -> list[Requirement]:
     plat = ctx.cluster.platform
     lv = ctx.power.lv
@@ -159,7 +171,7 @@ def _tapoff(ctx: EnvelopeContext, racks: int, count_ev: EvidenceClass = SPEC_CEI
             statement=(f"Each rack tap-off unit shall be rated for continuous operation at "
                        f"not less than the rack feed current stated in the response "
                        f"schedule, at the busway voltage and the hall's design ambient."),
-            value=_floor(need_A), unit="A", derived_from="rack_feed_tapoff",
+            value=_floor(need_A), unit="A", derived_from="rack_feed_tapoff", **_duty_floor(need_A),
             basis=(f"{plat.name} draws {need_A.render() if need_A else 'the stated current'} "
                    f"per rack; the installed tap-offs are rated "
                    f"{lv.tapoff_max_A.render()}."),
@@ -210,7 +222,7 @@ def _busway(ctx: EnvelopeContext, racks: int, count_ev: EvidenceClass = SPEC_CEI
                        "configuration."),
             value=_floor(_q(required, "A", "required busway ampacity per run", "spec.busway_ampacity",
                             [plat.rack_kW, lv.voltage_V, lv.busway_utilisation_limit, _count(racks, count_ev)])),
-            unit="A", derived_from="busway_ampacity",
+            unit="A", derived_from="busway_ampacity", response_key=DUTY_FIELD, bound=BOUND_MIN,
             basis=(f"{racks} racks at {plat.rack_kW.render()} over {per_run} run(s) at "
                    f"{lv.voltage_V.render()}, three phase, power factor 0.95, derated to "
                    f"the site's {lv.busway_utilisation_limit.render()} continuous limit. "
@@ -247,7 +259,7 @@ def _transformer(ctx: EnvelopeContext, racks: int, count_ev: EvidenceClass = SPE
                        "the site's derating policy and at the specified redundancy."),
             value=_floor(_q(mva, "MVA", "required transformer capacity", "spec.transformer_rating",
                             [plat.rack_kW, pue, _count(racks, count_ev)])),
-            unit="MVA", derived_from="transformer_capacity",
+            unit="MVA", derived_from="transformer_capacity", response_key=DUTY_FIELD, bound=BOUND_MIN,
             basis=(f"{racks} racks at {plat.rack_kW.render()}, PUE {pue.render()}, power "
                    f"factor 0.95. Site derating {derate}."),
             verification="Rating plate and factory test certificate."),
@@ -289,7 +301,7 @@ def _ups(ctx: EnvelopeContext, racks: int, count_ev: EvidenceClass = SPEC_CEILIN
             statement="Additional protected capacity shall be not less than the figure stated.",
             value=_floor(_q(kW, "kW", "additional protected load", "spec.ups_capacity",
                             [plat.rack_kW, _count(racks, count_ev)])),
-            unit="kW", derived_from="ups_capacity",
+            unit="kW", derived_from="ups_capacity", response_key=DUTY_FIELD, bound=BOUND_MIN,
             basis=f"{racks} racks at {plat.rack_kW.render()}.",
             verification="Rating and factory test certificate."),
         Requirement(
@@ -350,7 +362,7 @@ def _cdu(ctx: EnvelopeContext, racks: int, count_ev: EvidenceClass = SPEC_CEILIN
                        "SITE FACILITY WATER TEMPERATURE below, not at the manufacturer's "
                        "reference approach."),
             value=_floor(_q(duty.value, "kW", "required CDU duty at site conditions", "spec.cdu_duty", [duty])),
-            unit="kW", derived_from="cdu_capacity",
+            unit="kW", derived_from="cdu_capacity", response_key=DUTY_FIELD, bound=BOUND_MIN,
             basis=(f"{racks} racks at {plat.liquid_kW().render()} liquid load per rack. Rated with facility water supplied "
                    f"at {fws_t.render()} ({fws.mechanism}); the design operating point of the technology loop is the TCS "
                    f"supply target {tcs.render()}. The platform accepts liquid inlet up to "
@@ -471,7 +483,7 @@ def _plant(ctx: EnvelopeContext, racks: int, count_ev: EvidenceClass = SPEC_CEIL
             statement=("Additional chilled-water plant capacity, over and above the installed plant, shall be not less than "
                        f"the figure stated, which is the plant load of {racks} racks ({load_text}) less the existing plant "
                        f"headroom ({headroom.render(with_band=False)})."),
-            value=_floor(value), unit="kW", derived_from="plant_capacity",
+            value=_floor(value), unit="kW", derived_from="plant_capacity", response_key=DUTY_FIELD, bound=BOUND_MIN,
             basis=(f"Load for {racks} racks: {racks} x {per_rack.render()} per rack = {load_text} on the existing plant, "
                    f"{route}.{scope_note} Existing plant headroom: {headroom_text}. {result_text} {limit_text}"),
             verification="Selection output at site design ambient."),
@@ -502,7 +514,7 @@ def _hydraulic(ctx: EnvelopeContext, racks: int, count_ev: EvidenceClass = SPEC_
             id="T-40", clause="Pumped flow",
             statement="Available pumped flow shall be not less than the figure stated.",
             value=_floor(_q(flow.value, "l/min", "required pumped flow", "spec.pumped_flow", [flow])),
-            unit="l/min", derived_from="hydraulic_flow",
+            unit="l/min", derived_from="hydraulic_flow", response_key=DUTY_FIELD, bound=BOUND_MIN,
             basis=(f"{racks} racks at {plat.flow_l_per_min_per_rack.render()}. Installed "
                    f"capacity {plant.pump_flow_capacity_l_per_min.render()} at "
                    f"{plant.available_head_kPa.render()}."),
@@ -586,7 +598,7 @@ CRITERIA = (
 )
 
 
-def _response_fields(step: LadderStep) -> list[ResponseField]:
+def _response_fields(step: LadderStep, reqs: Iterable[Requirement] = ()) -> list[ResponseField]:
     # The library holds this relief on whatever basis the constraint priced it —
     # EUR, EUR/rack or EUR/kW. Ask the library, not the step: a step's capex is the
     # already-multiplied total, so a EUR/kW line arrives here reading "EUR" and a
@@ -603,11 +615,25 @@ def _response_fields(step: LadderStep) -> list[ResponseField]:
                       required=False),
         ResponseField("outage_hours_per_unit", "Outage required per unit or per run", "hours",
                       required=False),
-        ResponseField("duty_at_site_conditions", "Duty achieved at the site conditions stated",
-                      "kW or A", required=False,
-                      note="At OUR conditions. A figure at a reference condition is not a bid."),
-        ResponseField("validity_days", "Price validity", "days", required=False),
+        _duty_field(reqs),
+        ResponseField("validity_days", "Price validity", "days", required=False,
+                      note=f"Held to C-02: not less than {MIN_PRICE_VALIDITY_DAYS} days."),
     ]
+
+
+def _duty_field(reqs: Iterable[Requirement]) -> ResponseField:
+    """The duty the bidder states, in the unit of the clause it is held to (E-10 asks for amperes, so the figure is in amperes). With no such
+    clause (a constraint with no duty floor) it is a statement with no number to compare, and the unit is not guessed."""
+    floor = next((q for q in reqs if q.response_key == DUTY_FIELD and q.obligation == MANDATORY), None)
+    if floor is None:
+        return ResponseField(DUTY_FIELD, "Duty achieved at the site conditions stated", "as stated in the duty clause", required=False,
+                             note="At OUR conditions. A figure at a reference condition is not a bid. No requirement states a duty floor for this "
+                                  "package, so the figure is not compared with one.")
+    limit = floor.figure_limit
+    return ResponseField(DUTY_FIELD, "Duty achieved at the site conditions stated", floor.unit, required=False,
+                         note=f"At OUR conditions, in {floor.unit}. A figure at a reference condition is not a bid. Held to {floor.id} "
+                              f"({floor.clause}): not less than {figure_text(limit)} {floor.unit}; a figure below it is not compliant on {floor.id} "
+                              f"whatever code is returned for it.")
 
 
 def _scope_quantity(result: ScenarioResult, step: LadderStep) -> float | None:
@@ -754,7 +780,7 @@ def build_spec(intake, result: ScenarioResult, *, step: LadderStep | None = None
             matches = [s for s in steps if s.binding_id == constraint_id]
             if not matches:
                 raise ProcurementError(
-                    f"no purchasable relief for {constraint_id!r}. Available: "
+                    f"constraint {constraint_id!r}: no purchasable relief for it in this scenario (request field `constraint`). Available: "
                     f"{', '.join(sorted({s.binding_id for s in steps}))}")
             step = matches[0]
         else:
@@ -804,11 +830,7 @@ def build_spec(intake, result: ScenarioResult, *, step: LadderStep | None = None
                            "with exclusions listed separately."),
                 basis="Comparability. Four quotations on four bases cannot be evaluated.",
                 verification="Completed response schedule."),
-            Requirement(
-                id="C-02", clause="Validity",
-                statement="Prices shall remain valid for not less than 60 days.",
-                basis="The evaluation and approval cycle on a capital item of this size.",
-                verification="Stated on the quotation."),
+            validity_requirement(),
             Requirement(
                 id="C-03", clause="Response schedule",
                 statement=("The response schedule in section 6 shall be returned completed. "
@@ -819,7 +841,7 @@ def build_spec(intake, result: ScenarioResult, *, step: LadderStep | None = None
                 verification="Returned document."),
         ],
         criteria=list(CRITERIA),
-        response_fields=_response_fields(step),
+        response_fields=_response_fields(step, reqs),
         lead_time_weeks=step.lead_time_weeks,
         budget_eur=step.capex_eur,
         scope_quantity=_scope_quantity(result, step),

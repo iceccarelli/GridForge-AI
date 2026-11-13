@@ -22,7 +22,7 @@ from dataclasses import dataclass, field
 from ..common import ASSUMED, V
 from ..intake.loader import PLAUSIBLE_MAX
 from ..power.generation import GenerationUnit
-from ..power.load_profile import LoadProfile
+from ..power.load_profile import LoadProfile, peak_plausibility_problem
 from ..power.readiness_gates import GateResult, GateStatus, evaluate_gates
 from ..envelope.time_to_power import NO_DATE, DateBasis, date_basis_of
 from ..power.reliability import (UNDECLARED_RIDE_THROUGH_LABEL, ContingencyCase, ContingencyStatus,
@@ -187,11 +187,17 @@ class ArchitectureAssessment:
 def assess_architecture(candidate: ArchitectureCandidate, *, grid_firm_MW: Quantity,
                         critical_load_MW: Quantity, ride_through_hours: Quantity,
                         redundancy: Redundancy, interconnection: dict | None = None,
-                        permitting: dict | None = None) -> ArchitectureAssessment:
+                        permitting: dict | None = None, profile_problem: str = "") -> ArchitectureAssessment:
     case = ContingencyCase(critical_load_MW=critical_load_MW, grid_firm_MW=grid_firm_MW,
                            generation=candidate.generation, bess=candidate.bess,
                            ride_through_hours=ride_through_hours, redundancy=redundancy)
     result = evaluate(case)
+    if profile_problem:
+        # The same mechanism the contingency test itself uses for an open question (a blocking note turns a PASS into REQUIRES_ENGINEERING_STUDY):
+        # a PASS computed on a load that is probably a unit slip is not a pass, and the note says what to check.
+        result.blocking.append(f"load profile: {profile_problem}")
+        if result.status == ContingencyStatus.PASS:
+            result.status = ContingencyStatus.REQUIRES_ENGINEERING_STUDY
     capex, uncosted = _total_capex(candidate.generation + candidate.bess)
     lead_time, undated = _critical_path_weeks(candidate.generation + candidate.bess)
     gates = evaluate_gates(generation=candidate.generation, bess=candidate.bess,
@@ -236,7 +242,7 @@ def _trade_offs(winner: ArchitectureAssessment, runner_up: ArchitectureAssessmen
 
 
 def _next_action(load_profile_report, assessments: list[ArchitectureAssessment],
-                 gap_MW: float, objective: Objective) -> dict:
+                 gap_MW: float, objective: Objective, *, profile_problem: str = "") -> dict:
     """One deterministic recommendation, in priority order: fix the data before
     trusting any comparison; then close a missing quote before ranking; then
     close a missing-data readiness gate before recommending procurement — a
@@ -245,7 +251,24 @@ def _next_action(load_profile_report, assessments: list[ArchitectureAssessment],
     "proceed to procurement" would hide that; only then point at the winner
     UNDER THE STATED OBJECTIVE, with the trade-off against the runner-up named
     explicitly — never a silent "lowest cost wins" default, which is the
-    mistake this function used to make before `objective` existed."""
+    mistake this function used to make before `objective` existed.
+
+    Every answer carries `directional` when the load profile is too short to size from (load_profile.MIN_SAMPLES_FOR_SIZING readings over
+    MIN_SPAN_HOURS_FOR_SIZING hours): the caveat is in the action itself, because a warning list nobody opens is not a caveat."""
+    out = _next_action_core(load_profile_report, assessments, gap_MW, objective, profile_problem)
+    if load_profile_report.directional:
+        out["directional"] = True
+        out["directional_reason"] = load_profile_report.directional_reason
+    return out
+
+
+def _next_action_core(load_profile_report, assessments: list[ArchitectureAssessment],
+                      gap_MW: float, objective: Objective, profile_problem: str) -> dict:
+    if profile_problem:
+        return {"action": "Check the units of the load profile before anything else: its peak is implausible against the stated target and grid "
+                          "capacity, so no architecture result below can be relied on.",
+               "why": f"{profile_problem[0].upper()}{profile_problem[1:]}. No architecture is called a pass while this stands.",
+               "profile_problem": profile_problem}
     if not load_profile_report.usable:
         return {"action": "Resolve the load profile's duplicate timestamps before "
                           "trusting any architecture comparison built on it.",
@@ -257,7 +280,8 @@ def _next_action(load_profile_report, assessments: list[ArchitectureAssessment],
                           "add generation, storage, or grid firm capacity before proceeding.",
                "why": f"Every candidate falls short of the critical load by at least "
                       f"the worst-case margin shown; the gap to target is {gap_MW:.1f} MW."}
-    uncosted = [a for a in passing if not a.buildable]
+    # An architecture with no equipment declared has nothing to price: it is not "uncosted", and a quote for an empty list is not an action.
+    uncosted = [a for a in passing if not a.buildable and a.capex_uncosted_units]
     if uncosted:
         u = uncosted[0]
         names = ", ".join(u.capex_uncosted_units)
@@ -265,7 +289,17 @@ def _next_action(load_profile_report, assessments: list[ArchitectureAssessment],
                "why": f"'{u.label}' passes its contingency test but cannot be compared on "
                       f"cost or schedule until every unit in it is priced."}
     buildable = [a for a in passing if a.buildable]
+    if not buildable:
+        # Only architectures that buy nothing pass: the grid connection alone carries the critical load the profile defines.
+        grid_only = passing[0]
+        return {"action": f"No equipment purchase is indicated: '{grid_only.label}' passes its contingency test on the profile's critical load.",
+               "why": (f"Every architecture that passes declares no equipment to buy, so there is nothing to price or tender. The contingency test is run "
+                       f"against the load profile's own peak, not against the stated target (the gap to the target is {gap_MW:.1f} MW): if you are "
+                       f"sizing for the target, supply a profile that reflects it. Confirm the profile's peak and units first.")}
     ranked = _rank(buildable, objective)
+    no_equipment = next((a for a in passing if not a.buildable and not a.capex_uncosted_units), None)
+    no_equipment_note = (f" Note: '{no_equipment.label}' also passes its contingency test on this profile, so the equipment below is not needed to carry "
+                         f"the profile's own critical load; it is what the stated target needs." if no_equipment is not None else "")
     winner = ranked[0]
     runner_up = ranked[1] if len(ranked) > 1 else None
     if not winner.rfq_ready:
@@ -282,18 +316,51 @@ def _next_action(load_profile_report, assessments: list[ArchitectureAssessment],
     clearance_note = (
         "; ".join(sorted({g.review_requirement for g in clearances if g.review_requirement}))
         if clearances else "none outstanding from this screening")
+    if load_profile_report.directional:
+        # Short profile: the ranking is indicative. The action still names the architecture (the engineer needs to know which one the numbers favour),
+        # but it is not offered as a green light, and it says what to do before an RFQ is prepared.
+        return {"action": f"Proceed to RFQ for: {winner.label} — directional only: re-run on a full-day load profile before an RFQ is issued",
+               "why": f"{load_profile_report.directional_reason[:1].upper()}{load_profile_report.directional_reason[1:]} "
+                      f"'{winner.label}' is the best architecture under the {objective.value} objective among those that pass their own "
+                      f"contingency test and are fully costed, but a profile this short cannot show the ramp, step and duration the sizing rests on, "
+                      f"so treat the ranking as indicative and confirm it on a full-day profile before preparing an RFQ. "
+                      f"It is NOT a green light to build: external clearance still required from: {clearance_note}.{no_equipment_note}",
+               "objective": objective.value,
+               "objective_rationale": _BTM_OBJECTIVE_RATIONALE[objective],
+               "trade_offs": _trade_offs(winner, runner_up, objective)}
     return {"action": f"Proceed to RFQ for: {winner.label}",
            "why": f"The best architecture under the {objective.value} objective among those "
                   f"that pass their own contingency test, fully costed, with every readiness "
                   f"gate screened. This is a green light to prepare an RFQ, NOT a green light "
-                  f"to build: external clearance still required from: {clearance_note}.",
+                  f"to build: external clearance still required from: {clearance_note}.{no_equipment_note}",
            "objective": objective.value,
            "objective_rationale": _BTM_OBJECTIVE_RATIONALE[objective],
            "trade_offs": _trade_offs(winner, runner_up, objective)}
 
 
 class DeploymentRequestError(ValueError):
-    pass
+    """A deployment request the engine refuses. ``extra`` is the structured part of the refusal (the offending ``field`` and the ``allowed`` values),
+    which the HTTP layer returns beside the message in the same shape every other refusal uses."""
+
+    def __init__(self, message: str, **extra) -> None:
+        super().__init__(message)
+        self.extra = extra
+
+
+def _redundancy(raw) -> Redundancy:
+    """The redundancy scheme of a request. Case and whitespace are ignored (`n+1`, ` N + 1 ` are N+1); anything else is refused naming the field and
+    the values the enum really holds, never a raw `ValueError: '3N' is not a valid Redundancy`. Absent or null is the default, N."""
+    if raw is None:
+        return Redundancy.N
+    allowed = [r.value for r in Redundancy]
+    if isinstance(raw, str):
+        key = "".join(raw.split()).upper()
+        for r in Redundancy:
+            if r.value == key:
+                return r
+    raise DeploymentRequestError(
+        f"redundancy {raw!r} is not a redundancy scheme: it must be one of {', '.join(allowed)} (case and spaces are ignored)",
+        field="redundancy", allowed=allowed)
 
 
 #: Plausibility ceilings for the numbers a deployment request carries, taken from the intake loader's own (PLAUSIBLE_MAX) where it has one, so the two
@@ -371,12 +438,13 @@ def _bess_from_request(d: dict) -> BatteryEnergyStorageSystem:
 
 
 def _load_profile_from_request(d: dict) -> LoadProfile:
-    from ..power.load_profile import LOAD_PROFILE_MAX_HOURS, LOAD_PROFILE_MAX_kW, LoadProfileError, flat, from_csv
+    from ..power.load_profile import LOAD_PROFILE_MAX_HOURS, LOAD_PROFILE_MAX_kW, LoadProfileError, flat
+    from .load_profile_csv import load_profile_from_csv
     if not isinstance(d, dict):
         raise DeploymentRequestError(f"load_profile must be an object with 'csv' or 'flat_kW', not {type(d).__name__}")
     try:
         if d.get("csv"):
-            return from_csv(str(d["csv"]), source=str(d.get("source") or "uploaded CSV"))
+            return load_profile_from_csv(str(d["csv"]), source=str(d.get("source") or "uploaded CSV"))
         if d.get("flat_kW") is not None:
             return flat(_number(d["flat_kW"], "load_profile.flat_kW", LOAD_PROFILE_MAX_kW, "kW"),
                         hours=_number(d.get("flat_hours", 24.0), "load_profile.flat_hours", LOAD_PROFILE_MAX_HOURS, "h"))
@@ -403,7 +471,7 @@ def deployment_request(doc: dict) -> dict:
         raise DeploymentRequestError(f"missing required field: {exc}") from exc
     ride_through_hours = (V(_number(doc["ride_through_hours"], "ride_through_hours", _MAX_HOURS, "h"), "h", "ride-through window", ASSUMED)
                           if doc.get("ride_through_hours") is not None else None)
-    redundancy = Redundancy(doc.get("redundancy", Redundancy.N.value))
+    redundancy = _redundancy(doc.get("redundancy"))
     interconnection = doc.get("interconnection") if isinstance(doc.get("interconnection"), dict) else None
     permitting = doc.get("permitting") if isinstance(doc.get("permitting"), dict) else None
     try:
@@ -411,7 +479,7 @@ def deployment_request(doc: dict) -> dict:
     except ValueError as exc:
         raise DeploymentRequestError(
             f"unknown objective {doc.get('objective')!r} — one of "
-            f"{[o.value for o in Objective]}") from exc
+            f"{[o.value for o in Objective]}", field="objective", allowed=[o.value for o in Objective]) from exc
     return dict(load_profile=load_profile, grid_firm_MW=grid_firm_MW, generation=generation,
                bess=bess, target_MW=target_MW, ride_through_hours=ride_through_hours,
                redundancy=redundancy, interconnection=interconnection, permitting=permitting,
@@ -452,11 +520,14 @@ def assess_deployment(*, load_profile: LoadProfile, grid_firm_MW: Quantity,
         2.0, "h", UNDECLARED_RIDE_THROUGH_LABEL, ASSUMED)
 
     gap_MW = max(target_MW.value - grid_firm_MW.value, 0.0)
+    # A peak a hundred times off the stated target AND the grid capacity is a probable unit slip: it is named, and no architecture passes on it.
+    profile_problem = peak_plausibility_problem(load_profile.peak_kW().value, target_MW.value, grid_firm_MW.value)
+    warnings = list(report.warnings) + ([f"implausible peak: {profile_problem}"] if profile_problem else [])
     architectures = candidate_architectures(generation, bess)
     assessments = [
         assess_architecture(c, grid_firm_MW=grid_firm_MW, critical_load_MW=critical,
                             ride_through_hours=ride, redundancy=redundancy,
-                            interconnection=interconnection, permitting=permitting)
+                            interconnection=interconnection, permitting=permitting, profile_problem=profile_problem)
         for c in architectures
     ]
 
@@ -469,8 +540,11 @@ def assess_deployment(*, load_profile: LoadProfile, grid_firm_MW: Quantity,
             "load_factor": round(load_profile.load_factor(), 3),
             "ramp_rate_kW_per_min": load_profile.ramp_rate_kW_per_min().rounded(),
             "step_events": len(load_profile.step_events()),
-            "warnings": report.warnings,
+            "warnings": warnings,
             "usable": report.usable,
+            # Whether the peak is believable against the target and grid capacity, and whether the profile is long enough to size from.
+            "peak_plausible": not profile_problem,
+            "directional": report.directional,
         },
         "capacity": {
             "target_MW": round(target_MW.value, 3),
@@ -520,5 +594,5 @@ def assess_deployment(*, load_profile: LoadProfile, grid_firm_MW: Quantity,
             }
             for a in assessments
         ],
-        "next_action": _next_action(report, assessments, gap_MW, objective),
+        "next_action": _next_action(report, assessments, gap_MW, objective, profile_problem=profile_problem),
     }
