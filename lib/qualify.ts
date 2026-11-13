@@ -71,7 +71,9 @@ export interface QualifyResult {
     racks: number;
     architecture: string;
     then_binds_on: string | null;
-    sets_the_date: string;
+    /** The item that sets the date; null when there is no date (the engine names none rather than a lower bound: `sets_the_date_reason` says why). */
+    sets_the_date: string | null;
+    sets_the_date_reason?: string | null;
     /** What the date rests on (lib/date-basis.ts). Absent from an engine older than the date-basis keys. */
     date_basis?: "none" | "assumed" | "supported";
     date_evidence_class?: string | null;

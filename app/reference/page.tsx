@@ -53,7 +53,8 @@ interface Pack {
     after_ladder: { racks: number };
     time_to_power: {
       weeks_to_full: number | null;
-      sets_the_date: string;
+      /** The item that sets the date; null when there is no date to attach it to (the engine names none rather than a lower bound). */
+      sets_the_date: string | null;
       date_basis?: "none" | "assumed" | "supported";
       date_evidence_class?: string | null;
       date_binding_item?: string | null;
@@ -227,7 +228,11 @@ export default async function ReferencePage() {
             v={String(best.after_ladder.racks)}
             n={
               best.time_to_power.weeks_to_full
-                ? `racks · ${formatWeeks(Math.round(best.time_to_power.weeks_to_full), best.time_to_power)}, set by ${best.time_to_power.sets_the_date.toLowerCase()}`
+                ? `racks · ${formatWeeks(Math.round(best.time_to_power.weeks_to_full), best.time_to_power)}${
+                    typeof best.time_to_power.sets_the_date === "string" && best.time_to_power.sets_the_date
+                      ? `, set by ${best.time_to_power.sets_the_date.toLowerCase()}`
+                      : ""
+                  }`
                 : "racks"
             }
           />
