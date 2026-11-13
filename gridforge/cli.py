@@ -22,6 +22,7 @@ from pathlib import Path
 from .common import ASSUMED, V
 from .constraints import EnvelopeContext
 from .intake.loader import IntakeError, blank_intake, load as _load_intake
+from .intake.strict_json import DuplicateKeyError, read_json as _read_json
 from .reporting import run_all_gates, to_html, to_markdown
 from .reporting.gates import GateFailure, ReportMode
 from .reporting.portfolio import SiteEntry
@@ -66,6 +67,19 @@ def load(path) -> "object":
         raise IntakeError(f"{path} is not valid JSON: {exc}") from exc
 
 
+def load_to_solve(path) -> "object":
+    """`load`, for a command that SOLVES the intake (screen, study, deck, proposal, spec, bids, power-assess, portfolio). An intake that gives none of the
+    fields the engine reads is refused, as the API refuses it (a 422 'contains none of the intake fields'): every figure would be a library default,
+    and the blank template used to print a Density Screen of a hall nobody described and exit 0. `gaps` does not use this: the data request for a blank
+    template is exactly what it is for."""
+    intake = load(path)
+    if not intake.report.supplied:
+        raise IntakeError(f"{path} contains none of the intake fields, so there is nothing to solve: every figure would be a library default. "
+                          f"Fill in the blank pack (`gridforge init`) and send it, run `gridforge gaps {path}` for the data request, or use the "
+                          f"free /v1/qualify for a first read from a handful of figures.")
+    return intake
+
+
 @dataclass
 class _Written:
     paths: list[Path]
@@ -108,6 +122,10 @@ def cmd_gaps(args) -> int:
           f"({len(rep.supplied)} supplied, {len(rep.gaps)} assumed, "
           f"{len(rep.required_gaps)} required inputs missing)")
     print(f"Issuable as a full study: {'yes' if rep.can_issue else 'no'}")
+    if rep.declared_assumed_gaps:
+        n = len(rep.declared_assumed_gaps)
+        print(f"  {n} required input{'s' if n != 1 else ''} sent but declared as {'assumptions' if n != 1 else 'an assumption'} (E0), "
+              f"which {'count' if n != 1 else 'counts'} as open: not the hall's own data")
     print()
     if rep.gaps:
         print("DATA REQUEST — send this list verbatim:")
@@ -122,7 +140,7 @@ def cmd_gaps(args) -> int:
     for w in rep.warnings:
         print(f"  ! {w}")
     print()
-    print(rep.engagement_recommendation)
+    print(rep.engagement_recommendation_with_fee)      # the operator's command line is a priced context: the fee comes from the catalogue
     return 0
 
 
@@ -207,7 +225,7 @@ def cmd_power_deploy_spec(args) -> int:
 
 def cmd_power_assess(args) -> int:
     from .reporting.readiness import assess
-    intake = load(args.intake)
+    intake = load_to_solve(args.intake)
     results = _run(intake)
     case = assess(intake, results, objective=OBJECTIVES[args.objective],
                   target_racks=args.target_racks)
@@ -253,7 +271,7 @@ def _with_evidence(fn):
         except (OSError, json.JSONDecodeError, TypeError, ValueError, AttributeError) as exc:
             print(f"refused: cost evidence {path} is unusable: {exc}", file=sys.stderr)
             return 2
-        intake = load(args.intake)
+        intake = load_to_solve(args.intake)
         with cost_overlay(entries) as report:
             set_evidence_effect(evidence_effect(intake.context, intake.scenarios, entries))
             print(f"  cost evidence: {len(report.used)} accepted line(s) used, {len(report.ignored)} ignored")
@@ -276,7 +294,7 @@ def _price_for(intake) -> dict:
 
 
 def cmd_screen(args) -> int:
-    intake = load(args.intake)
+    intake = load_to_solve(args.intake)
     results = _run(intake)
     objective = OBJECTIVES[args.objective]
     report = build_screen(intake, results, objective=objective, grid_queue=_queue_for(intake, results, objective),
@@ -311,7 +329,7 @@ def _economics_note(rec) -> None:
 
 
 def cmd_study(args) -> int:
-    intake = load(args.intake)
+    intake = load_to_solve(args.intake)
     results = _run(intake)
     objective = OBJECTIVES[args.objective]
     rec = _pick_recommended(results, objective)
@@ -332,15 +350,25 @@ def cmd_study(args) -> int:
           f"{rec.unlocked_racks} racks after the ladder.")
     _economics_note(rec)
     if not intake.report.can_issue:
-        print(f"  NOTE: {len(intake.report.required_gaps)} required inputs are assumed. "
+        print(f"  NOTE: {len(intake.report.required_gaps) + len(intake.report.declared_assumed_gaps)} required inputs are assumed. "
               f"Screening mode only — see the evidence disclosure in the report.")
     w.report()
     return 0
 
 
+def _read_intake_json(path) -> "dict | None":
+    """The JSON in an intake file, or None when it does not exist. A repeated key is refused by name, as in `load` and the API: json.loads alone read
+    the LAST value and dropped the others without a word."""
+    if not Path(path).exists():
+        return None
+    try:
+        return _read_json(path)
+    except DuplicateKeyError as exc:
+        raise IntakeError(f"{path}: {exc}") from None
+
+
 def cmd_diff(args) -> int:
-    before = json.loads(Path(args.before).read_text()) if Path(args.before).exists() else None
-    after = json.loads(Path(args.after).read_text()) if Path(args.after).exists() else None
+    before, after = _read_intake_json(args.before), _read_intake_json(args.after)
     if before is None:
         print(f"no such intake file: {args.before}", file=sys.stderr)
         return 2
@@ -387,7 +415,7 @@ def cmd_diff(args) -> int:
 
 
 def cmd_deck(args) -> int:
-    intake = load(args.intake)
+    intake = load_to_solve(args.intake)
     results = _run(intake)
     deck = build_deck(intake, results, objective=OBJECTIVES[args.objective])
     out = Path(args.out)
@@ -401,7 +429,7 @@ def cmd_deck(args) -> int:
 
 
 def cmd_proposal(args) -> int:
-    intake = load(args.intake)
+    intake = load_to_solve(args.intake)
     results = _run(intake)
     try:
         eng = engagement(args.engagement)
@@ -928,7 +956,7 @@ def cmd_spec(args) -> int:
     from .procurement import ProcurementError, build_spec, relief_steps
     from .reporting.spec import build as build_spec_report
 
-    intake = load(args.intake)
+    intake = load_to_solve(args.intake)
     results = _run(intake)
     objective = OBJECTIVES[args.objective]
     rec = _pick_recommended(results, objective)
@@ -1010,7 +1038,7 @@ def cmd_bids(args) -> int:
     from .procurement.evaluate import schedule_impact
     from .procurement.ingest import command_lines, cost_entries_from
 
-    intake = load(args.intake)
+    intake = load_to_solve(args.intake)
     results = _run(intake)
     objective = OBJECTIVES[args.objective]
     result = next((r for r in results if r.spec.id == args.scenario),
@@ -1169,7 +1197,7 @@ def cmd_portfolio(args) -> int:
     seen: dict[tuple[str, str], tuple[str, dict]] = {}
     prints: dict[str, int] = {}
     for p in args.intakes:
-        intake = load(p)
+        intake = load_to_solve(p)
         raw = json.loads(Path(p).read_text(encoding="utf-8"))
         key = hall_key(intake.context.site.id, intake.context.hall.id)
         if key in seen and is_repeat(raw, seen[key][1]):

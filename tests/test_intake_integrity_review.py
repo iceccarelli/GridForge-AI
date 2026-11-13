@@ -165,6 +165,8 @@ def _full_dublin() -> dict:
     d["thermal"]["plant"]["existing_non_it_heat_kW"] = 500
     d["thermal"]["rdhx"] = {"capacity_kW_per_rack": 60}
     d["thermal"]["tcs_target_supply_C"] = 32
+    d["thermal"]["cdu_approach_K"] = 5                       # the water gate's two approaches are named optional gaps when omitted
+    d["thermal"]["plant"]["dry_cooler_approach_K"] = 8
     d["hall"]["occupied_positions"] = 140
     d["lv"]["existing_busway_load_kW"] = 1000
     d["economics"] = {"electricity_eur_per_MWh": 120, "horizon_years": 10, "discount_rate": 0.08}
@@ -188,9 +190,12 @@ def test_r5_open_optional_gaps_are_said_plainly_not_called_complete():
     assert "1 optional input is still an assumption" in load_document(one).report.engagement_recommendation
 
 
-def test_r5_required_gap_wording_is_unchanged():
+def test_r5_required_gap_wording_is_in_the_buyers_voice_and_agrees_in_number():
+    """The text is shown verbatim to buyers on the free qualifier: it used to read '1 required inputs missing. Request them before starting', which
+    is written to the seller and wrong in number."""
     london = load_document(example("london_hall")).report.engagement_recommendation
-    assert london.startswith("1 required inputs missing. Request them before starting")
+    assert london.startswith("1 required input is missing (UPS schedule). Please send it")
+    assert "required inputs missing" not in london and "Request them" not in london
 
 
 def test_r5_every_producer_agrees_the_screen_the_model_pack_the_payloads_and_the_cli(capsys):

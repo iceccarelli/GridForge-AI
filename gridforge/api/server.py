@@ -399,15 +399,8 @@ def _reject_constant(name: str):
     raise ValueError(f"{name} is not a valid JSON number")
 
 
-def _refuse_duplicate_keys(pairs):
-    """json.loads keeps the LAST of two equal keys silently, so {"grid": a, "grid": b} meant whatever the second said and the first
-    vanished without a word. A request that says one thing twice is ambiguous: refuse it by naming the key."""
-    seen: set[str] = set()
-    for key, _ in pairs:
-        if key in seen:
-            raise ValueError(f"the object repeats the key {key[:60]!r}; each key may appear once")
-        seen.add(key)
-    return dict(pairs)
+#: The duplicate-key refusal is shared with the command line's file loader (one helper, so a document means the same wherever it is read).
+from ..intake.strict_json import refuse_duplicate_keys as _refuse_duplicate_keys  # noqa: E402
 
 
 def _env_int(name: str, default: int, minimum: int = 0) -> int:

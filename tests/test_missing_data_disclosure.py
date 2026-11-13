@@ -33,7 +33,8 @@ def test_a_missing_site_peak_is_disclosed_as_required_and_assumed():
     row = next(line for line in doc.splitlines() if line.startswith("| Current site peak demand"))
     assert "required" in row, "the input must be marked required"
     assert "(E0)" in row, "a default must carry the assumption class"
-    assert "required inputs missing" in doc, "the document must say that required inputs are missing"
+    # one input is missing, and the recommendation (buyer voice since 2026-11-13) says so in the singular: "1 required input is missing (...)"
+    assert "1 required input is missing" in doc, "the document must say that required inputs are missing"
 
 
 def test_the_default_is_a_range_not_a_point():

@@ -16,6 +16,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 
+from ..commercial import ENGAGEMENTS, engagement
 from ..validation import EvidenceClass
 
 
@@ -196,6 +197,13 @@ INTAKE_FIELDS: tuple[FieldSpec, ...] = (
                             "the schedule declares its rated flow, the bank's flow (usable units x rated flow) is a limit beside its heat "
                             "capacity; when any omits it no flow limit is applied and the CDU capacity rests on heat alone."),
               how_to_get_it="The CDU datasheet: rated secondary (technology-loop) flow at the rated duty."),
+    FieldSpec("thermal.cdu_approach_K", "CDU approach temperature", "K", False,
+              counts_toward_completeness=False,
+              why_it_binds=("The water gate asks how warm the facility water may be: the TCS supply target less the temperature the CDU's heat "
+                            "exchanger needs between the two loops (its approach). A larger approach means colder facility water is required, so "
+                            "it moves the achievable-water-temperature limit and with it the racks a dry-cooler loop can hold. When absent the "
+                            "library 5 K is used, an assumption (E0), not a vendor figure for your CDU."),
+              how_to_get_it="The CDU datasheet: the liquid-to-liquid approach at the rated duty and flow (vendor ratings are typically 4-5 K)."),
     FieldSpec("thermal.plant.available_head_kPa", "Available pump head", "kPa", False,
               counts_toward_completeness=False,
               why_it_binds=("A flow figure without a head figure is not a duty point. No constraint compares head today; the figure is printed in "
@@ -216,6 +224,14 @@ INTAKE_FIELDS: tuple[FieldSpec, ...] = (
                             "a nameplate with NO derating for the design dry bulb (the rating conditions are not known), so confirm it at site "
                             "conditions. When absent nothing limits the loop's heat rejection and the loop is an unpriced component of the capex."),
               how_to_get_it="The dry-cooler schedule: kW at the rated water and ambient temperatures, and those temperatures."),
+    FieldSpec("thermal.plant.dry_cooler_approach_K", "Dry-cooler approach to the design dry bulb", "K", False,
+              supplied_evidence=EvidenceClass.E3_ENGINEERING_ESTIMATE,
+              counts_toward_completeness=False,
+              why_it_binds=("Under full direct-to-chip cooling the facility water the dedicated loop can hold without chillers is the design dry "
+                            "bulb PLUS the dry coolers' approach to it, and that water is compared with the temperature the CDUs need (the water "
+                            "gate). A 4 K approach and a 10 K approach differ by 6 K of facility water, which is the difference between a loop that "
+                            "passes the gate and one that does not. When absent the full-DLC scenarios assume 10 K (band 8-12), an assumption (E0)."),
+              how_to_get_it="The dry-cooler selection or schedule: the approach between leaving-water temperature and ambient dry bulb at the design condition."),
     FieldSpec("hall.containment", "Aisle containment", "-", False,
               counts_toward_completeness=False,
               why_it_binds=("Containment quality decides how much heat an existing hall can remove per position. No constraint reads this field; the "
@@ -249,6 +265,10 @@ class DataGap:
     why_it_binds: str
     how_to_get_it: str
     sensitivity_rank: int | None = None   # filled in after the sensitivity run
+    #: True for a figure that WAS sent but declared an assumption (evidence class E0), on a field a study requires. It is not a missing figure
+    #: (`required_gaps`, and so the "required inputs missing" count, leave it out, and the completeness ratio does not count it as a gap), but it
+    #: is open all the same: `can_issue` is false while one exists, and the recommendation says so. See `IntakeReport.declared_assumed_gaps`.
+    declared_assumption: bool = False
 
 
 @dataclass
@@ -274,16 +294,26 @@ class IntakeReport:
 
     @property
     def required_gaps(self) -> list[DataGap]:
-        return [g for g in self.gaps if g.required]
+        """The required inputs that are MISSING (nothing was sent, a library figure stands in). A required figure that was sent but declared an
+        assumption is not in this list: see `declared_assumed_gaps`."""
+        return [g for g in self.gaps if g.required and not g.declared_assumption]
+
+    @property
+    def declared_assumed_gaps(self) -> list[DataGap]:
+        """The required inputs that were sent and declared an assumption (class E0): a template's value, not this hall's figure. They are open
+        (a study cannot be issued on them) but not missing, so they are listed apart from `required_gaps`."""
+        return [g for g in self.gaps if g.declared_assumption]
 
     @property
     def completeness(self) -> float:
         # The share of the scalar intake fields that were supplied. Per-option gaps (a generator's unit count, a battery's duration)
         # are listed as data requests but are not among INTAKE_FIELDS, so they must not be subtracted from a ratio whose
         # denominator does not contain them: each honest request would otherwise lower "completeness" below what was supplied.
+        # A figure declared an assumption was SUPPLIED: it stays in the ratio as supplied (the ratio is unchanged by the declaration) and is
+        # counted instead by `declared_assumed_gaps` and `can_issue`.
         counted = {f.path for f in INTAKE_FIELDS if f.counts_toward_completeness}
         total = len(counted)
-        missing = len({g.path for g in self.gaps if g.path in counted})
+        missing = len({g.path for g in self.gaps if g.path in counted and not g.declared_assumption})
         return (total - missing) / total if total else 1.0
 
     @property
@@ -302,11 +332,36 @@ class IntakeReport:
 
     @property
     def can_issue(self) -> bool:
-        """An ISSUED deliverable needs every required field from the customer."""
-        return not self.required_gaps
+        """An ISSUED deliverable needs every required field from the customer, and as the customer's own figure: a required input that is missing
+        is open, and so is one that was sent but declared an assumption (class E0), which is a template's value and not this hall's. The
+        completeness ratio is unchanged by this (it counts what was sent); `required_gaps` still lists only what is missing."""
+        return not self.required_gaps and not self.declared_assumed_gaps
+
+    def _open_inputs_sentence(self) -> str:
+        """What is still open among the required inputs, in the buyer's words: how many are missing and how many were sent but declared an
+        assumption. Names the fields when there are at most three of them in all."""
+        missing, declared = self.required_gaps, self.declared_assumed_gaps
+        name_them = len(missing) + len(declared) <= 3
+
+        def names(gaps: list[DataGap]) -> str:
+            return f" ({', '.join(g.label for g in gaps)})" if name_them else ""
+
+        out = []
+        if missing:
+            n = len(missing)
+            out.append(f"{n} required input{'s are' if n != 1 else ' is'} missing{names(missing)}")
+        if declared:
+            n = len(declared)
+            lead = f"{n} more {'was' if n == 1 else 'were'}" if missing else f"{n} required input{'s were' if n != 1 else ' was'}"
+            out.append(f"{lead} sent but declared as {'assumptions' if n != 1 else 'an assumption'} (class E0), not the hall's own "
+                       f"{'figures' if n != 1 else 'figure'}, so {'they count' if n != 1 else 'it counts'} as open{names(declared)}")
+        sentence = ", and ".join(out)
+        return sentence[0].upper() + sentence[1:] + "."
 
     @property
     def engagement_recommendation(self) -> str:
+        """What to do next, in the buyer's voice. Carries no price and no duration: it is part of the free qualifier's answer, which carries
+        none (tests/test_free_qualifier_no_duration_or_money.py). `engagement_recommendation_with_fee` adds the fee for a priced context."""
         if self.can_issue:
             if not self.gaps:
                 return ("The intake is complete. This supports a full Capacity & Density Envelope Study "
@@ -317,9 +372,25 @@ class IntakeReport:
             return (f"No required inputs are missing, so this supports a full Capacity & Density Envelope Study, but the intake is not complete: "
                     f"{n} optional input{'s are' if n != 1 else ' is'} still {'assumptions' if n != 1 else 'an assumption'} (listed in the data request), "
                     f"and the study names each one.")
-        if len(self.required_gaps) <= 3:
-            return (f"{len(self.required_gaps)} required inputs missing. Request them before "
-                    "starting; the study can proceed in parallel on everything else.")
-        return ("Intake too thin for a full study. Sell the Density Screen instead: it produces "
-                "the binding constraint and the data-request list, and its fee credits against "
-                "the study when the data arrives.")
+        screen = ENGAGEMENTS["density_screen"]
+        study = engagement(screen.credits_against) if screen.credits_against else ENGAGEMENTS["envelope_study"]
+        n_open = len(self.required_gaps) + len(self.declared_assumed_gaps)
+        if n_open <= 3:
+            one = n_open == 1
+            return (f"{self._open_inputs_sentence()} Please send {'it' if one else 'them'} as the hall's own data "
+                    f"(the data request says where {'it comes' if one else 'each comes'} from) before the {study.name} starts; "
+                    f"the work on everything else can proceed in parallel.")
+        return (f"{self._open_inputs_sentence()} That is too thin for a full {study.name} yet. The next step is the {screen.name}: "
+                f"it names the binding constraint and lists every input still needed, and its fee is credited in full against the Study "
+                f"when the data arrives.")
+
+    @property
+    def engagement_recommendation_with_fee(self) -> str:
+        """`engagement_recommendation`, with the next engagement's fee and turnaround added when the intake is too thin for a Study. For a
+        PRICED context only (the operator's command line, a proposal): the free qualifier's answer carries no money or duration. The figures
+        come from the catalogue (gridforge/commercial.py), never typed here."""
+        text = self.engagement_recommendation
+        if self.can_issue or len(self.required_gaps) + len(self.declared_assumed_gaps) <= 3:
+            return text
+        screen = ENGAGEMENTS["density_screen"]
+        return (f"{text} The {screen.name} is EUR {screen.price_eur:,} and takes {screen.turnaround_days} working days from a complete intake.")

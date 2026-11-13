@@ -138,10 +138,16 @@ def test_assumed_inputs_are_the_gap_ledger(solved):
         assert r["how_to_get_it"], f"{r['input']}: a gap we cannot tell the client how to close"
 
 
-def test_blank_intake_still_produces_a_bundle(tmp_path):
-    """The worst input we ship must not crash the thing we hand the client."""
+def test_a_nearly_blank_intake_still_produces_a_bundle(tmp_path):
+    """The thinnest intake the engine solves (the blank pack with one figure filled in) must not crash the thing we hand the client. The blank pack
+    itself is refused (exit 2, nothing written): it gives none of the intake fields, so a study of it would be a hall nobody described."""
     blank = tmp_path / "blank.json"
     assert run_cli("init", "-o", str(blank)).returncode == 0
+    refused = run_cli("study", str(blank), "-o", str(tmp_path / "refused"), "--csv")
+    assert refused.returncode == 2 and "none of the intake fields" in refused.stderr and not (tmp_path / "refused").exists()
+    thin = json.loads(blank.read_text())
+    thin["grid"]["contracted_MW"] = 12
+    blank.write_text(json.dumps(thin))
     out = tmp_path / "out"
     r = run_cli("study", str(blank), "-o", str(out), "--csv")
     assert r.returncode == 0, r.stderr

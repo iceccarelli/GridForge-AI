@@ -7,6 +7,7 @@ Slow (a build and a venv, ~20 s), so it is marked `slow`-free but self-skipping 
 from __future__ import annotations
 
 import importlib.util
+import json
 import shutil
 import subprocess
 import sys
@@ -108,7 +109,15 @@ def test_the_installed_wheel_runs_init_and_screen_with_no_network(built, tmp_pat
     assert init.returncode == 0, init.stdout + init.stderr
     assert (work / "blank.json").stat().st_size > 0
 
-    for intake, label in ((work / "blank.json", "blank"), (REFERENCE, "reference")):
+    # The blank pack gives none of the intake fields, so the installed command refuses it as the API does (exit 2, nothing written); the same pack
+    # with one figure filled in, and the reference intake, are screened.
+    blank_refused = gf("screen", str(work / "blank.json"), "-o", str(work / "out_blank"))
+    assert blank_refused.returncode == 2 and "none of the intake fields" in blank_refused.stderr, blank_refused.stdout[-400:] + blank_refused.stderr[-400:]
+    assert not (work / "out_blank").exists()
+    thin = json.loads((work / "blank.json").read_text())
+    thin["grid"]["contracted_MW"] = 12
+    (work / "thin.json").write_text(json.dumps(thin))
+    for intake, label in ((work / "thin.json", "thin"), (REFERENCE, "reference")):
         out = work / f"out_{label}"
         r = gf("screen", str(intake), "-o", str(out))
         assert r.returncode == 0, f"{label}: " + r.stdout[-400:] + r.stderr[-400:]

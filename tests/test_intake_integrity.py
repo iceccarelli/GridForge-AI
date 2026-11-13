@@ -156,6 +156,9 @@ def _full_dublin() -> dict:
     d["thermal"]["plant"]["existing_non_it_heat_kW"] = 500
     d["thermal"]["rdhx"] = {"capacity_kW_per_rack": 60}
     d["thermal"]["tcs_target_supply_C"] = 32
+    # the two approach temperatures the water gate adds (each a named optional gap when omitted), so the one document with NO gap declares them too
+    d["thermal"]["cdu_approach_K"] = 5
+    d["thermal"]["plant"]["dry_cooler_approach_K"] = 8
     d["hall"]["occupied_positions"] = 140
     d["lv"]["existing_busway_load_kW"] = 1000
     d["economics"] = {"electricity_eur_per_MWh": 120, "horizon_years": 10, "discount_rate": 0.08}
