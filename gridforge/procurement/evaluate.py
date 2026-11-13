@@ -17,6 +17,7 @@ from dataclasses import dataclass, field
 from datetime import date
 
 from ..clock import report_date
+from ..intake.loader import PLAUSIBLE_MAX
 from .schema import (MANDATORY, EvaluationCriterion, ProcurementError, Requirement,
                      SpecPackage, SupplierResponse)
 
@@ -97,6 +98,16 @@ def _score_lower_is_better(values: list[float], v: float) -> float:
 
 VALID_CODES = {COMPLIANT, COMPLIES_WITH_DEVIATION, NON_COMPLIANT}
 
+#: The longest lead time or installation a bid may state, in weeks: the intake loader's own ceiling for a lead time (ten years). A figure beyond it
+#: is a unit slip or an attack, and 1e308 + 1e308 is infinity, which turned every score in the comparison into NaN.
+MAX_WEEKS = PLAUSIBLE_MAX["btm_options.lead_time_weeks"]
+#: The shortest a purchased item is delivered, and the shortest it takes to install and energise it. Below these a figure is not a schedule
+#: (days quoted as weeks, or a placeholder zero), and it must not rank first as a genuine fast bid; the supplier is asked to confirm.
+#: Judgement constants, not engineering ones: a skid-mounted unit can be energised within days of delivery, which is why the installation
+#: floor is half a week, and a figure under it goes to review instead of to the top of the ranking.
+MIN_LEAD_TIME_WEEKS = 1.0
+MIN_INSTALL_WEEKS = 0.5
+
 #: A price this far from the modelled budget is answering a different question —
 #: most often a supplier quoting in thousands, or for a different scope.
 BUDGET_PLAUSIBILITY_FACTOR = 10.0
@@ -160,8 +171,19 @@ def _check_response(pkg: SpecPackage, r: SupplierResponse, today: date) -> list[
         problems.append(f"price {capex:,.0f} is not a positive amount")
     if lead is not None and lead <= 0:
         problems.append(f"lead time {lead:g} weeks is not positive")
+    elif lead is not None and lead < MIN_LEAD_TIME_WEEKS:
+        problems.append(f"lead time {lead:g} weeks is under {MIN_LEAD_TIME_WEEKS:g} week: no purchased item is delivered that fast; "
+                        f"confirm the unit (days or weeks) and resubmit")
+    elif lead is not None and lead > MAX_WEEKS:
+        problems.append(f"lead time {lead:g} weeks is above the {MAX_WEEKS:g} weeks (ten years) a bid may state; confirm the unit and resubmit")
     if install is not None and install < 0:
         problems.append(f"installation duration {install:g} weeks is negative")
+    elif install is not None and install < MIN_INSTALL_WEEKS:
+        problems.append(f"installation duration {install:g} weeks is under {MIN_INSTALL_WEEKS:g} week: a unit is not energised on delivery; "
+                        f"confirm the figure and resubmit")
+    elif install is not None and install > MAX_WEEKS:
+        problems.append(f"installation duration {install:g} weeks is above the {MAX_WEEKS:g} weeks (ten years) a bid may state; "
+                        f"confirm the unit and resubmit")
     budget = getattr(pkg, "budget_eur", None)
     if capex is not None and capex > 0 and budget is not None and budget.value > 0:
         ratio = capex / budget.value
@@ -201,6 +223,9 @@ def assess(pkg: SpecPackage, responses: list[SupplierResponse]) -> list[BidAsses
         install = r.get("install_weeks")
         # A missing installation time is missing, not zero: the figure below is then the lead time alone and says so.
         weeks = None if lead is None else lead + (install if install is not None else 0.0)
+        if weeks is not None and not math.isfinite(weeks):      # never a non-finite figure in a score or in the response body
+            problems.append("lead time plus installation is not a finite number of weeks")
+            weeks = None
         install_missing = lead is not None and install is None
 
         a = BidAssessment(
@@ -211,7 +236,7 @@ def assess(pkg: SpecPackage, responses: list[SupplierResponse]) -> list[BidAsses
             # produces a per-rack figure several times too large and makes every
             # bid look absurd next to the study's own economics.
             weeks_to_energised=weeks, racks_unlocked=pkg.sized_for_racks,
-            eur_per_rack=(None if capex is None or pkg.sized_for_racks == 0
+            eur_per_rack=(None if capex is None or pkg.sized_for_racks == 0 or not math.isfinite(capex / pkg.sized_for_racks)
                           else capex / pkg.sized_for_racks),
             mandatory_total=len(mandatory),
             mandatory_met=len(mandatory) - len(failed) - len(unanswered),

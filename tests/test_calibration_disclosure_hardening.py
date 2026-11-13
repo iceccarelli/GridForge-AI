@@ -12,7 +12,6 @@ import hashlib
 import itertools
 import json
 import random
-import re
 from datetime import datetime, timedelta, timezone
 
 import pytest
@@ -411,8 +410,9 @@ def test_the_public_report_names_no_version_string_and_pools_nothing():
     text = json.dumps(R.public_report(rows))
     assert "acme" not in text and "9.9.9" not in text and "1.0.0" not in text
     block = public_var(rows)
-    assert block["model_versions"] == {"n_versions": 2, "pooled": False,
-                                       "headline": "the build with the most contributing sites; other builds are not pooled into it"}
+    mv = block["model_versions"]
+    assert (mv["n_versions"], mv["pooled"], mv["headline_build"]) == (2, False, "other")       # review R6: and it says which relation
+    assert "other builds are counted and not pooled into it" in mv["headline"]
 
 
 # ---------------------------------------------------------------------------------------------------------------- D7: the ledger block
@@ -428,19 +428,19 @@ def ledger_obs(site, i, digest="", observed=24.0, predicted=20.0):
 def test_one_site_is_not_printed_with_its_exact_ratio_and_date():
     block = accuracy_block(["envelope.racks"], Ledger(observations=[ledger_obs(1, 0, observed=24.6)]))
     entry = block["keys"][0]
-    assert entry["median_ratio"] is None and entry["bias_pct"] is None and entry["observed_range"] is None
-    assert entry["last_observed_on"] is None
+    # review R3: no median, range, bias or date key at all (they were None; they are now not published, whatever the site count)
+    assert not {"median_ratio", "bias_pct", "observed_range", "last_observed_on", "mean_ratio"} & set(entry)
     text = json.dumps(block)
     assert "1.23" not in text and "2026-01-15" not in text and "23%" not in text
     assert "fewer than 5 sites" in entry["statement"]
 
 
-def test_five_sites_publish_a_ratio_with_an_interval_and_a_coarse_date():
+def test_five_sites_publish_a_mean_ratio_with_an_interval_and_no_date():
     rows = [ledger_obs(s, s, observed=22.0 + s) for s in range(1, 6)]
     entry = accuracy_block(["envelope.racks"], Ledger(observations=rows))["keys"][0]
-    assert entry["median_ratio"] is not None and entry["state"] == "calibrated"
+    assert entry["mean_ratio"] is not None and entry["state"] == "calibrated" and "median_ratio" not in entry
     assert entry["interval_over_sites"]["published"] is True and "exchangeable" in entry["interval_over_sites"]["label"]
-    assert re.fullmatch(r"\d{4}-\d{2}", entry["last_observed_on"]), "the month, never the day"
+    assert "last_observed_on" not in entry, "no date at all: the latest of five sites is one site's visit"
 
 
 def test_ledger_records_without_a_build_digest_are_labelled_pooled_across_unrecorded_versions():

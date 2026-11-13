@@ -6,6 +6,9 @@ paths disagreed; and a 30-thousand and a 30-million bid with no currency could b
 
 Everything goes through the real BTM route handler, `handle_power_deploy_bids`, as well as the schema.
 """
+import json
+import math
+
 import pytest
 
 from gridforge.api import server as S
@@ -155,3 +158,45 @@ def test_a_btm_package_with_an_undeclared_price_has_no_budget_and_no_plausibilit
     assert getattr(pkg, "budget_eur", None) is None
     r = SupplierResponse.from_dict({"supplier": "S", "received_on": "2026-10-01", "currency": "EUR", "values": {**GOOD, "capex_eur": 39_200}})
     assert "confirm the units" not in " ".join(assess(pkg, [r])[0].notes)
+
+
+# ------------------------------------------------------------------------------------------------------------- review R7: ceilings and floors
+
+def _strict_scores(out):
+    json.dumps(out, allow_nan=False)                                    # a literal NaN or Infinity in the body is not JSON
+    return {r["supplier"]: r for r in out["ranked"]}
+
+
+def test_a_bid_whose_lead_and_install_overflow_the_sum_is_disqualified_and_every_other_score_stays_finite():
+    out = post(bid("Reference", GOOD), bid("Odd", {**GOOD, "lead_time_weeks": 1e308, "install_weeks": 1e308}))
+    rows = _strict_scores(out)
+    assert rows["Odd"]["disqualified"] and any("lead time" in n and "above" in n for n in rows["Odd"]["notes"])
+    assert rows["Odd"]["weeks_to_energised"] is None
+    assert math.isfinite(rows["Reference"]["score"]) and not rows["Reference"]["disqualified"] and out["leading"] == "Reference"
+
+
+@pytest.mark.parametrize("lead,install,words", [
+    (1e-9, 4, "under"), (0.5, 4, "under"), (30, 0, "installation"), (30, 0.1, "installation"), (30, 1e308, "installation"), (1e308, 4, "above"),
+])
+def test_a_lead_time_or_installation_a_purchased_item_cannot_have_is_disqualified_not_ranked_first(lead, install, words):
+    out = post(bid("Reference", GOOD), bid("Odd", {**GOOD, "lead_time_weeks": lead, "install_weeks": install}))
+    rows = _strict_scores(out)
+    assert rows["Odd"]["disqualified"] and words in " ".join(rows["Odd"]["notes"])
+    assert out["leading"] == "Reference"
+
+
+def test_the_floors_and_ceilings_are_inclusive_of_what_is_credible():
+    out = post(bid("Floor", {**GOOD, "lead_time_weeks": 1, "install_weeks": 0.5}), bid("Ceiling", {**GOOD, "lead_time_weeks": 520, "install_weeks": 520}))
+    assert not any(r["disqualified"] for r in out["ranked"])
+
+
+def test_an_arabic_indic_digit_is_not_a_number_and_the_refusal_names_the_supplier_and_the_field():
+    with pytest.raises(S.ApiError) as err:
+        post(bid("Reference", GOOD), bid("Odd Supplier", {**GOOD, "install_weeks": "٠"}))
+    assert err.value.status == 422 and "Odd Supplier" in str(err.value) and "install_weeks" in str(err.value)
+
+
+def test_a_boolean_refusal_names_the_supplier_too():
+    with pytest.raises(S.ApiError) as err:
+        post(bid("Boolean Co", {**GOOD, "capex_eur": True}))
+    assert "Boolean Co" in str(err.value) and "capex_eur" in str(err.value)
