@@ -8,6 +8,8 @@ import { PRODUCT_PAGE_SLUGS } from "@/lib/product-page-slugs";
 import { PORTFOLIO_FEWER_SENTENCE, PORTFOLIO_MORE_SENTENCE, PORTFOLIO_SOLD_RANGE } from "@/lib/portfolio-scope";
 import { LADDER_PRODUCTS, eurFromCents, type Product, type ProductId } from "@/lib/products";
 import { STUDY_REDUNDANCY_SENTENCE } from "@/lib/study-needs";
+import { SCREEN_CREDIT_SHORT } from "@/lib/credits-terms";
+import { HALL_WATCH_CANCEL_NOTE } from "@/lib/subscription-manage";
 
 /**
  * The engagement ladder: what can be bought now, in the order clients climb it.
@@ -20,11 +22,11 @@ import { STUDY_REDUNDANCY_SENTENCE } from "@/lib/study-needs";
 // Derived from the catalogue, never hand-written. A literal list here is how the
 // Procurement Specification shipped priced, documented and impossible to buy.
 const NOTE: Partial<Record<ProductId, string>> = {
-  density_screen: "Credits in full against the study.",
+  density_screen: SCREEN_CREDIT_SHORT,
   envelope_study_deposit: "scoped before we start.",
   procurement_spec: "One relief per engagement. Your bids come back comparable.",
   portfolio_screen_deposit: `${PORTFOLIO_SOLD_RANGE}.`,
-  hall_watch: "Cancel any time; no minimum term.",
+  hall_watch: HALL_WATCH_CANCEL_NOTE,
 };
 
 /** Said under a rung's description, before the visitor pays: what the catalogue's one-line description has no room for. */

@@ -181,10 +181,8 @@ describe("guard: the unconditional promise is typed nowhere in the site's own te
   const PROMISE = /credits?\s+in\s+full\s+against/i;
 
   it("'credits in full against' does not appear in any page, email, agent text or library string", () => {
-    // components/EngagementLadder.tsx is owned elsewhere (its row for the Density Screen still says "Credits in full against the study."). Anything else is a
-    // new copy of the unconditional promise. If that file is fixed the exemption simply stops being used.
-    const exempt = new Set(["components/EngagementLadder.tsx"]);
-    const offenders = files.filter((f) => !exempt.has(f) && PROMISE.test(strip(read(f))));
+    // No exemption: the price ladder reads SCREEN_CREDIT_SHORT from lib/credits-terms.ts like every other surface.
+    const offenders = files.filter((f) => PROMISE.test(strip(read(f))));
     expect(offenders, "an unconditional credit promise typed outside lib/credits-terms.ts").toEqual([]);
   });
 

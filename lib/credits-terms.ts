@@ -24,3 +24,6 @@ export const SCREEN_CREDIT_SENTENCE =
   "The fee paid for a Density Screen is credited once against the fee agreed for an Envelope Study: for the same email address, after we confirm it is the same buyer " +
   "(the address typed at checkout is not verified), applied whole and only while the deposit and the credit together stay within the agreed fee. " +
   "It reduces what is owed and is never paid out as cash, and a refunded or disputed purchase carries no credit.";
+
+/** The same promise at the length a price ladder row has room for: it names the conditions exist and where they are written. The full sentence is SCREEN_CREDIT_SENTENCE. */
+export const SCREEN_CREDIT_SHORT = "Credited once against an Envelope Study fee, on the conditions in the Terms.";

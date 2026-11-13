@@ -205,10 +205,9 @@ describe("guard: a cancellation promise is typed nowhere but in the shared const
   });
 
   it("'Cancel anytime' / 'cancel any time' is not typed in any page, component, library text or route", () => {
-    // lib/subscription-manage.ts DEFINES Hall Watch's own note; components/EngagementLadder.tsx (owned elsewhere) types the identical text once.
+    // lib/subscription-manage.ts DEFINES Hall Watch's own note; the price ladder and the upsell read it from there.
     const allowed = new Map<string, string>([
       ["lib/subscription-manage.ts", HALL_WATCH_CANCEL_NOTE],
-      ["components/EngagementLadder.tsx", HALL_WATCH_CANCEL_NOTE],
     ]);
     const offenders: string[] = [];
     for (const f of files) {
