@@ -20,7 +20,7 @@ import copy
 import hashlib
 import json
 from collections.abc import Collection
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from typing import Any
 
 from .costs import library
@@ -138,6 +138,25 @@ class EnvelopeState:
     evidence_digest: str = ""
     price_basis_digest: str = ""
     relief_path_digest: str = ""
+    # The scenario that is RECOMMENDED when it is not the pinned one. A watch compares like for like against the scenario it was started on
+    # (`scenario_id`, pinned), but a change of RECOMMENDATION is news that must be told once and then stop being news: without a record of what
+    # was recommended last time, the unchanged pinned scenario differs from today's recommendation on every later run, and the customer is told
+    # the same thing every cadence. Empty means the pinned scenario is the recommended one, which is the whole record of a watch that has never
+    # flipped, and `as_record` leaves both fields out so such a state is byte-identical to one recorded before they existed.
+    recommended_id: str = ""
+    recommended_name: str = ""
+
+    def as_record(self) -> dict:
+        """The state as the record a caller stores and sends back (``previous_state``). The optional recommendation fields appear only when set."""
+        out = dict(self.__dict__)
+        for name in ("recommended_id", "recommended_name"):
+            if not out.get(name):
+                out.pop(name, None)
+        return out
+
+    def recommended(self) -> tuple[str, str]:
+        """(id, name) of the scenario that was recommended when this was recorded: the pinned one unless a flip was recorded."""
+        return (self.recommended_id or self.scenario_id, self.recommended_name or self.scenario_name)
 
     def date_basis(self) -> dict:
         """date_basis / date_evidence_class / date_binding_item / date_label for the recorded figure. A class that
@@ -350,6 +369,14 @@ class EnvelopeDiff:
         return "capex_complete" not in self.unrecorded and self.before.capex_complete != self.after.capex_complete
 
     @property
+    def capex_completeness_is_model_drift(self) -> bool:
+        """The completeness flag flipped, the customer's inputs are verifiably the same and the capex AMOUNT has not moved: our model now covers (or no
+        longer covers) a cost it did not before, which is our change and not theirs. It is stated in the note, but it is not a reason to
+        interrupt the customer: an engine release that adds one unpriced line would otherwise tell every watcher on a priced path, on the first
+        run after the release, that "a cost on the path is unpriced or an equipment bank is not declared", which is not what happened."""
+        return self.capex_completeness_flipped and self.inputs == "unchanged" and not self.capex_moved
+
+    @property
     def as_found_moved(self) -> bool:
         """Racks usable today, before any relief works. The racks after the ladder can hold while this changes (the same end point
         reached from a different start), which changes what the customer can do before the works are done."""
@@ -368,7 +395,7 @@ class EnvelopeDiff:
             ("schedule_completeness", self.schedule_flipped),
             ("recommendation", bool(self.recommendation_changed)),
             ("capex", self.capex_moved),
-            ("capex_completeness", self.capex_completeness_flipped),
+            ("capex_completeness", self.capex_completeness_flipped and not self.capex_completeness_is_model_drift),
             ("evidence", self.evidence_moved),
         )
         return [name for name, hit in checks if hit]
@@ -425,8 +452,15 @@ class EnvelopeDiff:
 
     def headline(self) -> str:
         if not self.material:
+            drift = ""
+            if self.capex_completeness_is_model_drift:
+                drift = (" Our model now covers a cost it did not cover when the earlier figure was recorded, so indicative capex is " 
+                         "now a lower bound; the amount itself has not moved, and nothing you supplied has changed."
+                         if not self.after.capex_complete else
+                         " Our model now prices every cost on the path, so indicative capex is no longer a lower bound; the amount "
+                         "itself has not moved, and nothing you supplied has changed.")
             return ("Nothing that changes the answer. The envelope, the binding constraint "
-                    "and the date all hold. " + self.compared_text())
+                    "and the date all hold." + drift + " " + self.compared_text())
         bits = []
         if self.racks_delta:
             bits.append(f"{self.racks_delta:+d} racks "
@@ -593,11 +627,16 @@ def diff_from_state(previous: EnvelopeState, after_doc: dict, *,
     if same is None:
         same = rec_after
     now = EnvelopeState.of(same, after_doc)
+    if rec_after.spec.id != same.spec.id:
+        # Today's recommendation is not the scenario this watch is pinned to: record it, so that the NEXT run compares against what the customer
+        # was last told rather than against the pinned scenario (which would announce the same change again, every run).
+        now = replace(now, recommended_id=rec_after.spec.id, recommended_name=rec_after.spec.name)
     d = EnvelopeDiff(before=previous, after=now)
-    if rec_after.spec.id != previous.scenario_id:
-        # The recorded scenario is the one that was recommended then. If another is recommended now (or the recorded one is gone), the
-        # architecture the customer was told to build has changed, which is news in its own right.
-        d.recommendation_changed = (previous.scenario_name, rec_after.spec.name)
+    was_id, was_name = previous.recommended()
+    if rec_after.spec.id != was_id:
+        # What was recommended last time is no longer recommended (or is gone): the architecture the customer was told to build has changed,
+        # which is news in its own right, told once: `now` carries the new recommendation forward.
+        d.recommendation_changed = (was_name, rec_after.spec.name)
     if recorded is not None:
         d.unrecorded = frozenset(n for n in _OPTIONAL_FLAGS if n not in recorded)
     if previous.intake_digest:
@@ -632,8 +671,10 @@ def diff(before_doc: dict, after_doc: dict, *,
     pin = rec_before.spec.id
     after_same = _by_id(all_after, pin) or rec_after
 
-    d = EnvelopeDiff(before=EnvelopeState.of(rec_before, before_doc),
-                     after=EnvelopeState.of(after_same, after_doc))
+    after_state = EnvelopeState.of(after_same, after_doc)
+    if rec_after.spec.id != after_same.spec.id:
+        after_state = replace(after_state, recommended_id=rec_after.spec.id, recommended_name=rec_after.spec.name)   # see diff_from_state
+    d = EnvelopeDiff(before=EnvelopeState.of(rec_before, before_doc), after=after_state)
     if rec_after.spec.id != rec_before.spec.id:
         d.recommendation_changed = (rec_before.spec.name, rec_after.spec.name)
 
