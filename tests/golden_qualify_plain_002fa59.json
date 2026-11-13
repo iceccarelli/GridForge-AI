@@ -17,9 +17,11 @@
      "date_basis": "none",
      "date_binding_item": null,
      "date_evidence_class": null,
-     "date_label": "no date: nothing is deployable or a lead time on the path is missing",
+     "date_label": "no date: a lead time on the path is missing",
      "racks": 28,
-     "sets_the_date": "Chilled-water plant capacity",
+     "racks_evidence": "E0",
+     "sets_the_date": null,
+     "sets_the_date_reason": "No defensible date: not declared: transformers, UPS (reliefs they would need are neither priced nor timed).",
      "then_binds_on": "Firm supply (grid import + behind-the-meter)"
     },
     "as_found": {
@@ -36,7 +38,8 @@
       "unit": "kW",
       "value": 0.0
      },
-     "racks": 0
+     "racks": 0,
+     "racks_evidence": "E0"
     },
     "calibration": {
      "coverage": 0.0,
@@ -57,6 +60,7 @@
       "envelope.it_load_kW"
      ]
     },
+    "figures_not_supplied": [],
     "first_three_constraints": [
      {
       "domain": "electrical",
@@ -305,6 +309,24 @@
        "why_it_binds": "Only the busway check against the load already in the hall reads it: the racks already installed are counted from this figure at the hall's design density. When absent the engine does not know how many positions are occupied; it reads every position that is not free (hall.rack_positions less hall.positions_available) as occupied, an assumption (E0) that is only as good as the total, and says so. Zero is a statement (nothing is occupied) and is asked for when free positions equal the total. It changes no rack count, cost or date."
       },
       {
+       "assumed": "dry bulb 32 + assumed 10 K approach (E0) = 42 degC facility water, the temperature the full-DLC water gate compares with what the CDUs need",
+       "how_to_get_it": "The dry-cooler selection or schedule: the approach between leaving-water temperature and ambient dry bulb at the design condition.",
+       "input": "Dry-cooler approach to the design dry bulb",
+       "path": "thermal.plant.dry_cooler_approach_K",
+       "required": false,
+       "unit": "K",
+       "why_it_binds": "Under full direct-to-chip cooling the facility water the dedicated loop can hold without chillers is the design dry bulb PLUS the dry coolers' approach to it, and that water is compared with the temperature the CDUs need (the water gate). A 4 K approach and a 10 K approach differ by 6 K of facility water, which is the difference between a loop that passes the gate and one that does not. When absent the full-DLC scenarios assume 10 K (band 8-12), an assumption (E0)."
+      },
+      {
+       "assumed": "5 K assumed (library, E0)",
+       "how_to_get_it": "The CDU datasheet: the liquid-to-liquid approach at the rated duty and flow (vendor ratings are typically 4-5 K).",
+       "input": "CDU approach temperature",
+       "path": "thermal.cdu_approach_K",
+       "required": false,
+       "unit": "K",
+       "why_it_binds": "The water gate asks how warm the facility water may be: the TCS supply target less the temperature the CDU's heat exchanger needs between the two loops (its approach). A larger approach means colder facility water is required, so it moves the achievable-water-temperature limit and with it the racks a dry-cooler loop can hold. When absent the library 5 K is used, an assumption (E0), not a vendor figure for your CDU."
+      },
+      {
        "assumed": "2015 assumed (library, E0)",
        "how_to_get_it": "The building record or the lease.",
        "input": "Year the hall was built",
@@ -350,7 +372,7 @@
        "why_it_binds": "What the existing plant achieves in free cooling sets how much a higher loop temperature is worth. No constraint reads it and PUE is a fixed library figure; it is printed in the procurement specification. When absent the library 2,500 h is printed, an assumption (E0)."
       }
      ],
-     "recommended_engagement": "Intake too thin for a full study. Sell the Density Screen instead: it produces the binding constraint and the data-request list, and its fee credits against the study when the data arrives.",
+     "recommended_engagement": "5 required inputs are missing. That is too thin for a full Capacity & Density Envelope Study yet. The next step is the Density Screen: it names the binding constraint and lists every input still needed, and its fee is credited in full against the Study when the data arrives.",
      "required_inputs_missing": 5,
      "warnings": [
       "Busway: neither hall.occupied_positions nor hall.rack_positions was supplied, so the occupied positions are an assumption (E0) from the library default total of 400 positions, not a count of anything in your hall. Reading that total less your 180 free positions as occupied (220 positions), at their 8 kW design density, would draw 1,760 kW, more than the 1,290 kW the declared busway can carry. busway_ampacity_A is read as the installed total and existing load is not subtracted, so check whether the figure you gave is the whole hall's busway, and give hall.occupied_positions and hall.rack_positions (a full intake takes both) so this check runs on counts rather than an assumption.",
@@ -394,9 +416,11 @@
      "date_basis": "none",
      "date_binding_item": null,
      "date_evidence_class": null,
-     "date_label": "no date: nothing is deployable or a lead time on the path is missing",
+     "date_label": "no date: a lead time on the path is missing",
      "racks": 28,
-     "sets_the_date": "Chilled-water plant capacity",
+     "racks_evidence": "E0",
+     "sets_the_date": null,
+     "sets_the_date_reason": "No defensible date: not declared: transformers, UPS (reliefs they would need are neither priced nor timed).",
      "then_binds_on": "Firm supply (grid import + behind-the-meter)"
     },
     "as_found": {
@@ -413,7 +437,8 @@
       "unit": "kW",
       "value": 0.0
      },
-     "racks": 0
+     "racks": 0,
+     "racks_evidence": "E0"
     },
     "calibration": {
      "coverage": 0.0,
@@ -434,6 +459,7 @@
       "envelope.it_load_kW"
      ]
     },
+    "figures_not_supplied": [],
     "first_three_constraints": [
      {
       "domain": "electrical",
@@ -682,6 +708,24 @@
        "why_it_binds": "Only the busway check against the load already in the hall reads it: the racks already installed are counted from this figure at the hall's design density. When absent the engine does not know how many positions are occupied; it reads every position that is not free (hall.rack_positions less hall.positions_available) as occupied, an assumption (E0) that is only as good as the total, and says so. Zero is a statement (nothing is occupied) and is asked for when free positions equal the total. It changes no rack count, cost or date."
       },
       {
+       "assumed": "dry bulb 32 + assumed 10 K approach (E0) = 42 degC facility water, the temperature the full-DLC water gate compares with what the CDUs need",
+       "how_to_get_it": "The dry-cooler selection or schedule: the approach between leaving-water temperature and ambient dry bulb at the design condition.",
+       "input": "Dry-cooler approach to the design dry bulb",
+       "path": "thermal.plant.dry_cooler_approach_K",
+       "required": false,
+       "unit": "K",
+       "why_it_binds": "Under full direct-to-chip cooling the facility water the dedicated loop can hold without chillers is the design dry bulb PLUS the dry coolers' approach to it, and that water is compared with the temperature the CDUs need (the water gate). A 4 K approach and a 10 K approach differ by 6 K of facility water, which is the difference between a loop that passes the gate and one that does not. When absent the full-DLC scenarios assume 10 K (band 8-12), an assumption (E0)."
+      },
+      {
+       "assumed": "5 K assumed (library, E0)",
+       "how_to_get_it": "The CDU datasheet: the liquid-to-liquid approach at the rated duty and flow (vendor ratings are typically 4-5 K).",
+       "input": "CDU approach temperature",
+       "path": "thermal.cdu_approach_K",
+       "required": false,
+       "unit": "K",
+       "why_it_binds": "The water gate asks how warm the facility water may be: the TCS supply target less the temperature the CDU's heat exchanger needs between the two loops (its approach). A larger approach means colder facility water is required, so it moves the achievable-water-temperature limit and with it the racks a dry-cooler loop can hold. When absent the library 5 K is used, an assumption (E0), not a vendor figure for your CDU."
+      },
+      {
        "assumed": "2015 assumed (library, E0)",
        "how_to_get_it": "The building record or the lease.",
        "input": "Year the hall was built",
@@ -727,7 +771,7 @@
        "why_it_binds": "What the existing plant achieves in free cooling sets how much a higher loop temperature is worth. No constraint reads it and PUE is a fixed library figure; it is printed in the procurement specification. When absent the library 2,500 h is printed, an assumption (E0)."
       }
      ],
-     "recommended_engagement": "Intake too thin for a full study. Sell the Density Screen instead: it produces the binding constraint and the data-request list, and its fee credits against the study when the data arrives.",
+     "recommended_engagement": "5 required inputs are missing. That is too thin for a full Capacity & Density Envelope Study yet. The next step is the Density Screen: it names the binding constraint and lists every input still needed, and its fee is credited in full against the Study when the data arrives.",
      "required_inputs_missing": 5,
      "warnings": [
       "Busway: neither hall.occupied_positions nor hall.rack_positions was supplied, so the occupied positions are an assumption (E0) from the library default total of 400 positions, not a count of anything in your hall. Reading that total less your 180 free positions as occupied (220 positions), at their 8 kW design density, would draw 1,760 kW, more than the 1,290 kW the declared busway can carry. busway_ampacity_A is read as the installed total and existing load is not subtracted, so check whether the figure you gave is the whole hall's busway, and give hall.occupied_positions and hall.rack_positions (a full intake takes both) so this check runs on counts rather than an assumption.",
@@ -777,9 +821,11 @@
      "date_basis": "none",
      "date_binding_item": null,
      "date_evidence_class": null,
-     "date_label": "no date: nothing is deployable or a lead time on the path is missing",
+     "date_label": "no date: a lead time on the path is missing",
      "racks": 2,
-     "sets_the_date": "Chilled-water plant capacity",
+     "racks_evidence": "E0",
+     "sets_the_date": null,
+     "sets_the_date_reason": "No defensible date: not declared: transformers, UPS (reliefs they would need are neither priced nor timed).",
      "then_binds_on": "Firm supply (grid import + behind-the-meter)"
     },
     "as_found": {
@@ -796,7 +842,8 @@
       "unit": "kW",
       "value": 0.0
      },
-     "racks": 0
+     "racks": 0,
+     "racks_evidence": "E0"
     },
     "calibration": {
      "coverage": 0.0,
@@ -817,6 +864,7 @@
       "envelope.it_load_kW"
      ]
     },
+    "figures_not_supplied": [],
     "first_three_constraints": [
      {
       "domain": "thermal",
@@ -1065,6 +1113,24 @@
        "why_it_binds": "Only the busway check against the load already in the hall reads it: the racks already installed are counted from this figure at the hall's design density. When absent the engine does not know how many positions are occupied; it reads every position that is not free (hall.rack_positions less hall.positions_available) as occupied, an assumption (E0) that is only as good as the total, and says so. Zero is a statement (nothing is occupied) and is asked for when free positions equal the total. It changes no rack count, cost or date."
       },
       {
+       "assumed": "dry bulb 32 + assumed 10 K approach (E0) = 42 degC facility water, the temperature the full-DLC water gate compares with what the CDUs need",
+       "how_to_get_it": "The dry-cooler selection or schedule: the approach between leaving-water temperature and ambient dry bulb at the design condition.",
+       "input": "Dry-cooler approach to the design dry bulb",
+       "path": "thermal.plant.dry_cooler_approach_K",
+       "required": false,
+       "unit": "K",
+       "why_it_binds": "Under full direct-to-chip cooling the facility water the dedicated loop can hold without chillers is the design dry bulb PLUS the dry coolers' approach to it, and that water is compared with the temperature the CDUs need (the water gate). A 4 K approach and a 10 K approach differ by 6 K of facility water, which is the difference between a loop that passes the gate and one that does not. When absent the full-DLC scenarios assume 10 K (band 8-12), an assumption (E0)."
+      },
+      {
+       "assumed": "5 K assumed (library, E0)",
+       "how_to_get_it": "The CDU datasheet: the liquid-to-liquid approach at the rated duty and flow (vendor ratings are typically 4-5 K).",
+       "input": "CDU approach temperature",
+       "path": "thermal.cdu_approach_K",
+       "required": false,
+       "unit": "K",
+       "why_it_binds": "The water gate asks how warm the facility water may be: the TCS supply target less the temperature the CDU's heat exchanger needs between the two loops (its approach). A larger approach means colder facility water is required, so it moves the achievable-water-temperature limit and with it the racks a dry-cooler loop can hold. When absent the library 5 K is used, an assumption (E0), not a vendor figure for your CDU."
+      },
+      {
        "assumed": "2015 assumed (library, E0)",
        "how_to_get_it": "The building record or the lease.",
        "input": "Year the hall was built",
@@ -1110,7 +1176,7 @@
        "why_it_binds": "What the existing plant achieves in free cooling sets how much a higher loop temperature is worth. No constraint reads it and PUE is a fixed library figure; it is printed in the procurement specification. When absent the library 2,500 h is printed, an assumption (E0)."
       }
      ],
-     "recommended_engagement": "Intake too thin for a full study. Sell the Density Screen instead: it produces the binding constraint and the data-request list, and its fee credits against the study when the data arrives.",
+     "recommended_engagement": "5 required inputs are missing. That is too thin for a full Capacity & Density Envelope Study yet. The next step is the Density Screen: it names the binding constraint and lists every input still needed, and its fee is credited in full against the Study when the data arrives.",
      "required_inputs_missing": 5,
      "warnings": [
       "No transformer schedule supplied: transformer capacity is not evaluated and may be the true binding constraint.",
@@ -1154,9 +1220,11 @@
      "date_basis": "none",
      "date_binding_item": null,
      "date_evidence_class": null,
-     "date_label": "no date: nothing is deployable or a lead time on the path is missing",
+     "date_label": "no date: a lead time on the path is missing",
      "racks": 89,
-     "sets_the_date": "Chilled-water plant capacity",
+     "racks_evidence": "E0",
+     "sets_the_date": null,
+     "sets_the_date_reason": "No defensible date: not declared: transformers, UPS (reliefs they would need are neither priced nor timed).",
      "then_binds_on": "Firm supply (grid import + behind-the-meter)"
     },
     "as_found": {
@@ -1173,7 +1241,8 @@
       "unit": "kW",
       "value": 0.0
      },
-     "racks": 0
+     "racks": 0,
+     "racks_evidence": "E0"
     },
     "calibration": {
      "coverage": 0.0,
@@ -1194,6 +1263,7 @@
       "envelope.it_load_kW"
      ]
     },
+    "figures_not_supplied": [],
     "first_three_constraints": [
      {
       "domain": "thermal",
@@ -1442,6 +1512,24 @@
        "why_it_binds": "Only the busway check against the load already in the hall reads it: the racks already installed are counted from this figure at the hall's design density. When absent the engine does not know how many positions are occupied; it reads every position that is not free (hall.rack_positions less hall.positions_available) as occupied, an assumption (E0) that is only as good as the total, and says so. Zero is a statement (nothing is occupied) and is asked for when free positions equal the total. It changes no rack count, cost or date."
       },
       {
+       "assumed": "dry bulb 32 + assumed 10 K approach (E0) = 42 degC facility water, the temperature the full-DLC water gate compares with what the CDUs need",
+       "how_to_get_it": "The dry-cooler selection or schedule: the approach between leaving-water temperature and ambient dry bulb at the design condition.",
+       "input": "Dry-cooler approach to the design dry bulb",
+       "path": "thermal.plant.dry_cooler_approach_K",
+       "required": false,
+       "unit": "K",
+       "why_it_binds": "Under full direct-to-chip cooling the facility water the dedicated loop can hold without chillers is the design dry bulb PLUS the dry coolers' approach to it, and that water is compared with the temperature the CDUs need (the water gate). A 4 K approach and a 10 K approach differ by 6 K of facility water, which is the difference between a loop that passes the gate and one that does not. When absent the full-DLC scenarios assume 10 K (band 8-12), an assumption (E0)."
+      },
+      {
+       "assumed": "5 K assumed (library, E0)",
+       "how_to_get_it": "The CDU datasheet: the liquid-to-liquid approach at the rated duty and flow (vendor ratings are typically 4-5 K).",
+       "input": "CDU approach temperature",
+       "path": "thermal.cdu_approach_K",
+       "required": false,
+       "unit": "K",
+       "why_it_binds": "The water gate asks how warm the facility water may be: the TCS supply target less the temperature the CDU's heat exchanger needs between the two loops (its approach). A larger approach means colder facility water is required, so it moves the achievable-water-temperature limit and with it the racks a dry-cooler loop can hold. When absent the library 5 K is used, an assumption (E0), not a vendor figure for your CDU."
+      },
+      {
        "assumed": "2015 assumed (library, E0)",
        "how_to_get_it": "The building record or the lease.",
        "input": "Year the hall was built",
@@ -1487,7 +1575,7 @@
        "why_it_binds": "What the existing plant achieves in free cooling sets how much a higher loop temperature is worth. No constraint reads it and PUE is a fixed library figure; it is printed in the procurement specification. When absent the library 2,500 h is printed, an assumption (E0)."
       }
      ],
-     "recommended_engagement": "Intake too thin for a full study. Sell the Density Screen instead: it produces the binding constraint and the data-request list, and its fee credits against the study when the data arrives.",
+     "recommended_engagement": "5 required inputs are missing. That is too thin for a full Capacity & Density Envelope Study yet. The next step is the Density Screen: it names the binding constraint and lists every input still needed, and its fee is credited in full against the Study when the data arrives.",
      "required_inputs_missing": 5,
      "warnings": [
       "No transformer schedule supplied: transformer capacity is not evaluated and may be the true binding constraint.",
@@ -1528,9 +1616,11 @@
      "date_basis": "none",
      "date_binding_item": null,
      "date_evidence_class": null,
-     "date_label": "no date: nothing is deployable or a lead time on the path is missing",
+     "date_label": "no date: a lead time on the path is missing",
      "racks": 28,
-     "sets_the_date": "Busway ampacity",
+     "racks_evidence": "E0",
+     "sets_the_date": null,
+     "sets_the_date_reason": "No defensible date: not declared: transformers, UPS (reliefs they would need are neither priced nor timed).",
      "then_binds_on": "Firm supply (grid import + behind-the-meter)"
     },
     "as_found": {
@@ -1547,7 +1637,8 @@
       "unit": "kW",
       "value": 0.0
      },
-     "racks": 0
+     "racks": 0,
+     "racks_evidence": "E0"
     },
     "calibration": {
      "coverage": 0.0,
@@ -1568,6 +1659,26 @@
       "envelope.it_load_kW"
      ]
     },
+    "figures_not_supplied": [
+     {
+      "assumed": "3.5 [2.1\u20134.9] MW (E0)",
+      "field": "current_it_load_MW",
+      "path": "grid.current_it_load_MW",
+      "sent": "absent"
+     },
+     {
+      "assumed": "7 [6\u201312] degC (E0)",
+      "field": "plant_supply_C",
+      "path": "thermal.plant.design_supply_C",
+      "sent": "absent"
+     },
+     {
+      "assumed": "100",
+      "field": "positions_available",
+      "path": "hall.positions_available",
+      "sent": "absent"
+     }
+    ],
     "first_three_constraints": [
      {
       "domain": "electrical",
@@ -1843,6 +1954,24 @@
        "why_it_binds": "Only the busway check against the load already in the hall reads it: the racks already installed are counted from this figure at the hall's design density. When absent the engine does not know how many positions are occupied; it reads every position that is not free (hall.rack_positions less hall.positions_available) as occupied, an assumption (E0) that is only as good as the total, and says so. Zero is a statement (nothing is occupied) and is asked for when free positions equal the total. It changes no rack count, cost or date."
       },
       {
+       "assumed": "dry bulb 32 + assumed 10 K approach (E0) = 42 degC facility water, the temperature the full-DLC water gate compares with what the CDUs need",
+       "how_to_get_it": "The dry-cooler selection or schedule: the approach between leaving-water temperature and ambient dry bulb at the design condition.",
+       "input": "Dry-cooler approach to the design dry bulb",
+       "path": "thermal.plant.dry_cooler_approach_K",
+       "required": false,
+       "unit": "K",
+       "why_it_binds": "Under full direct-to-chip cooling the facility water the dedicated loop can hold without chillers is the design dry bulb PLUS the dry coolers' approach to it, and that water is compared with the temperature the CDUs need (the water gate). A 4 K approach and a 10 K approach differ by 6 K of facility water, which is the difference between a loop that passes the gate and one that does not. When absent the full-DLC scenarios assume 10 K (band 8-12), an assumption (E0)."
+      },
+      {
+       "assumed": "5 K assumed (library, E0)",
+       "how_to_get_it": "The CDU datasheet: the liquid-to-liquid approach at the rated duty and flow (vendor ratings are typically 4-5 K).",
+       "input": "CDU approach temperature",
+       "path": "thermal.cdu_approach_K",
+       "required": false,
+       "unit": "K",
+       "why_it_binds": "The water gate asks how warm the facility water may be: the TCS supply target less the temperature the CDU's heat exchanger needs between the two loops (its approach). A larger approach means colder facility water is required, so it moves the achievable-water-temperature limit and with it the racks a dry-cooler loop can hold. When absent the library 5 K is used, an assumption (E0), not a vendor figure for your CDU."
+      },
+      {
        "assumed": "2015 assumed (library, E0)",
        "how_to_get_it": "The building record or the lease.",
        "input": "Year the hall was built",
@@ -1888,7 +2017,7 @@
        "why_it_binds": "What the existing plant achieves in free cooling sets how much a higher loop temperature is worth. No constraint reads it and PUE is a fixed library figure; it is printed in the procurement specification. When absent the library 2,500 h is printed, an assumption (E0)."
       }
      ],
-     "recommended_engagement": "Intake too thin for a full study. Sell the Density Screen instead: it produces the binding constraint and the data-request list, and its fee credits against the study when the data arrives.",
+     "recommended_engagement": "8 required inputs are missing. That is too thin for a full Capacity & Density Envelope Study yet. The next step is the Density Screen: it names the binding constraint and lists every input still needed, and its fee is credited in full against the Study when the data arrives.",
      "required_inputs_missing": 8,
      "warnings": [
       "Busway: neither hall.occupied_positions nor hall.rack_positions was supplied, so the occupied positions are an assumption (E0) from the library default total of 400 positions, not a count of anything in your hall. Reading that total less your 100 free positions as occupied (300 positions), at their 8 kW design density, would draw 2,400 kW, more than the 1,290 kW the declared busway can carry. busway_ampacity_A is read as the installed total and existing load is not subtracted, so check whether the figure you gave is the whole hall's busway, and give hall.occupied_positions and hall.rack_positions (a full intake takes both) so this check runs on counts rather than an assumption.",
@@ -1916,5 +2045,5 @@
    }
   }
  ],
- "note": "POST /v1/qualify answers for requests that carry no assumed_fields, produced by the engine at commit 002fa59 BEFORE assumed_fields existed (explicit_null_assumed: HEAD ignored the unknown key, so a null is the same request). tests/test_qualify_assumed.py requires today's engine to answer them identically: a plain request must not change. UPDATED at the commit that added the optional hall.occupied_positions. Exactly TWO places no longer prove byte-identity to 002fa59, and nothing else changed: (1) response.intake.gaps carries ONE appended optional entry, hall.occupied_positions (last); (2) response.intake.warnings: the text of the busway warning, where it fires, no longer states a derived occupied count as a fact. Every other byte is as the engine produced it at 002fa59. UPDATED AGAIN at the commit that labels what the qualifier invents (2026-11-12, tests/test_intake_integrity.py). Every answer's numbers, binding constraints and basis text are byte-identical to before; what changed is the LABELLING of two figures the engine assumed without saying so: (3) response.intake.gaps carries two more rows, grid.firm_capacity_MVA (REQUIRED: the qualifier derives it as contracted_MW / 0.97, class E0, when the caller gives no firm_capacity_MVA) and lv.phases (optional: three-phase is assumed when it is not given); (4) so response.intake.completeness falls and response.intake.required_inputs_missing rises by one (the firm capacity was counted as supplied); (5) response.inputs_derived_assumed is added, listing the derived firm capacity with its class and note. response.inputs_declared_assumed stays absent: it lists exactly what the caller declared. (6) the data-request 'assumed' cell of transformers, ups and thermal.cdus no longer prints the literal [] (a bank that was not declared is 'not evaluated: treated as no limit, so the rack count is an upper bound'; for the CDUs it states the assumed kit that is priced and dated), and thermal.cdus' why_it_binds no longer says the kit is installed 'at no cost'. UPDATED AGAIN at the commit that merged the thermal-input tracks (2026-11-13, tests/test_thermal_integrity.py): the ONLY change is that response.intake.gaps carries five more OPTIONAL entries appended after the existing ones (hall.build_year, hall.containment, hall.floor_type, thermal.plant.available_head_kPa, thermal.plant.free_cooling_hours_per_year), each worded '<value> assumed (library, E0)', because the engine used to print those library figures as facts with no gap row. They are not counted in completeness. Every other byte of every answer is unchanged."
+ "note": "POST /v1/qualify answers for requests that carry no assumed_fields, produced by the engine at commit 002fa59 BEFORE assumed_fields existed (explicit_null_assumed: HEAD ignored the unknown key, so a null is the same request). tests/test_qualify_assumed.py requires today's engine to answer them identically: a plain request must not change. UPDATED at the commit that added the optional hall.occupied_positions. Exactly TWO places no longer prove byte-identity to 002fa59, and nothing else changed: (1) response.intake.gaps carries ONE appended optional entry, hall.occupied_positions (last); (2) response.intake.warnings: the text of the busway warning, where it fires, no longer states a derived occupied count as a fact. Every other byte is as the engine produced it at 002fa59. UPDATED AGAIN at the commit that labels what the qualifier invents (2026-11-12, tests/test_intake_integrity.py). Every answer's numbers, binding constraints and basis text are byte-identical to before; what changed is the LABELLING of two figures the engine assumed without saying so: (3) response.intake.gaps carries two more rows, grid.firm_capacity_MVA (REQUIRED: the qualifier derives it as contracted_MW / 0.97, class E0, when the caller gives no firm_capacity_MVA) and lv.phases (optional: three-phase is assumed when it is not given); (4) so response.intake.completeness falls and response.intake.required_inputs_missing rises by one (the firm capacity was counted as supplied); (5) response.inputs_derived_assumed is added, listing the derived firm capacity with its class and note. response.inputs_declared_assumed stays absent: it lists exactly what the caller declared. (6) the data-request 'assumed' cell of transformers, ups and thermal.cdus no longer prints the literal [] (a bank that was not declared is 'not evaluated: treated as no limit, so the rack count is an upper bound'; for the CDUs it states the assumed kit that is priced and dated), and thermal.cdus' why_it_binds no longer says the kit is installed 'at no cost'. UPDATED AGAIN at the commit that merged the thermal-input tracks (2026-11-13, tests/test_thermal_integrity.py): the ONLY change is that response.intake.gaps carries five more OPTIONAL entries appended after the existing ones (hall.build_year, hall.containment, hall.floor_type, thermal.plant.available_head_kPa, thermal.plant.free_cooling_hours_per_year), each worded '<value> assumed (library, E0)', because the engine used to print those library figures as facts with no gap row. They are not counted in completeness. Every other byte of every answer is unchanged. UPDATED AGAIN at the second-pass commit (2026-11-13, tests/test_qualify_assumed.py, test_qualify_figure_validation.py, test_intake_audit_fixes.py): no rack count, binding constraint, load, basis text or evidence class moved in any case (checked field by field before this file was rewritten). What changed is labelling and honesty only: (7) response.after_relief.sets_the_date is null with sets_the_date_reason, and date_label names the real cause (a lead time on the path is missing), because transformers and UPS are undeclared; (8) racks_evidence sits beside as_found.racks and after_relief.racks; (9) response.figures_not_supplied lists each figure the caller omitted or sent as null; (10) response.intake.gaps carries two more optional rows, thermal.cdu_approach_K and thermal.plant.dry_cooler_approach_K, and the recommended_engagement text is in buyer voice."
 }
