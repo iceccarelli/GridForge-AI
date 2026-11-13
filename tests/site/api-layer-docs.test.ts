@@ -241,6 +241,30 @@ describe("the refusals the 422 now carries are described where a caller reads th
   });
 });
 
+describe("the Error schema names the keys the new refusals carry, and the engine writes each of them", () => {
+  const props = doc.components.schemas.Error.properties as Record<string, { description?: string }>;
+  const written: Record<string, RegExp> = {
+    field: /field=name, limit=ceiling/,
+    allowed: /allowed=list\(allowed\)/,
+    limit: /field=name, limit=ceiling/,
+    minimum_figures: /minimum_figures=QUALIFY_MIN_FIGURES/,
+    figures_sent: /figures_sent=sent/,
+    required_at_least: /required_at_least=list\(QUALIFY_FIELDS\)/,
+    missing: /missing=missing\)/,
+    max_halls: /max_halls=MAX_PORTFOLIO_HALLS/,
+    requests_needed: /requests_needed=-\(-halls \/\/ MAX_PORTFOLIO_HALLS\)/,
+    units_per_hall: /units_per_hall=UNIT_COST\[_PORTFOLIO\]/,
+    allow: /"allow": allow\}\)/,
+    status: /"error": message or short, "status": code/,
+  };
+
+  it.each(Object.entries(written))("%s", (key, pattern) => {
+    expect(props[key], key).toBeTruthy();
+    expect(props[key].description, key).toMatch(/^On /);
+    expect(server).toMatch(pattern);
+  });
+});
+
 describe("the honesty file's nested keys are each written by the engine", () => {
   it.each(Object.entries(honesty.responses).filter(([, spec]) => (spec as { nested?: unknown }).nested))("%s", (path, spec) => {
     const nested = (spec as { nested: Record<string, string[]> }).nested;
