@@ -11,6 +11,8 @@ Every value is SYNTHETIC. The pure half of R4 is tests/test_release_differencing
 GRIDFORGE_MIGRATIONS_DIR replays a mutated copy of the migrations, which is how each guard is shown to matter (the guard commented out, the test red).
 """
 import json
+import subprocess
+import time
 import uuid
 from datetime import datetime, timedelta, timezone
 from types import SimpleNamespace
@@ -469,6 +471,110 @@ def test_a_later_grant_does_not_bring_a_withdrawn_observation_back(db):
     assert not exported(db, a)
     _, fresh_oid = eligible(db, c, on="2026-06-28")
     assert exported(db, fresh_oid)                                                              # an observation recorded AFTER the new grant is covered by it
+
+
+# ---- C1: a withdrawal and an observation insert that overlap in time. Two REAL sessions: the lock the consent writer takes is what orders them.
+
+def popen_psql(db, sql):
+    """One psql session running `sql` (several statements in one -c string, so an explicit begin ... commit holds a transaction open); not waited for."""
+    return subprocess.Popen(rig._cmd(db) + ["-c", sql], stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+
+
+def wait_for_backend(db, marker, condition, what, proc, timeout=30.0):
+    """Poll pg_stat_activity until a backend whose query carries `marker` satisfies `condition` (a SQL predicate on its row), or `proc` has ended, or the timeout.
+    Returns whether the condition was seen; the caller decides what not seeing it means."""
+    sql = (f"select exists (select 1 from pg_stat_activity where datname = current_database() and pid <> pg_backend_pid() "
+           f"and query like '%{marker}%' and {condition})")
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        if scalar(db, sql) == "t":
+            return True
+        if proc.poll() is not None:
+            return False
+        time.sleep(0.05)
+    raise AssertionError(f"timed out waiting for {what}")
+
+
+def withdrawal_sql(org, marker):
+    p = {"organisation_id": org, "recorded_by": CONTEXTS[org].owner, "document_sha256": DOC("withdrawal-" + marker), "note": marker}
+    return f"set role service_role; select public.gf_withdraw_calibration_consent({reg.q(json.dumps(p))}::jsonb)"
+
+
+def observation_args(db, project, on="2026-06-30"):
+    ev = new_evidence(db, project, verified=True, sha="c")
+    case = rig.new_case(db, created_at="2026-03-02T09:00:00Z")
+    return rig.obs_args(project, ev, case, observed_on=on)
+
+
+def test_a_withdrawal_that_arrives_while_an_observation_insert_is_open_waits_for_it_and_tombstones_it(db):
+    """The race: the observation's gate has read a standing consent and the insert is not yet committed when the owner withdraws. Without the gate taking the
+    consent writer's lock the withdrawal commits at once, tombstones only the rows it can see, and the observation (recorded under a consent that no longer
+    stands) comes back when the organisation grants consent again."""
+    c = org_context(db)
+    grant(db, c.org)
+    project, _ = prepared(db, c)
+    args, tag = observation_args(db, project), uuid.uuid4().hex
+    sleeper = f"select pg_sleep(4) /* open-{tag} */"
+    p1 = popen_psql(db, f"begin; select gf_submit_observation('{args}'::jsonb, '{GOOD % 'observation_submitted'}'::jsonb); {sleeper}; commit;")
+    p2 = None
+    try:
+        assert wait_for_backend(db, f"open-{tag}", "wait_event = 'PgSleep'", "the observation insert to be held open", p1)
+        p2 = popen_psql(db, withdrawal_sql(c.org, f"w-{tag}"))
+        waiting = wait_for_backend(db, f"w-{tag}", "wait_event_type = 'Lock'", "the withdrawal to wait", p2)
+        assert waiting, "the withdrawal did not wait for the open observation insert: it ran past the uncommitted row and cannot tombstone it"
+    finally:
+        out1, err1 = p1.communicate(timeout=60)
+        out2, err2 = p2.communicate(timeout=60) if p2 else ("", "")
+    assert p1.returncode == 0, err1
+    assert p2.returncode == 0, err2
+    oid = json.loads(out1.strip().splitlines()[0])["id"]
+    assert json.loads(out2.strip().splitlines()[-1])["tombstoned"] >= 1
+    assert scalar(db, f"select count(*) from calibration_tombstones where observation_hash = '{R.observation_hash(oid)}'") == "1"
+    assert review(db, oid).returncode == 0
+    record_permission(db, project)
+    assert not exported(db, oid)
+    grant(db, c.org, consent_text_version="2026-12", document_sha256=DOC("regrant-" + c.org))
+    assert not exported(db, oid), "the observation came back when the organisation granted consent again"
+    assert scalar(db, f"select count(*) from gf_calibration_publication_inputs() where observation_hash = '{R.observation_hash(oid)}'") == "0"
+
+
+def test_an_observation_insert_that_arrives_while_a_withdrawal_is_open_waits_for_it_and_is_refused(db):
+    """The other order: the withdrawal holds the organisation's lock with its transaction open; the insert must not read the old, standing consent."""
+    c = org_context(db)
+    grant(db, c.org)
+    project, _ = prepared(db, c)
+    args, tag = observation_args(db, project), uuid.uuid4().hex
+    p1 = popen_psql(db, f"begin; {withdrawal_sql(c.org, f'w-{tag}')}; select pg_sleep(4) /* open-{tag} */; commit;")
+    p2 = None
+    try:
+        assert wait_for_backend(db, f"open-{tag}", "wait_event = 'PgSleep'", "the withdrawal to be held open", p1)
+        p2 = popen_psql(db, f"select gf_submit_observation('{args}'::jsonb, '{GOOD % 'observation_submitted'}'::jsonb) /* ins-{tag} */")
+        waiting = wait_for_backend(db, f"ins-{tag}", "wait_event_type = 'Lock'", "the observation insert to wait", p2)
+        assert waiting, "the observation insert did not wait for the open withdrawal: it read the consent the withdrawal is about to end"
+    finally:
+        out1, err1 = p1.communicate(timeout=60)
+        out2, err2 = p2.communicate(timeout=60) if p2 else ("", "")
+    assert p1.returncode == 0, err1
+    assert p2.returncode != 0 and "no standing calibration consent" in err2, (out2, err2)
+    assert count(db, "project_observations", f"project_id = '{project}'") == 0
+
+
+def test_the_view_keeps_out_a_row_recorded_under_a_consent_that_a_withdrawal_followed_even_after_a_new_grant(db):
+    """Defence in depth: with the tombstone out of the picture (the withdrawal is written with the row triggers off, as if the row had escaped it) a row stays
+    out of the view when the organisation grants consent again, because a withdrawal followed the consent the row was recorded under."""
+    c = org_context(db)
+    grant(db, c.org)
+    _, oid = eligible(db, c)
+    assert exported(db, oid)
+    bypassing_triggers(db, "insert into calibration_consents (organisation_id, kind, publish_scope, min_aggregate_observations, min_aggregate_organisations,"
+                           " consent_text_version, consent_text_sha256, document_sha256, recorded_by) values "
+                           f"('{c.org}', 'withdrawn', 'aggregate_residual_statistics', 10, 3, '2026-11', '{TEXT_SHA}', '{DOC('escaped-' + c.org)}', '{c.owner}')")
+    assert scalar(db, f"select count(*) from calibration_tombstones where observation_hash = '{R.observation_hash(oid)}'") == "0"
+    grant(db, c.org, consent_text_version="2026-12", document_sha256=DOC("regrant-" + c.org))
+    assert not exported(db, oid)
+    assert scalar(db, f"select count(*) from gf_calibration_publication_inputs() where observation_hash = '{R.observation_hash(oid)}'") == "0"
+    _, fresh_oid = eligible(db, c, on="2026-06-28")
+    assert exported(db, fresh_oid), "an observation recorded after the new grant is covered by it"
 
 
 def test_a_withdrawn_observation_cannot_be_recorded_again(db):

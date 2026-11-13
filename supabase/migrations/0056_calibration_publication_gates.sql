@@ -30,8 +30,10 @@
 --   D5  calibration_tombstones: when an organisation's consent is WITHDRAWN (a new row; the trigger on that insert does the rest in the same
 --       transaction) every observation recorded under the organisation gets a tombstone: the SHA-256 of its id, the time and the withdrawal row, and
 --       NO content. The view excludes tombstoned observations for ever (a later re-grant covers only observations recorded after it), and the insert
---       gate refuses to record an observation whose id hash is tombstoned, so a re-import cannot resurrect one. Every released snapshot that contained
---       any of the organisation's observations gets an appended supersession row; the snapshot itself is never edited.
+--       gate refuses to record an observation whose id hash is tombstoned, so a re-import cannot resurrect one. The insert gate takes the SAME advisory lock
+--       as the consent writer before it reads the consent, so a withdrawal that arrives while an observation insert is open waits for it and tombstones that
+--       row too; and the view also requires that no withdrawal followed the consent a row was recorded under (consent_id), whatever was granted since.
+--       Every released snapshot that contained any of the organisation's observations gets an appended supersession row; the snapshot itself is never edited.
 --   R4  calibration_release_snapshots: an append-only registry of what was released, keyed by the hashes of the observations and organisations behind
 --       it. A new snapshot is refused unless it is a safe group by itself (at least 10 observations, from at least 3 organisations, none supplying
 --       more than 40%), is released no sooner than the cadence after the previous one, contains no tombstoned observation, and differs from EVERY earlier
@@ -491,6 +493,11 @@ begin
   if org is null then
     raise exception 'a production observation needs a project attached to a hall of an organisation: there is no organisation whose consent could cover it' using errcode = 'GF015';
   end if;
+  -- The SAME lock the consent writer takes (gf_calibration_consent_guard), taken BEFORE the consent is read and held to the end of this transaction. A
+  -- withdrawal that arrives while this insert is open therefore waits for it, and then tombstones this row too (its trigger reads project_observations
+  -- with a fresh snapshot once the lock is its own); a withdrawal that committed first is seen by the read below. Without it the row would be recorded under
+  -- a consent that was withdrawn a moment later, escape the tombstones, and come back when the organisation granted consent again.
+  perform pg_advisory_xact_lock(hashtextextended('calibration_consent:' || org::text, 0));
   select * into c from public.calibration_consents where organisation_id = org order by seq desc limit 1;
   if not found or c.kind <> 'granted' then
     raise exception 'the organisation has no standing calibration consent (none was recorded, or it was withdrawn)' using errcode = 'GF015';
@@ -572,6 +579,14 @@ where r.decision = 'verified'
     select 1 from public.calibration_consents cc
     where cc.organisation_id = o.organisation_id and cc.kind = 'granted'
       and cc.seq = (select max(c3.seq) from public.calibration_consents c3 where c3.organisation_id = o.organisation_id))
+  -- 0056 (D3/D5, defence in depth): the consent the row was RECORDED UNDER (consent_id) has not been followed by a withdrawal, whatever has been granted since.
+  -- A tombstone is the primary record of a withdrawal; this makes a row that somehow escaped it (an insert whose snapshot predates the withdrawal, a withdrawal
+  -- written with the triggers off) stay out when the organisation grants consent again.
+  and exists (
+    select 1 from public.calibration_consents rc
+    where rc.id = o.consent_id and rc.organisation_id = o.organisation_id and rc.kind = 'granted'
+      and not exists (select 1 from public.calibration_consents w
+                      where w.organisation_id = rc.organisation_id and w.kind = 'withdrawn' and w.seq > rc.seq))
   -- 0056 (D1): the project attested its completion milestone, the observation is not older than it, and no supplier record of the project shows delivery in flight.
   and exists (
     select 1 from public.project_completion_milestones pm
