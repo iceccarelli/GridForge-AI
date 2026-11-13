@@ -21,6 +21,7 @@
     "low": 12,
     "high": 36
   },
+  "specification_available": false,
   "worked_example": null,
   "cost_basis": null,
   "notice": "Every figure on these pages is modelled or a published design value. None is a measurement of any customer's asset. The worked examples use the reference platform's published rack power and are reproducible by hand."

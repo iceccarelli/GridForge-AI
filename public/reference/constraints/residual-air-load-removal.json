@@ -21,6 +21,7 @@
     "low": 10,
     "high": 30
   },
+  "specification_available": true,
   "worked_example": {
     "question": "What must one rack position remove by air?",
     "working": "135 kW \u00d7 (1 \u2212 0.90)",

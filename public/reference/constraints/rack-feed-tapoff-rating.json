@@ -21,6 +21,7 @@
     "low": 12,
     "high": 40
   },
+  "specification_available": true,
   "worked_example": {
     "question": "What current does one NVIDIA GB300 NVL72 rack draw at 400 V?",
     "working": "135 kW / (1.73 \u00d7 400 V \u00d7 0.95)",

@@ -37,7 +37,7 @@ describe("the page that sells the API subscriptions", () => {
 
   it("says how to cancel in the way the account page offers it, and keeps the email as the other route", () => {
     const t = plans();
-    expect(t).toContain(`To cancel, open your account page (the link is in the email that carries your key) and choose \u201c${MANAGE_SUBSCRIPTION_LABEL}\u201d, which opens Stripe's billing page; or write to ${SITE.email}.`);
+    expect(t).toContain(`To cancel, open your account page (the link is in your access email) and choose \u201c${MANAGE_SUBSCRIPTION_LABEL}\u201d, which opens Stripe's billing page; or write to ${SITE.email}.`);
     // It no longer says email is the way to cancel.
     expect(t).not.toMatch(/To cancel, write to/);
     // The rest of the paragraph is unchanged.

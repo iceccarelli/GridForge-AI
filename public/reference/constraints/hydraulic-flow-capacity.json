@@ -21,6 +21,7 @@
     "low": 12,
     "high": 36
   },
+  "specification_available": true,
   "worked_example": {
     "question": "What flow do 20 racks need?",
     "working": "20 \u00d7 130 l/min",

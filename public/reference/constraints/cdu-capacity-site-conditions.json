@@ -22,6 +22,7 @@
     "low": 16,
     "high": 40
   },
+  "specification_available": true,
   "worked_example": {
     "question": "What approach does a 6 \u00b0C facility loop offer a technology loop run at 30 \u00b0C, and what does a 28 \u00b0C loop offer?",
     "working": "30 \u00b0C \u2212 6 \u00b0C; 30 \u00b0C \u2212 28 \u00b0C",

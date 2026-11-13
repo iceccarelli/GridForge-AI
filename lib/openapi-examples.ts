@@ -7,7 +7,6 @@
 
 import examples from "@/lib/openapi-examples.json";
 import dublinHall from "@/examples/intake/dublin_hall.json";
-import londonHall from "@/examples/intake/london_hall.json";
 import referenceHall from "@/examples/intake/reference_hall.json";
 import qualifyRequest from "@/public/reference/examples/qualify-request.json";
 import responseTemplate from "@/public/reference/response_template.json";
@@ -15,7 +14,6 @@ import responseTemplate from "@/public/reference/response_template.json";
 /** Every repository file an example may be built from, by the path the examples file names. A path not listed here is refused. */
 const FILES: Record<string, unknown> = {
   "examples/intake/dublin_hall.json": dublinHall,
-  "examples/intake/london_hall.json": londonHall,
   "examples/intake/reference_hall.json": referenceHall,
   "public/reference/examples/qualify-request.json": qualifyRequest,
   "public/reference/response_template.json": responseTemplate,

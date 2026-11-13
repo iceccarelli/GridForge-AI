@@ -35,6 +35,15 @@ RELIEF_COST_KEYS = {
 }
 
 
+#: Constraints for which a Procurement Specification can NEVER be produced, because their relief is not a purchase: `floor_space` frees positions
+#: by commercial means (its relief's cost key is "not-capital") and `architecture_capability` has no relief at all, only "choose another
+#: scenario". This is the rule `procurement.build.relief_steps` applies to ladder rungs ("a commercial relief has nothing to tender").
+#: tests/test_reference_specification_flag.py derives the same set from the constraints' own definitions, so the two cannot drift. Every other
+#: constraint can be specified when it is a rung on the hall's ladder; whether it IS one depends on the hall, so a page may only say
+#: "if this binds in your hall".
+NO_SPECIFICATION_IDS = frozenset({"floor_space", "architecture_capability"})
+
+
 def _worked_example(doc: ConstraintDoc) -> dict | None:
     """One arithmetic example per constraint, on the reference platform.
 
@@ -153,6 +162,8 @@ def doc_payload(doc: ConstraintDoc) -> dict:
         "sources": list(doc.sources),
         "see_also": list(doc.see_also),
         "lead_time_weeks": {"low": lo, "high": hi} if hi else None,
+        # False: the relief is not a purchase, so no Procurement Specification can be written for it (see NO_SPECIFICATION_IDS).
+        "specification_available": doc.id not in NO_SPECIFICATION_IDS,
         "worked_example": _worked_example(doc),
         "cost_basis": _cost_basis(RELIEF_COST_KEYS.get(doc.id, "")),
     }

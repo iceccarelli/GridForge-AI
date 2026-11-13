@@ -21,6 +21,7 @@
     "low": 16,
     "high": 44
   },
+  "specification_available": true,
   "worked_example": {
     "question": "How many racks does a 400 A busway run carry?",
     "working": "400 A \u00d7 0.8 \u00d7 1.73 \u00d7 400 V \u00d7 0.95 = 211 kW; 211 / 135",

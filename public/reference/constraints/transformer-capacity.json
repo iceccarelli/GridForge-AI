@@ -21,6 +21,7 @@
     "low": 52,
     "high": 160
   },
+  "specification_available": true,
   "worked_example": {
     "question": "What transformer capacity do 20 NVIDIA GB300 NVL72 racks need?",
     "working": "20 \u00d7 135 kW \u00d7 PUE 1.20 / 1000 / 0.95",

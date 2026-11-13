@@ -608,7 +608,7 @@ def test_every_post_operation_has_a_request_example_and_every_engine_response_na
 
 
 def test_every_example_is_built_from_a_file_that_ships_or_a_named_base_and_nothing_is_retyped():
-    shipped = {"examples/intake/dublin_hall.json", "examples/intake/london_hall.json", "examples/intake/reference_hall.json",
+    shipped = {"examples/intake/dublin_hall.json", "examples/intake/reference_hall.json",
                "public/reference/examples/qualify-request.json", "public/reference/response_template.json"}
     seen: set[str] = set()
 
@@ -720,3 +720,14 @@ def test_the_tool_row_carries_the_unit_weight_the_meter_uses():
     from gridforge.api.metering import UNIT_COST
     for t in TOOLS:
         assert t["units"] == UNIT_COST[t["endpoint"]]
+
+
+
+def test_the_published_portfolio_example_is_the_clean_case_two_comparable_halls_on_separate_connections():
+    """The example ranked Dublin against London, and London declares no UPS schedule, so the published answer had a hall that is not comparable,
+    a bare total above the comparable one and a warning: not the case a reader should learn the shape from (review R4)."""
+    body = resolve(EXAMPLES["requests"]["/v1/portfolio"]["two_halls"]["value"])
+    out = S._invoke("/v1/portfolio", S.ROUTES["/v1/portfolio"][0], body, Tier.CLIENT)
+    assert len(out["halls"]) == 2 and all(h["rankable"] for h in out["halls"]), [(h["hall"], h.get("required_gaps")) for h in out["halls"]]
+    assert out["incomparable_halls"] == [] and "warnings" not in out
+    assert out["comparable_total_racks"] == out["total_racks"] == out["total_racks_upper_bound"]

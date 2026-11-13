@@ -20,6 +20,7 @@
     "low": 12,
     "high": 40
   },
+  "specification_available": true,
   "worked_example": {
     "question": "What does one NVIDIA GB300 NVL72 rack impose on the floor?",
     "working": "1400 kg / 0.72 m\u00b2",

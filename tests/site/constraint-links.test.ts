@@ -20,7 +20,7 @@ import pageDates from "@/lib/page-lastmod.json";
 import { siteUrl } from "@/lib/site";
 import { PostgrestFake } from "./postgrest-fake";
 
-type RefConstraint = { id: string; slug: string; name: string; lead_time_weeks: { low: number; high: number } | null };
+type RefConstraint = { id: string; slug: string; name: string; lead_time_weeks: { low: number; high: number } | null; specification_available: boolean };
 const constraints = ref.constraints as unknown as RefConstraint[];
 const text = (html: string) => html.replace(/<!-- -->/g, "").replace(/&#x27;/g, "'").replace(/&amp;/g, "&").replace(/&quot;/g, '"');
 
@@ -271,8 +271,15 @@ describe("each constraint page", () => {
       expect(section).toContain('href="/lead-times"');
       expect(section).toContain(`${c.lead_time_weeks.low}–${c.lead_time_weeks.high} weeks`);
     }
-    expect(section).toContain('href="/products/procurement-specification"');
-    expect(section).toContain("Procurement Specification");
+    if (c.specification_available) {
+      expect(section).toContain('href="/products/procurement-specification"');
+      expect(section).toContain("Procurement Specification");
+    } else {
+      // The relief is not a purchase (a commercial relief, or none at all): the engine cannot write a specification for it, so the page
+      // does not send the reader to buy one. (It used to, on exactly these two pages.)
+      expect(section).not.toContain("procurement-specification");
+      expect(section).not.toContain("Procurement Specification");
+    }
     // The existing CTA is unchanged.
     expect(html).toMatch(/href="\/qualify"/);
     // And the definition is still the first thing after the heading: the next steps are not above it.
@@ -281,8 +288,34 @@ describe("each constraint page", () => {
 
   it("a constraint with no lead time gets no lead-times step, and the Specification step remains", async () => {
     const { constraintNextSteps } = await import("@/lib/constraint-next-steps");
-    const steps = constraintNextSteps({ name: "Something", lead_time_weeks: null });
+    const steps = constraintNextSteps({ name: "Something", lead_time_weeks: null, specification_available: true });
     expect(steps.map((s) => s.href)).toEqual(["/products/procurement-specification"]);
+  });
+
+  it("a constraint whose relief is not a purchase is never sent to the Procurement Specification (the engine cannot write one)", async () => {
+    const { constraintNextSteps } = await import("@/lib/constraint-next-steps");
+    for (const specification_available of [false, undefined as unknown as boolean]) {
+      const steps = constraintNextSteps({ name: "Floor space", lead_time_weeks: { low: 8, high: 26 }, specification_available });
+      expect(steps.map((s) => s.href)).toEqual(["/lead-times"]);
+    }
+  });
+
+  it("across the 13 published constraints the Specification step appears exactly where the engine says a specification can be written", async () => {
+    const { constraintNextSteps } = await import("@/lib/constraint-next-steps");
+    expect(ref.constraints).toHaveLength(13);
+    const without = ref.constraints.filter((c) => !constraintNextSteps(c).some((s) => s.href === "/products/procurement-specification")).map((c) => c.id).sort();
+    expect(without).toEqual(["architecture_capability", "floor_space"]);
+    for (const c of ref.constraints) expect(typeof c.specification_available, c.id).toBe("boolean");
+  });
+
+  it("the two pages that used to promise a specification no longer do", async () => {
+    for (const slug of ["available-rack-positions", "cooling-architecture-capability"]) {
+      const html = await constraintPage(slug);
+      expect(html, slug).not.toMatch(/the specification is written for its relief/);
+      expect(html, slug).not.toMatch(/href="\/products\/procurement-specification"/);
+    }
+    const ok = await constraintPage("transformer-capacity");
+    expect(ok).toMatch(/href="\/products\/procurement-specification"/);
   });
 
   it("the steps read the catalogue: a renamed Specification changes the label, and a missing product page removes the step", async () => {
@@ -291,7 +324,7 @@ describe("each constraint page", () => {
       return { ...real, PRODUCTS: { ...real.PRODUCTS, procurement_spec: { ...real.PRODUCTS.procurement_spec, name: "Renamed Specification" } } };
     });
     const { constraintNextSteps } = await import("@/lib/constraint-next-steps");
-    expect(constraintNextSteps({ name: "X", lead_time_weeks: null })[0].label).toBe("The Renamed Specification");
+    expect(constraintNextSteps({ name: "X", lead_time_weeks: null, specification_available: true })[0].label).toBe("The Renamed Specification");
     vi.doUnmock("@/lib/products");
     vi.resetModules();
     vi.doMock("@/lib/product-pages", async (orig) => {
@@ -299,7 +332,7 @@ describe("each constraint page", () => {
       return { ...real, PRODUCT_PAGES: real.PRODUCT_PAGES.filter((p) => p.productId !== "procurement_spec") };
     });
     const again = await import("@/lib/constraint-next-steps");
-    expect(again.constraintNextSteps({ name: "X", lead_time_weeks: { low: 1, high: 2 } }).map((s) => s.href)).toEqual(["/lead-times"]);
+    expect(again.constraintNextSteps({ name: "X", lead_time_weeks: { low: 1, high: 2 }, specification_available: true }).map((s) => s.href)).toEqual(["/lead-times"]);
     vi.doUnmock("@/lib/product-pages");
   });
 

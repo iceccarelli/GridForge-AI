@@ -41,6 +41,9 @@ export interface ConstraintDoc {
   sources: string[];
   see_also: string[];
   lead_time_weeks: { low: number; high: number } | null;
+  /** False when the relief is not a purchase (a commercial relief, or none at all), so no Procurement Specification can be written for it.
+   *  Published by the engine's reference build (gridforge/reference/build.py NO_SPECIFICATION_IDS). */
+  specification_available: boolean;
   worked_example: WorkedExample | null;
   cost_basis: CostBasis | null;
 }

@@ -59,7 +59,7 @@
     "/v1/portfolio": {
       "two_halls": {
         "summary": "Two synthetic halls ranked (two units).",
-        "value": {"intakes": [{"$from": "examples/intake/dublin_hall.json"}, {"$from": "examples/intake/london_hall.json"}]}
+        "value": {"intakes": [{"$from": "examples/intake/dublin_hall.json"}, {"$from": "examples/intake/reference_hall.json"}]}
       }
     },
     "/v1/diff": {

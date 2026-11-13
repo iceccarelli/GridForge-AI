@@ -285,6 +285,22 @@ describe("the release email", () => {
     expect(text).not.toContain("/products/envelope-study");
     expect(text).not.toContain("full study");
   });
+
+  // The credit is not given for a refunded or disputed purchase (creditsToward excludes a held one) and the page hides the offer; the email must
+  // not promise it either. A hold can arrive between the release and the queued send, so the email reads the row as it is when it is sent.
+  it.each(["refunded", "disputed"])("does not offer the credit on a Screen that has since been %s", async (hold) => {
+    seed({ billing_hold: hold });
+    const text = await releaseEmail();
+    expect(text).toContain(`/deliverable/${TOKEN}`);
+    expect(text).not.toContain("is credited once");
+    expect(text).not.toContain("/products/envelope-study");
+    expect(text).not.toContain("the next step is the");
+  });
+
+  it("still offers it on a Screen with no hold (the control for the two cases above)", async () => {
+    seed({ billing_hold: null });
+    expect(await releaseEmail()).toContain("is credited once");
+  });
 });
 
 describe("no euro amount is typed in the new sources", () => {

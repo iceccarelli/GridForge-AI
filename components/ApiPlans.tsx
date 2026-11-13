@@ -139,7 +139,7 @@ export default function ApiPlans({ rates = [] }: { rates?: ToolRate[] }) {
       </div>
 
       <p className="mt-5 text-xs text-faint">
-        Billed monthly through Stripe. To cancel, open your account page (the link is in the email that carries your key)
+        Billed monthly through Stripe. To cancel, open your account page (the link is in your access email)
         and choose &ldquo;{MANAGE_SUBSCRIPTION_LABEL}&rdquo;, which opens Stripe&apos;s billing page; or write to{" "}
         <a href={`mailto:${SITE.email}`} className="text-mute underline">
           {SITE.email}

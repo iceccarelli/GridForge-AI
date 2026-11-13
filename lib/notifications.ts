@@ -34,6 +34,7 @@ import { capUsedUnits, usageNet } from "@/lib/payg-usage";
 import { depositTerms } from "@/lib/engagement-state";
 import { SCOPING_PREPARATION } from "@/lib/engagement-intake";
 import { studyOffer, studyOfferEmail } from "@/lib/study-offer";
+import { paymentHoldAnswer } from "@/lib/one-time-holds";
 import { PRODUCT_BY_KIND, eurFromCents, intelligencePlanName } from "@/lib/products";
 
 export const NOTIFICATION_KINDS = ["intake_link", "api_access_link", "watch_link", "key_rotation", "subscription_welcome", "team_invitation", "usage_alert", "payg_payment_failed", "deposit_receipt", "deliverable_release"] as const;
@@ -304,7 +305,9 @@ async function build(n: Pick<NotificationRow, "kind" | "subject_table" | "subjec
     const files = (row.working_files ?? {}) as Record<string, unknown>;
     const hasBoard = Boolean(files["board_summary.html"]);
     // Only a product the catalogue says credits against a deposit (the Density Screen) is pointed at the next step, in the catalogue's own words.
-    const offer = studyOffer(String(row.kind ?? ""));
+    // Never for a purchase that has since been refunded or put in dispute: the credit is not given for one (creditsToward excludes a held
+    // purchase) and the page hides the offer, so the email must not promise it either.
+    const offer = paymentHoldAnswer(row as Parameters<typeof paymentHoldAnswer>[0]) ? null : studyOffer(String(row.kind ?? ""));
     return {
       to,
       subject: "Your GridForge document is ready",

@@ -20,6 +20,7 @@
     "low": 20,
     "high": 52
   },
+  "specification_available": true,
   "worked_example": null,
   "cost_basis": {
     "key": "ups.per_kW",

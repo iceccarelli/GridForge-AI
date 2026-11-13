@@ -22,6 +22,7 @@
     "low": 24,
     "high": 60
   },
+  "specification_available": true,
   "worked_example": {
     "question": "What load does one NVIDIA GB300 NVL72 rack put on the existing chilled-water plant?",
     "working": "Hybrid DLC, where the plant also carries the liquid: 135 kW. Full DLC, where the liquid has its own loop: 135 kW \u00d7 (1 \u2212 0.90)",
