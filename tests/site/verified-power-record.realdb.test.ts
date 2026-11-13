@@ -161,6 +161,55 @@ const post = (path: string, body: unknown) =>
 const ctx = <T extends Record<string, string>>(p: T) => ({ params: Promise.resolve(p) });
 const j = async (r: Response) => (await r.json()) as any;
 
+/** One database function as the service role calls it through PostgREST (what the application does); the answer is the function's jsonb. */
+async function callFn(name: string, args: Record<string, unknown>) {
+  const r = await sql(`/rpc/${name}`, { method: "POST", body: JSON.stringify(args) });
+  const text = await r.text();
+  expect(r.status, `${name} -> ${text}`).toBeLessThan(300);
+  return JSON.parse(text);
+}
+
+/**
+ * What migration 0056 asks BEFORE a production observation of a project is recorded, done the way an organisation would do it. Nothing in the site calls these
+ * functions yet (the site has no page for consent or for the milestone), so the test calls them through PostgREST as the service role, as an operator would:
+ * the project is attached to a hall of an organisation, that organisation's owner records its consent (scope, aggregation floors, text version and digests),
+ * and an owner attests the project's completion milestone against a commissioning file that a reviewer verifies through the REAL review route. The test then
+ * submits through the real route, exactly as a real production submission would have to.
+ */
+async function satisfyPublicationGates(projectId: string, projectToken: string, reachedOn = "2026-09-01") {
+  const owner = `owner-${crypto.randomUUID().slice(0, 8)}@realdb.example`;
+  const org = (await callFn("gf_create_org", { p_actor: owner, p_name: `Realdb organisation ${crypto.randomUUID().slice(0, 6)}` })).org_id as string;
+  const site = (await callFn("gf_create_site", { p_actor: owner, p_org: org, p_name: "Realdb site", p_country: "DE", p_data_origin: "production" })).site_id as string;
+  const hall = (await callFn("gf_create_hall", { p_actor: owner, p_site: site, p_label: "Realdb hall" })).hall_id as string;
+  expect((await callFn("gf_attach_project_to_hall", { p_actor: owner, p_hall: hall, p_project_token: projectToken })).ok).toBe(true);
+  const sha = (s: string) => crypto.createHash("sha256").update(s).digest("hex");
+  await callFn("gf_record_calibration_consent", {
+    p: {
+      organisation_id: org, publish_scope: "aggregate_residual_statistics", min_aggregate_observations: 10, min_aggregate_organisations: 3,
+      consent_text_version: "realdb-1", consent_text_sha256: sha("realdb consent text"), document_sha256: sha(`realdb signed ${org}`), recorded_by: owner,
+    },
+  });
+  // the commissioning file: uploaded through the route, verified through the route (which re-reads the stored object and confirms its digest)
+  process.env.ADMIN_PASSWORD = "a-long-random-admin-password";
+  const { POST: up } = await import("@/app/api/projects/[token]/evidence/route");
+  const upRes = await j(await up(new Request(siteUrl(`/api/projects/${projectToken}/evidence?filename=energisation.csv&source_category=load_data`),
+    { method: "POST", headers: { "content-type": "text/csv" }, body: `milestone,date\nenergised,${reachedOn}\n` }), ctx({ token: projectToken })));
+  const proof = upRes.evidence.id as string;
+  const before = jar.length;
+  jar.push({ name: "gf_admin", value: adminToken()! });
+  try {
+    const { POST: revFile } = await import("@/app/api/admin/evidence/[id]/review/route");
+    expect((await revFile(post("/x", { decision: "verified", reviewer: "F. Keane", reason: "energisation record opened; the digest matches" }), ctx({ id: proof }))).status).toBe(201);
+  } finally {
+    jar.length = before;
+  }
+  await callFn("gf_attest_completion_milestone", {
+    p: { project_id: projectId, milestone: "energised", reached_on: reachedOn, evidence_id: proof, basis: "energisation record, hall A", attested_by: owner },
+    p_event: { event_type: "completion_milestone_attested", actor: "realdb", payload: {} },
+  });
+  return { owner, org, hall };
+}
+
 describe.skipIf(!enabled)("Verified Power Record — real PostgreSQL via PostgREST", () => {
   it("runs the whole chain and the database enforces what the application relies on", async () => {
     const name = `Hall A ${crypto.randomUUID().slice(0, 8)}`;
@@ -453,8 +502,20 @@ describe.skipIf(!enabled)("observed outcome against a real prediction, on real P
     // the forecast must predate the outcome: the same input dated before the forecast is refused, and writes nothing
     expect((await obs({ ...input, observed_on: "2026-08-31" })).status).toBe(422);
     expect(await rows("project_observations", `&project_id=eq.${proj.id}`)).toHaveLength(0);
+    // 0056: a PRODUCTION observation is recorded only for a project in a hall of an organisation that has recorded its consent and whose project has attested its
+    // completion milestone. Without them the same request is refused (409, in words that name what is missing) and nothing is written; with them it is the submission below.
     process.env.VERCEL_ENV = "production";                              // only a production deployment stamps data_origin 'production'
     process.env.GRIDFORGE_SITE_REF_SECRET = SITE_REF_SECRET;            // and a production deployment will not record a site reference without a secret (0053 / lib/site-ref.ts)
+    try {
+      const refused = await obs(input);
+      expect(refused.status).toBe(409);
+      expect((await j(refused)).error).toMatch(/attached to a hall of an organisation.*organisation's owner has to record its consent/);
+    } finally { delete process.env.VERCEL_ENV; delete process.env.GRIDFORGE_SITE_REF_SECRET; }
+    expect(await rows("project_observations", `&project_id=eq.${proj.id}`)).toHaveLength(0);
+    expect((await rows("project_events", `&project_id=eq.${proj.id}`)).length).toBe(eventsBefore);
+    const gates = await satisfyPublicationGates(proj.id, made.project_token);
+    process.env.VERCEL_ENV = "production";
+    process.env.GRIDFORGE_SITE_REF_SECRET = SITE_REF_SECRET;
     let sub;
     try { sub = await j(await obs({ ...input, predicted_value: 12345, data_origin: "synthetic" })); } finally { delete process.env.VERCEL_ENV; delete process.env.GRIDFORGE_SITE_REF_SECRET; }
     const [row] = await rows("project_observations", `&project_id=eq.${proj.id}`);
@@ -545,6 +606,40 @@ describe.skipIf(!enabled)("observed outcome against a real prediction, on real P
     expect((await sql(`/project_observation_reviews?observation_id=eq.${row.id}`, { method: "DELETE" })).status).toBe(403);
     const events = await rows("project_events", `&project_id=eq.${proj.id}&event_type=in.(observation_submitted,observation_reviewed)&order=occurred_at.asc`);
     expect(events.map((e) => e.event_type)).toEqual(["observation_submitted", "observation_reviewed"]);
+
+    // 0056 D5, on the real database: the row was recorded under the organisation and the consent that stood (derived by the database, not sent), the export
+    // carries no tombstones while nothing is withdrawn, and when the owner withdraws the organisation's consent the row leaves the view, its hash appears in the
+    // export's `tombstones` (the same sha256 the engine and the published source reference use), and an export that lists it can no longer be imported.
+    const fullHash = crypto.createHash("sha256").update(`gridforge.calibration.observation:${row.id}`).digest("hex");
+    const [stored] = await rows("project_observations", `&id=eq.${row.id}`);
+    expect(stored.organisation_id).toBe(gates.org);
+    expect(stored.consent_id).toMatch(/^[0-9a-f-]{36}$/);
+    expect(exported.tombstones).toEqual([]);
+    const withdrawal = await callFn("gf_withdraw_calibration_consent", {
+      p: { organisation_id: gates.org, recorded_by: gates.owner, document_sha256: crypto.createHash("sha256").update("withdrawal letter").digest("hex"), note: "withdrawn" },
+    });
+    expect(withdrawal).toMatchObject({ tombstoned: 1 });
+    expect(await rows("calibration_ledger_rows", `&id=eq.${row.id}`)).toHaveLength(0);
+    const after = await j(await exportGet());
+    expect(after.rows.filter((r: any) => r.id === row.id)).toEqual([]);
+    expect(after.tombstones).toEqual([fullHash]);
+    expect(JSON.stringify(after)).not.toContain(String(row.id));                      // the hash only: never the id it stands for
+    const withdrawnDoc = path.join(tmp, "withdrawn-export.json");
+    fs.writeFileSync(withdrawnDoc, JSON.stringify({ ...exported, rows: mine, tombstones: after.tombstones }));       // an export saved before the withdrawal, with the list added
+    const refusedImport = spawnSync("python3", ["-m", "gridforge", "calibrate", "import", withdrawnDoc, "--ledger", path.join(tmp, "ledger2.json"), "--accept-mixed-refs"],
+      { encoding: "utf8", cwd: process.cwd() });
+    expect(refusedImport.status).toBe(2);
+    expect(refusedImport.stderr + refusedImport.stdout).toMatch(/withdrawn with their organisation's consent/);
+    expect(fs.existsSync(path.join(tmp, "ledger2.json"))).toBe(false);                // nothing written
+    // and the database refuses to record the same observation again, whatever its origin (the id is the one the tombstone names)
+    const resurrected = await sql("/project_observations", {
+      method: "POST",
+      body: JSON.stringify({ id: row.id, project_id: proj.id, prediction_ref: `power_deployment_case:${c.case_token}:r1:${ARCH}`, case_token: c.case_token, case_revision: 1, architecture: ARCH,
+        calibration_key: "btm.firm_MW", unit: "MW", predicted_value: engineMW, predicted_source: "x", observed_value: engineMW, observed_on: "2026-09-29", method: "m",
+        evidence_id: evidenceId, installed_attested: true, installed_basis: "b", submitted_by: "x", data_origin: "test" }),
+    });
+    expect(resurrected.status).toBe(400);
+    expect(((await resurrected.json()) as any).code).toBe("GF017");                     // refused for the tombstone (the same id also exists, which would have been a 409)
 
     // calibration is exactly where it was: verified is not the same as reconciled
     expect(ledgerCount()).toBe(before);
