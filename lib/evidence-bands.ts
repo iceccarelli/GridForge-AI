@@ -26,7 +26,7 @@ export const EVIDENCE_BANDS: EvidenceBand[] = [
   {
     id: "modelled",
     label: "Modelled",
-    reading: "Computed from a documented model, a simulation, or a model reviewed by an engineer. A calculation on inputs, not an observation of the hall.",
+    reading: "Computed from a documented model, a simulation, or the engine's own estimate from the stated inputs (E3). A calculation on inputs, not an observation of the hall and not an engineer's sign-off on it.",
     codes: ["E1", "E2", "E3"],
     today: "The class of the engine's output. The claim floors set which class a claim needs before it reaches a customer.",
   },

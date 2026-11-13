@@ -5,7 +5,10 @@ import path from "node:path";
 import { LADDER_PRODUCTS, API_PRODUCTS, PAYG, eurFromCents, priceLine } from "@/lib/products";
 import { ENGINEERING_ASSUMPTIONS_NOTE, PLATFORM_FIGURES_NOTE } from "@/lib/definitions";
 import { engineeringAssumptions } from "@/lib/engineering-constants";
-import { EVIDENCE_CLASSES } from "@/lib/evidence-classes";
+import { E3_MEANING, EVIDENCE_CLASSES } from "@/lib/evidence-classes";
+import { API_VERSIONING_POLICY } from "@/lib/api-policy";
+import { PORTFOLIO_ENGINE_SENTENCE, PORTFOLIO_FEWER_SENTENCE, PORTFOLIO_FORM_SENTENCE, PORTFOLIO_MORE_SENTENCE } from "@/lib/portfolio-scope";
+import { STUDY_REDUNDANCY_SENTENCE } from "@/lib/study-needs";
 import { ENGINE_DISCOVERY, ENGINE_ESTIMATE_GET, ERROR_STATUSES, MAX_MCP_BATCH, idempotencyStatement } from "@/lib/openapi";
 import { projectLadder } from "@/lib/buyer-path";
 import { SITE as COMPANY, SITE_URL } from "@/lib/site";
@@ -208,6 +211,8 @@ Retries: ${idempotencyStatement({ estimator: serves("/v1/estimate") })}
 
 Refusals (a refused or failed call is not charged): ${ERROR_STATUSES.map((e) => `${e.status}, ${e.meaning}`).join("; ")}.
 
+Versioning and deprecation: ${API_VERSIONING_POLICY} The dated changelog is at ${SITE}/developers#versioning.
+
 ## Pricing
 
 One source: the product catalogue that drives checkout, and the engine's own payg object at GET ${ENGINE}/v1/version. There is no separate machine price list.
@@ -222,6 +227,8 @@ ${estimateLine}- Plans and engagements: see "What can be bought" below; every fi
 Every numeric field carries an evidence class and a provenance digest:
 
 ${EVIDENCE_CLASSES.map((c) => `${c.code} ${c.verb}`).join(" · ")}.
+
+E3: ${E3_MEANING}
 
 A computed value is never stronger than the weakest input it came from. **Do not
 present an E0 or E1 figure as a property of a physical asset** — it is modelled, not
@@ -291,6 +298,10 @@ ${absent}
 ## What can be bought
 
 ${engagements}
+
+Portfolio Screen scope: ${PORTFOLIO_FEWER_SENTENCE} ${PORTFOLIO_MORE_SENTENCE} ${PORTFOLIO_FORM_SENTENCE} ${PORTFOLIO_ENGINE_SENTENCE}
+
+Envelope Study, before you pay: ${STUDY_REDUNDANCY_SENTENCE}
 
 Metered API access:
 

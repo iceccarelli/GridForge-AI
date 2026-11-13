@@ -3,6 +3,7 @@ import { notFound } from "next/navigation";
 import { EngagementIntake } from "@/components/EngagementIntake";
 import { PortfolioIntake } from "@/components/PortfolioIntake";
 import { PORTFOLIO_MAX_HALLS, PORTFOLIO_MIN_HALLS, isPortfolioKind } from "@/lib/engagement-intake";
+import { PORTFOLIO_FORM_SENTENCE, PORTFOLIO_MORE_SENTENCE, PORTFOLIO_SOLD_SENTENCE } from "@/lib/portfolio-scope";
 import { getByIntakeToken } from "@/lib/deliverables";
 import { paymentHoldAnswer } from "@/lib/one-time-holds";
 
@@ -44,6 +45,9 @@ export default async function IntakePage({ params }: { params: Promise<{ token: 
             One row per hall. Every hall is screened with the identical model and library, so a difference in the ranking comes from the
             halls, not the method. A figure you leave blank is filled from a library default and named as an assumption for that hall in the
             document; the evidence class on every figure says where an order cannot be relied on.
+          </p>
+          <p className="mt-3 text-sm text-mute" data-testid="portfolio-scope">
+            {PORTFOLIO_SOLD_SENTENCE} {PORTFOLIO_FORM_SENTENCE} {PORTFOLIO_MORE_SENTENCE}
           </p>
         </header>
         <PortfolioIntake token={token} minHalls={PORTFOLIO_MIN_HALLS} maxHalls={PORTFOLIO_MAX_HALLS} />

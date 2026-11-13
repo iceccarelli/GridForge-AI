@@ -18,6 +18,7 @@ export function StudyUpsell({ kind }: { kind: string }) {
     ["What this document settles", offer.screenSettles],
     ["What the study decides", offer.studyDecides],
     ["You receive", offer.delivers],
+    ["What it needs from you", offer.needs],
     ["What stays unknown", `${offer.stillUnknownAfterScreen}${offer.stillUnknown ? ` ${offer.stillUnknown}` : ""}`],
     ["Price", offer.price],
     ["Credit", offer.credit],

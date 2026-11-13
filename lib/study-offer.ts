@@ -10,6 +10,7 @@ import { creditedEarlier, depositTerms } from "@/lib/engagement-state";
 import { PRODUCT_PAGES } from "@/lib/product-pages";
 import { productPageHref } from "@/lib/product-links";
 import { PRODUCT_BY_KIND, PRODUCTS, priceLine } from "@/lib/products";
+import { STUDY_REDUNDANCY_SENTENCE } from "@/lib/study-needs";
 
 export interface StudyOffer {
   /** The purchase this page is the result of ("Density Screen"). */
@@ -28,6 +29,8 @@ export interface StudyOffer {
   timing: string;
   /** What the Study delivers, verbatim from the catalogue. */
   delivers: string;
+  /** What the Study needs that the buyer would not guess (lib/study-needs.ts): the redundancy of the banks, and why. Said before they pay. */
+  needs: string;
   /** The question the Screen settles, and the questions it leaves for the Study, from the two product pages. */
   screenSettles: string;
   studyDecides: string;
@@ -64,6 +67,7 @@ export function studyOffer(kind: string): StudyOffer | null {
     earlierCredit,
     timing: terms.timing,
     delivers: target.deliverable,
+    needs: STUDY_REDUNDANCY_SENTENCE,
     screenSettles: fromPage.decision,
     studyDecides: toPage.decision,
     stillUnknownAfterScreen: STILL_UNKNOWN_AFTER_SCREEN,
@@ -79,6 +83,7 @@ export function studyOfferEmail(offer: StudyOffer, base: string): string {
   return (
     `If the result says this hall is worth a full study, the next step is the ${offer.studyName}: ${offer.price}. ` +
     `${offer.earlierCredit}\n\n` +
+    `${offer.needs}\n\n` +
     `${base}${offer.href}`
   );
 }

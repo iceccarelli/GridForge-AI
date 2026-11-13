@@ -33,6 +33,7 @@ import { PAYG, eurText, utcMonth } from "@/lib/payg";
 import { capUsedUnits, usageNet } from "@/lib/payg-usage";
 import { depositTerms } from "@/lib/engagement-state";
 import { SCOPING_PREPARATION } from "@/lib/engagement-intake";
+import { PORTFOLIO_FEWER_SENTENCE, PORTFOLIO_MORE_SENTENCE } from "@/lib/portfolio-scope";
 import { studyOffer, studyOfferEmail } from "@/lib/study-offer";
 import { paymentHoldAnswer } from "@/lib/one-time-holds";
 import { PRODUCT_BY_KIND, eurFromCents, intelligencePlanName } from "@/lib/products";
@@ -292,7 +293,7 @@ async function build(n: Pick<NotificationRow, "kind" | "subject_table" | "subjec
           : "Who will contact you: nobody is assigned at the moment of payment. A named person is recorded against your reference when they contact you; if you have not heard from us, reply to this email quoting the reference.\n\n") +
         "What to prepare for the scoping call (anything you do not have becomes a named assumption, not a blocker):\n" +
         `${prepare}\n` +
-        (String(row.kind) === "portfolio_screen_deposit" ? "- The list of halls (five to fifteen) and, for each, the numbers above.\n" : "") +
+        (String(row.kind) === "portfolio_screen_deposit" ? `- The list of halls and, for each, the numbers above. ${PORTFOLIO_FEWER_SENTENCE} ${PORTFOLIO_MORE_SENTENCE}\n` : "") +
         (typeof row.stripe_session_id === "string" && /^cs_[A-Za-z0-9_]+$/.test(row.stripe_session_id) ? `\nThe current status of your deposit: ${SITE_URL}/commissioned?session_id=${row.stripe_session_id}` : ""),
     };
   }

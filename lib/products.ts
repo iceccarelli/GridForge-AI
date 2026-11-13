@@ -6,6 +6,7 @@
 // buys the screen has already decided to spend, which is the only qualification
 // signal that has ever meant anything.
 
+import { PORTFOLIO_SOLD_RANGE } from "@/lib/portfolio-scope";
 import { workingDays } from "@/lib/turnaround";
 
 /** Which engine endpoint generates a purchased deliverable. */
@@ -141,7 +142,7 @@ export const PRODUCTS: Record<ProductId, Product> = {
     amountCents: 1_500_000, // €15,000 against €60k–€140k
     description:
       "Deposit, not the fee. Reserves engineering capacity and opens a scoping conversation; the fee for the " +
-      "portfolio screen (five to fifteen halls ranked under one methodology) is agreed in writing, within " +
+      `portfolio screen (${PORTFOLIO_SOLD_RANGE} ranked under one methodology) is agreed in writing, within ` +
       "€60,000 to €140,000, before work starts, and this deposit is credited against it.",
     deliverable:
       "Portfolio Screen document and one model pack per hall.",
