@@ -774,18 +774,35 @@ def _equipment_list(items, section: str, report: "IntakeReport | None" = None) -
 
 def _drop_empty_banks(items: list, section: str, report: "IntakeReport") -> list[tuple[int, dict]]:
     """The (position, item) pairs of an equipment list whose bank has at least one unit. A bank declared with `units` below one (a transformer bank,
-    UPS block or CDU bank of zero units) carries no load and counts for nothing; it is not refused (a schedule with a decommissioned bank still
-    on it is a plausible document) but IGNORED, with a named warning, so nothing downstream does arithmetic on it (a zero-unit bank under N+1
-    left a usable count of -1). A `units` that is not a whole number is left to the number parser, which refuses it by name. The position is the
-    item's place in the list the client wrote, so a gap or a warning names the item they will find."""
+    UPS block or CDU bank of zero units) that stands BESIDE a bank with units carries no load and counts for nothing; it is not refused (a schedule
+    with a decommissioned bank still on it is a plausible document) but IGNORED, with a named warning, so nothing downstream does arithmetic on it
+    (a zero-unit bank under N+1 left a usable count of -1). A `units` that is not a whole number is left to the number parser, which refuses it by name. The position is the
+    item's place in the list the client wrote, so a gap or a warning names the item they will find.
+
+    The one exception is a list in which NO bank has a unit. That is not a schedule with a decommissioned bank left on it, it is a declaration of
+    zero capacity, and it is KEPT AS DECLARED: the constraint binds at zero racks and the relief buys the first units, exactly as before the empty
+    banks were ignored. Ignoring every bank would read "the client declared nothing but empty banks" as "nothing to limit" (the 'no limit' reading of a
+    missing schedule: an unlimited answer from a hall whose declared equipment is nothing, 28 racks where 0 were declared). The warning says every
+    bank declared 0 units, so the reader sees the schedule was taken at its word."""
+    def units_of(item: dict) -> int | None:
+        if "units" not in item:
+            return None
+        try:
+            return _int(item["units"], f"{section}.units")
+        except IntakeError:
+            return None          # not a whole number: the number parser refuses it by name where the bank is read
+
+    counts = [units_of(item) for item in items]
+    if items and all(u is not None and u < 1 for u in counts):
+        names = ", ".join(f"{section}[{n}] ({item.get('id', n)})" for n, item in enumerate(items[:6])) + (" ..." if len(items) > 6 else "")
+        report.warnings.append(
+            f"{section}: every bank declared 0 units ({names}), so the schedule is kept as declared: it has no capacity, and the study treats {section} as a "
+            f"limit of zero (it binds at zero racks until units are added), not as 'no limit'. If the hall does have this equipment, give the number of "
+            f"units each bank has; if the schedule is not known, leave {section} out and it is reported as not supplied.")
+        return list(enumerate(items))
     kept: list[tuple[int, dict]] = []
     for n, item in enumerate(items):
-        units = None
-        if "units" in item:
-            try:
-                units = _int(item["units"], f"{section}.units")
-            except IntakeError:
-                units = None
+        units = counts[n]
         if units is not None and units < 1:
             ident = item.get("id", n)
             report.warnings.append(
@@ -794,17 +811,6 @@ def _drop_empty_banks(items: list, section: str, report: "IntakeReport") -> list
             continue
         kept.append((n, item))
     return kept
-
-
-def _all_banks_ignored(declared: list, kept: list, section: str, report: "IntakeReport", gap_text: str) -> None:
-    """A schedule whose every bank was ignored declares nothing: it is a missing schedule, so it stops counting as supplied and is a named gap
-    (the declared list was non-empty, so the reader recorded it as supplied)."""
-    if declared and not kept:
-        report.supplied[:] = [p for p in report.supplied if p != section]
-        spec = FIELD_BY_PATH.get(section)
-        if spec is not None:
-            report.gaps.append(DataGap(path=section, label=spec.label, unit=spec.unit, required=spec.required, fallback_description=gap_text,
-                                       why_it_binds=spec.why_it_binds, how_to_get_it=spec.how_to_get_it))
 
 
 def _warn_content_duplicates(items, section: str, report: "IntakeReport") -> None:
@@ -1483,7 +1489,6 @@ def _load_document(doc: dict) -> Intake:
     equipment_gaps: list[DataGap] = []          # per-item gaps for what an equipment list left out; appended after the long-standing rows (below)
     tx_declared = _equipment_list(r.raw("transformers", [], gap_text=UNASSESSED_BANK_TEXT), "transformers", r.report)
     tx_kept = _drop_empty_banks(tx_declared, "transformers", r.report)
-    _all_banks_ignored(tx_declared, tx_kept, "transformers", r.report, UNASSESSED_BANK_TEXT)
     tx_items = [t for _, t in tx_kept]
     for n, t in tx_kept:
         equipment_gaps.extend(_bank_gaps("transformers", n, t))
@@ -1516,7 +1521,6 @@ def _load_document(doc: dict) -> Intake:
     ups = []
     ups_declared = _equipment_list(r.raw("ups", [], gap_text=UNASSESSED_BANK_TEXT), "ups", r.report)
     ups_kept = _drop_empty_banks(ups_declared, "ups", r.report)
-    _all_banks_ignored(ups_declared, ups_kept, "ups", r.report, UNASSESSED_BANK_TEXT)
     for n, u in ups_kept:
         equipment_gaps.extend(_bank_gaps("ups", n, u))
         ups.append(UPSBlock(
@@ -1680,7 +1684,6 @@ def _load_document(doc: dict) -> Intake:
     approach_omitted = flow_omitted = False
     cdu_declared = _equipment_list(r.raw("thermal.cdus", [], gap_text=ASSUMED_CDU_KIT_TEXT), "thermal.cdus")
     cdu_kept = _drop_empty_banks(cdu_declared, "thermal.cdus", r.report)
-    _all_banks_ignored(cdu_declared, cdu_kept, "thermal.cdus", r.report, ASSUMED_CDU_KIT_TEXT)
     for cdu_n, c in cdu_kept:
         approach_given, flow_given = "rated_approach_K" in c, "rated_flow_l_per_min" in c
         approach_omitted, flow_omitted = approach_omitted or not approach_given, flow_omitted or not flow_given

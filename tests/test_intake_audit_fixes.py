@@ -399,12 +399,16 @@ def test_n2_a_transformer_bank_and_a_cdu_bank_of_zero_units_are_ignored_the_same
     assert [t.id for t in it.context.power.transformers] == ["TX-A/B"] and [c.id for c in it.context.thermal.cdus] == ["CDU-2"]
 
 
-def test_n2_a_schedule_whose_every_bank_is_ignored_is_a_missing_schedule_not_a_supplied_one():
+def test_n2_a_schedule_whose_every_bank_declares_zero_units_is_kept_as_declared_not_a_missing_schedule():
+    """Review E3: ignoring empty banks only holds BESIDE a bank with units. A schedule of nothing but empty banks is a declaration of zero capacity: it
+    is kept (supplied, zero usable, binding at zero) with a warning that says every bank declared 0 units, never read as 'no limit'
+    (tests/test_empty_bank_schedules.py pins the whole behaviour through the handler)."""
     d = doc(**{"ups.0.units": 0})
     it = load_document(d)
-    assert it.context.power.ups == [] and "ups" not in it.report.supplied
-    assert "ups" in [g.path for g in it.report.required_gaps] and not it.report.can_issue
-    assert "No UPS schedule supplied" in " | ".join(it.report.warnings)
+    assert [(u.id, u.units) for u in it.context.power.ups] == [("UPS-1", 0)] and "ups" in it.report.supplied
+    assert "ups" not in [g.path for g in it.report.required_gaps]
+    warnings = " | ".join(it.report.warnings)
+    assert "ups: every bank declared 0 units" in warnings and "No UPS schedule supplied" not in warnings
 
 
 @pytest.mark.parametrize("units", [-1, 1.5, "2", None])
