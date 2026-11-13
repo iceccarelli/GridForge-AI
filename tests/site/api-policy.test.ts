@@ -146,6 +146,7 @@ describe("the changelog is seeded with the commitment and the additive keys of 2
       "inputs_derived_assumed",
       "material_reasons, not_compared",
       "comparable_total_racks, incomparable_halls and rankable",
+      "can_issue_a_study",
     ]);
     // one correction, after the additions of the day, and no entry of a kind the renderer does not label
     expect(API_CHANGELOG.filter((e) => e.kind === "correction")).toHaveLength(1);
@@ -271,6 +272,7 @@ const PROOFS: Record<string, Proof[] | (() => boolean)> = {
     { file: SERVER, pattern: /raise ApiError\(422, str\(exc\), \*\*exc\.detail\(\)\) from None/ },
   ],
   id: [{ file: SERVER, pattern: /def _mcp_id_is_valid\(rid\) -> bool:/ }],
+  can_issue_a_study: [{ file: PAYLOADS, pattern: /"can_issue_a_study": intake\.report\.can_issue,/ }, { file: "gridforge/intake/schema.py", pattern: /return not self\.required_gaps and not self\.declared_assumed_gaps/ }],
   inputs_derived_assumed: [{ file: PAYLOADS, pattern: /out\["inputs_derived_assumed"\] = _declared_assumed_inputs\(intake, derived_assumed\)/ }],
   material_reasons: [{ file: SERVER, pattern: /"material_reasons": d\.material_reasons,/ }, { file: "gridforge/change.py", pattern: /def material_reasons\(self\) -> list\[str\]:/ }],
   not_compared: [{ file: SERVER, pattern: /"not_compared": d\.not_compared,/ }],

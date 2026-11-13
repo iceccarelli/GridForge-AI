@@ -252,6 +252,15 @@ export const API_CHANGELOG: ApiChangelogEntry[] = [
   },
   {
     date: API_POLICY_DATE,
+    kind: "additive",
+    text:
+      "can_issue_a_study: a required input that you send and declare an assumption (assumed_fields on POST /v1/qualify, or an annotation at class E0 on an intake figure) is open, because it is a template's value and not this hall's. " +
+      "The answer lists it once in intake.gaps as a required row whose assumed text says so, can_issue_a_study is false, and recommended_engagement says that one more input was sent but declared an assumption. " +
+      "required_inputs_missing and completeness still count it as sent (assumed_count_note says so), so required_inputs_missing can be lower than the number of required rows.",
+    keys: ["can_issue_a_study"],
+  },
+  {
+    date: API_POLICY_DATE,
     kind: "correction",
     text:
       "Four values the engine returned or published in a form that misled, now what they should have been. schema_version stays gridforge/api/1, and a client that read any of them in the old form must change. " +

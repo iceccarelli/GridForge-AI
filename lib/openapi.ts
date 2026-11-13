@@ -747,7 +747,7 @@ function responseSchemaFor(endpoint: string): Record<string, unknown> {
     else if (f === "intake") {
       const intakeFields = (spec as { intake_fields?: string[] }).intake_fields ?? [];
       const intakeProps: Record<string, unknown> = {
-        completeness: { type: "number" }, required_inputs_missing: int("How many required inputs the request left out."), can_issue_a_study: bool(),
+        completeness: { type: "number" }, required_inputs_missing: int("How many required inputs the request left out. A required input that was sent and declared an assumption is not counted here: it was sent. It is listed in gaps, as a required row, and keeps can_issue_a_study false."), can_issue_a_study: bool("True only when no required input is missing and none was declared an assumption (class E0)."),
         warnings: { type: "array", items: str() }, recommended_engagement: str("What the engine recommends buying given how complete the intake is."),
         gaps: spec.intake_gaps
           ? {
