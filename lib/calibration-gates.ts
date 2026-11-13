@@ -95,18 +95,23 @@ export const VIEW_CONDITIONS: readonly ViewCondition[] = [
 
   // 0056. Each is one top-level term of the view, after 0052's last one. None can be met by an observation recorded before 0056 (it has no organisation).
   {
-    label: "the organisation's LATEST consent is a grant",
+    label: "the organisation's LATEST consent is a grant, and no withdrawal followed the consent the row was recorded under",
     group: "publication",
     sql:
       "and exists ( select 1 from public.calibration_consents cc where cc.organisation_id = o.organisation_id and cc.kind = 'granted' " +
-      "and cc.seq = (select max(c3.seq) from public.calibration_consents c3 where c3.organisation_id = o.organisation_id))",
+      "and cc.seq = (select max(c3.seq) from public.calibration_consents c3 where c3.organisation_id = o.organisation_id)) " +
+      "and exists ( select 1 from public.calibration_consents rc where rc.id = o.consent_id and rc.organisation_id = o.organisation_id and rc.kind = 'granted' " +
+      "and not exists (select 1 from public.calibration_consents w where w.organisation_id = rc.organisation_id and w.kind = 'withdrawn' and w.seq > rc.seq))",
+    terms: 2,
   },
   {
     label: "the project attested its completion milestone and no supplier record shows delivery in flight",
     group: "publication",
     sql:
       "and exists ( select 1 from public.project_completion_milestones pm where pm.project_id = o.project_id and pm.milestone = 'energised' " +
-      "and pm.reached_on <= o.observed_on and not public.gf_project_delivery_in_flight(o.project_id, o.observed_on))",
+      "and pm.organisation_id = o.organisation_id and pm.reached_on <= o.observed_on " +
+      "and not exists (select 1 from public.project_completion_milestones x where x.supersedes_id = pm.id) " +
+      "and not public.gf_project_delivery_in_flight(o.project_id, o.observed_on))",
   },
   {
     label: "the observation was not withdrawn (no tombstone)",
@@ -183,7 +188,7 @@ export const LEDGER_GATES: readonly LedgerGate[] = [
 export const PUBLICATION_CONDITIONS = {
   title: "Publication conditions (migration 0056)",
   rule:
-    "Once migration 0056 is applied the view also requires three things: the organisation the observation was recorded under still has a standing consent (its newest consent record is a grant; a withdrawal is a new record); the project attested its completion milestone (energised) on a date no later than the observation's, and none of its own supplier records shows delivery still in flight at the observed date; and the observation was not withdrawn with its organisation's consent (a withdrawal leaves a permanent tombstone that a later grant does not lift).",
+    "Once migration 0056 is applied the view also requires three things: the organisation the observation was recorded under still has a standing consent (its newest consent record is a grant, and no withdrawal followed the consent the observation was recorded under; a withdrawal is a new record); the project attested its completion milestone (energised) under that same organisation, on a date no later than the observation's (a milestone does not move with a project, and an owner corrects a wrong date by a later record), and none of its own supplier records shows delivery still in flight at the observed date; and the observation was not withdrawn with its organisation's consent (a withdrawal leaves a permanent tombstone that a later grant does not lift).",
   limit:
     "The consent text and the signed document are digests the organisation's owner typed: nothing here opens either. The milestone date is the attester's declaration, backed by a file a reviewer verified. A withdrawal stops future aggregates; it cannot recall one that was already published. An observation recorded before the migration has no organisation and no consent, so it is not in the view, and it is not back-filled. The administrator's checklist does not read these three conditions yet: the view alone applies them.",
 } as const;
@@ -290,6 +295,13 @@ export const RESIDUAL_VARIABLE_FIELDS: readonly string[] = [
   "lead_time_error",
   "interval_coverage",
 ];
+
+/**
+ * The fewest distinct SITES a published statistic rests on (gridforge/calibration/publication.py PUBLIC_MIN_SITES). Below it a cell shows its counts and says
+ * why. Typed once, here, for every sentence that states it; tests/site/calibration-gates.test.ts compares it with the Python constant, so the copy cannot say
+ * "three" while the engine says five.
+ */
+export const PUBLIC_MIN_SITES = 5;
 
 /** The thresholds the engine states in `requirements` (gridforge/calibration/residuals.py). */
 export const RESIDUAL_REQUIREMENTS = { min_approved_observations_per_variable: 10, min_distinct_sites_per_variable: 3 } as const;

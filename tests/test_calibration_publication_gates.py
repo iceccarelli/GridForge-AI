@@ -11,6 +11,8 @@ Every value is SYNTHETIC. The pure half of R4 is tests/test_release_differencing
 GRIDFORGE_MIGRATIONS_DIR replays a mutated copy of the migrations, which is how each guard is shown to matter (the guard commented out, the test red).
 """
 import json
+import subprocess
+import time
 import uuid
 from datetime import datetime, timedelta, timezone
 from types import SimpleNamespace
@@ -379,6 +381,65 @@ def test_an_energisation_dated_after_the_observation_is_in_flight_and_a_rejected
     assert submit(db, project=project, on="2026-06-30")[2].returncode == 0
 
 
+def correct_actual(db, project, pkg, proof, supersedes, **facts):
+    """A correction of a supplier record through the REAL function (0018), carrying only the facts given: it allows a correction of one fact, and nothing is inherited."""
+    p = {"project_id": project, "package_id": pkg, "supersedes_id": supersedes, "evidence_id": proof, "method": "invoice", "submitted_by": "x@a.example", **facts}
+    r = psql(db, f"set role service_role; select gf_submit_supplier_actual({reg.q(json.dumps(p))}::jsonb, '{GOOD % 'supplier_actual_submitted'}'::jsonb)")
+    return json.loads(r.stdout.strip().splitlines()[-1])["id"]
+
+
+COST_ONLY = {"actual_cost": 1000, "actual_cost_currency": "EUR", "cost_scope": "unknown"}
+
+
+def in_flight(db, project, on="2026-06-30"):
+    return scalar(db, f"select gf_project_delivery_in_flight('{project}', '{on}')") == "t"
+
+
+def test_a_cost_only_correction_does_not_make_a_delivery_in_flight_look_absent(db, ctx):
+    """D1 bypass: the check looked only at the latest record of a line, so a correction that supplied a cost and no date (0018 allows a one-fact correction)
+    left a latest record with no dates and the project looked delivered."""
+    project, proof = prepared(db, ctx)
+    pkg, resp = reg.seed_package(db, project)
+    actual = reg.seed_supplier_actual(db, project, pkg, resp, proof, po_date="2026-02-01", on_site_date="2026-04-01")
+    refused(submit(db, project=project)[2], "delivery still in flight")
+    correct_actual(db, project, pkg, proof, actual, **COST_ONLY)
+    assert in_flight(db, project)
+    refused(submit(db, project=project)[2], "delivery still in flight")
+    assert count(db, "project_observations", f"project_id = '{project}'") == 0
+
+
+def test_only_a_later_record_that_states_the_energisation_date_clears_a_line(db, ctx):
+    project, proof = prepared(db, ctx)
+    pkg, resp = reg.seed_package(db, project)
+    first = reg.seed_supplier_actual(db, project, pkg, resp, proof, po_date="2026-02-01", on_site_date="2026-04-01")
+    second = correct_actual(db, project, pkg, proof, first, on_site_date="2026-04-01", energised_date="2026-05-01")
+    assert not in_flight(db, project)                                        # the latest record says it was energised before the observed date
+    third = correct_actual(db, project, pkg, proof, second, **COST_ONLY)    # a later cost-only record: the energisation date is no longer the latest word
+    assert in_flight(db, project), "a record without the date must not clear what an earlier one said, either way"
+    correct_actual(db, project, pkg, proof, third, energised_date="2026-05-01", **COST_ONLY)
+    assert not in_flight(db, project)
+    assert submit(db, project=project)[2].returncode == 0
+
+
+def test_a_rejected_correction_leaves_the_dates_of_the_records_before_it_standing(db, ctx):
+    project, proof = prepared(db, ctx)
+    pkg, resp = reg.seed_package(db, project)
+    first = reg.seed_supplier_actual(db, project, pkg, resp, proof, po_date="2026-02-01", on_site_date="2026-04-01")
+    cost = correct_actual(db, project, pkg, proof, first, **COST_ONLY)
+    psql(db, f"insert into supplier_actual_reviews (actual_id, project_id, decision, verified_fields, reviewer, reason) values "
+             f"('{cost}', '{project}', 'rejected', '{{}}', 'r@desk.example', 'not our invoice')")
+    assert in_flight(db, project), "rejecting the cost-only correction must not erase the in-flight record it corrected"
+
+
+def test_a_line_whose_records_carry_no_date_at_all_is_not_in_flight(db, ctx):
+    project, proof = prepared(db, ctx)
+    pkg, resp = reg.seed_package(db, project)
+    first = reg.seed_supplier_actual(db, project, pkg, resp, proof, **COST_ONLY)
+    correct_actual(db, project, pkg, proof, first, **{**COST_ONLY, "actual_cost": 1200})
+    assert not in_flight(db, project)                                        # absence of a date is not a date
+    assert submit(db, project=project)[2].returncode == 0
+
+
 def test_the_view_applies_the_milestone_condition_by_itself(db, ctx):
     """Triggers off, organisation and consent set by hand: the row is recorded for a project with no milestone, and the view keeps it out until one is attested."""
     project, proof = prepared(db, ctx, milestone=False)
@@ -421,7 +482,7 @@ def test_a_milestone_is_attested_only_for_an_attached_project_by_an_editor_with_
     refused(attest(db, project, verified, ctx.owner, basis="  ", check=False), "basis")
     assert count(db, "project_completion_milestones", f"project_id = '{project}'") == 0
     assert attest(db, project, verified, ctx.editor).returncode == 0
-    refused(attest(db, project, verified, ctx.owner, check=False), "project_completion_milestones")   # one attestation of a milestone, ever
+    refused(attest(db, project, verified, ctx.owner, check=False), "project_completion_milestones")   # one FIRST attestation per organisation; a correction supersedes it
     assert scalar(db, f"select count(*) from project_events where project_id = '{project}' and event_type = 'completion_milestone_attested'") == "1"
 
 
@@ -429,6 +490,85 @@ def test_the_milestone_record_is_append_only(db, ctx):
     project, _ = prepared(db, ctx)
     append_only(db, "project_completion_milestones", "update project_completion_milestones set reached_on = '2020-01-01'")
     assert count(db, "project_completion_milestones", f"project_id = '{project}'") == 1
+
+
+# ---- C9: the date has a lower bound, the milestone belongs to the organisation that attested it, and an owner can correct a wrong date
+
+@pytest.mark.parametrize("day,ok", [("1900-01-01", False), ("1999-12-31", False), ("2000-01-01", True)])
+def test_a_milestone_dated_before_2000_is_refused(db, ctx, day, ok):
+    """A 1900 date was accepted, then the owner's correction failed on the uniqueness of the one record, so the project was gated by it for ever."""
+    project, _ = prepared(db, ctx, milestone=False)
+    proof = new_evidence(db, project, verified=True, sha="b")
+    r = attest(db, project, proof, ctx.editor, reached_on=day, check=False)
+    if ok:
+        assert r.returncode == 0, r.stderr
+    else:
+        refused(r, "before 2000")
+        assert count(db, "project_completion_milestones", f"project_id = '{project}'") == 0
+
+
+def move_project(db, project, src, dst):
+    """What moving a project between organisations is: the owner of the first detaches it, an editor of the second attaches it (0050)."""
+    reg.ok(db, "gf_detach_project_from_hall", p_actor=src.owner, p_hall=src.hall, p_project=project)
+    attach(db, project, dst.hall, dst.owner)
+
+
+def test_a_milestone_attested_under_one_organisation_does_not_gate_the_project_under_another(db):
+    a, b = org_context(db), org_context(db)
+    grant(db, a.org)
+    grant(db, b.org)
+    project, proof = prepared(db, a)
+    assert submit(db, project=project, on="2026-06-29")[2].returncode == 0
+    move_project(db, project, a, b)
+    r = submit(db, project=project, on="2026-06-30")[2]
+    refused(r, "attested under another organisation")
+    assert "GF016" in psql(db, f"select gf_submit_observation('{rig.obs_args(project, new_evidence(db, project), rig.new_case(db, created_at='2026-03-02T09:00:00Z'), observed_on='2026-06-30')}'::jsonb,"
+                               f" '{GOOD % 'observation_submitted'}'::jsonb)", check=False, sqlstate=True).stderr
+    refused(attest(db, project, proof, b.viewer, check=False), "owner or editor")
+    assert attest(db, project, proof, b.editor, reached_on="2026-06-01").returncode == 0                 # the new organisation attests it itself
+    assert submit(db, project=project, on="2026-06-30")[2].returncode == 0
+    assert scalar(db, f"select string_agg(organisation_id::text, ',' order by attested_at) from project_completion_milestones where project_id = '{project}'") == f"{a.org},{b.org}"
+
+
+def test_the_view_treats_a_milestone_of_another_organisation_as_absent(db):
+    a, b = org_context(db), org_context(db)
+    grant(db, a.org)
+    project, oid = eligible(db, a)
+    assert exported(db, oid)
+    bypassing_triggers(db, f"update project_completion_milestones set organisation_id = '{b.org}' where project_id = '{project}'")
+    assert not exported(db, oid), "a milestone attested under another organisation must not satisfy the view"
+    bypassing_triggers(db, f"update project_completion_milestones set organisation_id = '{a.org}' where project_id = '{project}'")
+    assert exported(db, oid)
+
+
+def milestone_id(db, project, newest=False):
+    return scalar(db, f"select id from project_completion_milestones where project_id = '{project}' order by attested_at {'desc' if newest else ''} limit 1")
+
+
+def test_an_owner_corrects_a_wrong_milestone_date_by_a_later_record_and_nothing_is_edited(db, ctx):
+    project, proof = prepared(db, ctx, reached_on="2026-08-01")                          # attested too late: nothing from June may be recorded
+    first = milestone_id(db, project)
+    refused(submit(db, project=project, on="2026-06-30")[2], "data from before completion is not recorded")
+    refused(attest(db, project, proof, ctx.editor, reached_on="2026-05-01", supersedes_id=first, check=False), "only an active owner")
+    refused(attest(db, project, proof, ctx.owner, reached_on="2026-05-01", supersedes_id=str(uuid.uuid4()), check=False), "must supersede a completion milestone record")
+    other, _ = prepared(db, ctx)
+    refused(attest(db, project, proof, ctx.owner, reached_on="2026-05-01", supersedes_id=milestone_id(db, other), check=False), "must supersede a completion milestone record")
+    refused(attest(db, project, proof, ctx.owner, reached_on="2026-05-01", check=False), "project_completion_milestones")       # a second FIRST attestation is still refused
+    second = json.loads(attest(db, project, proof, ctx.owner, reached_on="2026-05-01", supersedes_id=first).stdout.strip().splitlines()[-1])["id"]
+    refused(attest(db, project, proof, ctx.owner, reached_on="2026-04-01", supersedes_id=first, check=False), "already been corrected")
+    assert scalar(db, f"select reached_on from project_completion_milestones where id = '{first}'") == "2026-08-01"       # the wrong record is untouched
+    assert count(db, "project_completion_milestones", f"project_id = '{project}'") == 2
+    assert submit(db, project=project, on="2026-06-30")[2].returncode == 0
+    # the view reads the STANDING record: a correction that moves the date past a recorded observation takes it out, moving it back puts it in again
+    _, oid = eligible(db, ctx)                                                           # a second project, on the standing milestone of its own
+    later = json.loads(attest(db, project, proof, ctx.owner, reached_on="2026-07-15", supersedes_id=second).stdout.strip().splitlines()[-1])["id"]
+    stored_oid = scalar(db, f"select id from project_observations where project_id = '{project}'")
+    record_permission(db, project)
+    assert review(db, stored_oid).returncode == 0
+    assert not exported(db, stored_oid)
+    attest(db, project, proof, ctx.owner, reached_on="2026-05-01", supersedes_id=later)
+    assert exported(db, stored_oid)
+    assert exported(db, oid)
 
 
 # =============================================================================================== D5: withdrawal tombstones
@@ -471,6 +611,110 @@ def test_a_later_grant_does_not_bring_a_withdrawn_observation_back(db):
     assert exported(db, fresh_oid)                                                              # an observation recorded AFTER the new grant is covered by it
 
 
+# ---- C1: a withdrawal and an observation insert that overlap in time. Two REAL sessions: the lock the consent writer takes is what orders them.
+
+def popen_psql(db, sql):
+    """One psql session running `sql` (several statements in one -c string, so an explicit begin ... commit holds a transaction open); not waited for."""
+    return subprocess.Popen(rig._cmd(db) + ["-c", sql], stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+
+
+def wait_for_backend(db, marker, condition, what, proc, timeout=30.0):
+    """Poll pg_stat_activity until a backend whose query carries `marker` satisfies `condition` (a SQL predicate on its row), or `proc` has ended, or the timeout.
+    Returns whether the condition was seen; the caller decides what not seeing it means."""
+    sql = (f"select exists (select 1 from pg_stat_activity where datname = current_database() and pid <> pg_backend_pid() "
+           f"and query like '%{marker}%' and {condition})")
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        if scalar(db, sql) == "t":
+            return True
+        if proc.poll() is not None:
+            return False
+        time.sleep(0.05)
+    raise AssertionError(f"timed out waiting for {what}")
+
+
+def withdrawal_sql(org, marker):
+    p = {"organisation_id": org, "recorded_by": CONTEXTS[org].owner, "document_sha256": DOC("withdrawal-" + marker), "note": marker}
+    return f"set role service_role; select public.gf_withdraw_calibration_consent({reg.q(json.dumps(p))}::jsonb)"
+
+
+def observation_args(db, project, on="2026-06-30"):
+    ev = new_evidence(db, project, verified=True, sha="c")
+    case = rig.new_case(db, created_at="2026-03-02T09:00:00Z")
+    return rig.obs_args(project, ev, case, observed_on=on)
+
+
+def test_a_withdrawal_that_arrives_while_an_observation_insert_is_open_waits_for_it_and_tombstones_it(db):
+    """The race: the observation's gate has read a standing consent and the insert is not yet committed when the owner withdraws. Without the gate taking the
+    consent writer's lock the withdrawal commits at once, tombstones only the rows it can see, and the observation (recorded under a consent that no longer
+    stands) comes back when the organisation grants consent again."""
+    c = org_context(db)
+    grant(db, c.org)
+    project, _ = prepared(db, c)
+    args, tag = observation_args(db, project), uuid.uuid4().hex
+    sleeper = f"select pg_sleep(4) /* open-{tag} */"
+    p1 = popen_psql(db, f"begin; select gf_submit_observation('{args}'::jsonb, '{GOOD % 'observation_submitted'}'::jsonb); {sleeper}; commit;")
+    p2 = None
+    try:
+        assert wait_for_backend(db, f"open-{tag}", "wait_event = 'PgSleep'", "the observation insert to be held open", p1)
+        p2 = popen_psql(db, withdrawal_sql(c.org, f"w-{tag}"))
+        waiting = wait_for_backend(db, f"w-{tag}", "wait_event_type = 'Lock'", "the withdrawal to wait", p2)
+        assert waiting, "the withdrawal did not wait for the open observation insert: it ran past the uncommitted row and cannot tombstone it"
+    finally:
+        out1, err1 = p1.communicate(timeout=60)
+        out2, err2 = p2.communicate(timeout=60) if p2 else ("", "")
+    assert p1.returncode == 0, err1
+    assert p2.returncode == 0, err2
+    oid = json.loads(out1.strip().splitlines()[0])["id"]
+    assert json.loads(out2.strip().splitlines()[-1])["tombstoned"] >= 1
+    assert scalar(db, f"select count(*) from calibration_tombstones where observation_hash = '{R.observation_hash(oid)}'") == "1"
+    assert review(db, oid).returncode == 0
+    record_permission(db, project)
+    assert not exported(db, oid)
+    grant(db, c.org, consent_text_version="2026-12", document_sha256=DOC("regrant-" + c.org))
+    assert not exported(db, oid), "the observation came back when the organisation granted consent again"
+    assert scalar(db, f"select count(*) from gf_calibration_publication_inputs() where observation_hash = '{R.observation_hash(oid)}'") == "0"
+
+
+def test_an_observation_insert_that_arrives_while_a_withdrawal_is_open_waits_for_it_and_is_refused(db):
+    """The other order: the withdrawal holds the organisation's lock with its transaction open; the insert must not read the old, standing consent."""
+    c = org_context(db)
+    grant(db, c.org)
+    project, _ = prepared(db, c)
+    args, tag = observation_args(db, project), uuid.uuid4().hex
+    p1 = popen_psql(db, f"begin; {withdrawal_sql(c.org, f'w-{tag}')}; select pg_sleep(4) /* open-{tag} */; commit;")
+    p2 = None
+    try:
+        assert wait_for_backend(db, f"open-{tag}", "wait_event = 'PgSleep'", "the withdrawal to be held open", p1)
+        p2 = popen_psql(db, f"select gf_submit_observation('{args}'::jsonb, '{GOOD % 'observation_submitted'}'::jsonb) /* ins-{tag} */")
+        waiting = wait_for_backend(db, f"ins-{tag}", "wait_event_type = 'Lock'", "the observation insert to wait", p2)
+        assert waiting, "the observation insert did not wait for the open withdrawal: it read the consent the withdrawal is about to end"
+    finally:
+        out1, err1 = p1.communicate(timeout=60)
+        out2, err2 = p2.communicate(timeout=60) if p2 else ("", "")
+    assert p1.returncode == 0, err1
+    assert p2.returncode != 0 and "no standing calibration consent" in err2, (out2, err2)
+    assert count(db, "project_observations", f"project_id = '{project}'") == 0
+
+
+def test_the_view_keeps_out_a_row_recorded_under_a_consent_that_a_withdrawal_followed_even_after_a_new_grant(db):
+    """Defence in depth: with the tombstone out of the picture (the withdrawal is written with the row triggers off, as if the row had escaped it) a row stays
+    out of the view when the organisation grants consent again, because a withdrawal followed the consent the row was recorded under."""
+    c = org_context(db)
+    grant(db, c.org)
+    _, oid = eligible(db, c)
+    assert exported(db, oid)
+    bypassing_triggers(db, "insert into calibration_consents (organisation_id, kind, publish_scope, min_aggregate_observations, min_aggregate_organisations,"
+                           " consent_text_version, consent_text_sha256, document_sha256, recorded_by) values "
+                           f"('{c.org}', 'withdrawn', 'aggregate_residual_statistics', 10, 3, '2026-11', '{TEXT_SHA}', '{DOC('escaped-' + c.org)}', '{c.owner}')")
+    assert scalar(db, f"select count(*) from calibration_tombstones where observation_hash = '{R.observation_hash(oid)}'") == "0"
+    grant(db, c.org, consent_text_version="2026-12", document_sha256=DOC("regrant-" + c.org))
+    assert not exported(db, oid)
+    assert scalar(db, f"select count(*) from gf_calibration_publication_inputs() where observation_hash = '{R.observation_hash(oid)}'") == "0"
+    _, fresh_oid = eligible(db, c, on="2026-06-28")
+    assert exported(db, fresh_oid), "an observation recorded after the new grant is covered by it"
+
+
 def test_a_withdrawn_observation_cannot_be_recorded_again(db):
     """A re-import of an observation by its id: the trigger answers before the primary key could."""
     c, a, b = two_observations(db)
@@ -501,15 +745,22 @@ def test_the_effects_of_a_withdrawal_follow_a_withdrawal_row_however_it_was_inse
     assert not exported(db, a)
 
 
-def snapshot_with(org_hash_members, others=9, at="2026-09-01T00:00:00Z", figures=None):
-    """A snapshot whose members are the given (observation hash, organisation hash) pairs plus `others` observations of three other organisations."""
+def snapshot_with(org_hash_members, others=9, at=None, figures=None):
+    """A snapshot whose members are the given (observation hash, organisation hash) pairs plus `others` observations of three other organisations. `at` is its
+    released_at; None is now, which is the only date the registry accepts (within a day of ITS clock)."""
     members = [R.Contribution(o, g) for o, g in org_hash_members]
     members += [R.Contribution.from_ids(f"filler-{uuid.uuid4().hex}", f"filler-org-{k % 3}-{org_hash_members[0][1][:6]}") for k in range(others)]
-    return R.Snapshot.make({"total": members}, released_at=datetime.fromisoformat(at.replace("Z", "+00:00")), figures=figures or {"n": len(members)})
+    return R.Snapshot.make({"total": members}, released_at=at or datetime.now(timezone.utc), figures=figures or {"n": len(members)})
 
 
 def register(db, snapshot, check=False):
     return call(db, "gf_record_release_snapshot", snapshot.to_record(), check=check)
+
+
+def age_registry(db, days):
+    """Move every registered snapshot `days` days into the past (when it was recorded and released), the way the rig back-dates a forecast: row triggers off,
+    because the registry's clock is the database's and a test cannot wait a month. The next registration then follows the last by `days` days."""
+    bypassing_triggers(db, f"update calibration_release_snapshots set recorded_at = recorded_at - interval '{days} days', released_at = released_at - interval '{days} days'")
 
 
 def test_a_withdrawal_marks_the_snapshots_that_contained_the_organisation_superseded_and_never_edits_them(fresh):
@@ -517,10 +768,11 @@ def test_a_withdrawal_marks_the_snapshots_that_contained_the_organisation_supers
     grant(fresh, c.org)
     _, a = eligible(fresh, c)
     org_h = R.organisation_hash(c.org)
-    mine = snapshot_with([(R.observation_hash(a), org_h)] + [(R.observation_hash(uuid.uuid4().hex), org_h) for _ in range(3)])
-    other = snapshot_with([(R.observation_hash("x"), R.organisation_hash("some-other-org"))] + [(R.observation_hash(f"x{i}"), R.organisation_hash("some-other-org")) for i in range(2)],
-                          at="2026-04-01T00:00:00Z")
-    assert register(fresh, other).returncode == 0 and register(fresh, mine).returncode == 0
+    other = snapshot_with([(R.observation_hash("x"), R.organisation_hash("some-other-org"))] + [(R.observation_hash(f"x{i}"), R.organisation_hash("some-other-org")) for i in range(2)])
+    assert register(fresh, other).returncode == 0
+    age_registry(fresh, 40)
+    mine = snapshot_with([(R.observation_hash(a), org_h)] + [(R.observation_hash(uuid.uuid4().hex), org_h) for _ in range(3)])        # released now, 40 days after `other`
+    assert register(fresh, mine).returncode == 0
     before = psql(fresh, "select snapshot_id, members::text, cells::text, figures_sha256, released_at from calibration_release_snapshots order by seq").stdout
     out = result(withdraw(fresh, c.org))
     assert out["snapshots_superseded"] == 1
@@ -563,8 +815,9 @@ def members(start, n, orgs):
     return [R.Contribution.from_ids(f"obs-{start + k}", f"org-{orgs[k % len(orgs)]}") for k in range(n)]
 
 
-def snap(obs, at, figures=None):
-    return R.Snapshot.make({"total": obs}, released_at=datetime.fromisoformat(at), figures=figures or {"n": len(obs)})
+def snap(obs, at=None, figures=None):
+    """A one-cell snapshot of `obs` released `at` (None: now, the only date the registry takes: it holds released_at to within a day of its own clock)."""
+    return R.Snapshot.make({"total": obs}, released_at=at or datetime.now(timezone.utc), figures=figures or {"n": len(obs)})
 
 
 def test_the_database_holds_the_numbers_the_pure_policy_holds(db):
@@ -573,10 +826,10 @@ def test_the_database_holds_the_numbers_the_pure_policy_holds(db):
 
 def test_the_first_snapshot_must_be_a_safe_group_by_itself(fresh):
     for obs in (members(0, 9, [1, 2, 3]), members(0, 12, [1, 2]), members(0, 12, [1] * 6 + [2, 3, 4, 5, 6, 7])):
-        r = register(fresh, snap(obs, "2026-01-01T00:00:00+00:00"))
+        r = register(fresh, snap(obs))
         assert r.returncode != 0 and "at least 10 observations from at least 3 organisations" in r.stderr, (len(obs), r.stderr)
     assert count(fresh, "calibration_release_snapshots") == 0
-    assert register(fresh, snap(members(0, 12, [1, 2, 3, 4]), "2026-01-01T00:00:00+00:00")).returncode == 0
+    assert register(fresh, snap(members(0, 12, [1, 2, 3, 4]))).returncode == 0
 
 
 @pytest.mark.parametrize("added,orgs,days,ok", [
@@ -584,8 +837,9 @@ def test_the_first_snapshot_must_be_a_safe_group_by_itself(fresh):
 ])
 def test_a_snapshot_must_differ_from_the_last_by_a_safe_group_and_follow_it_by_the_cadence(fresh, added, orgs, days, ok):
     first = members(0, 12, [1, 2, 3, 4])
-    assert register(fresh, snap(first, "2026-01-01T00:00:00+00:00")).returncode == 0
-    nxt = snap(first + members(100, added, orgs), (datetime(2026, 1, 1, tzinfo=timezone.utc) + timedelta(days=days)).isoformat())
+    assert register(fresh, snap(first)).returncode == 0
+    age_registry(fresh, days)                                                  # the first release was recorded `days` days ago
+    nxt = snap(first + members(100, added, orgs))
     r = register(fresh, nxt)
     assert (r.returncode == 0) is ok, r.stderr
     if not ok:
@@ -595,12 +849,53 @@ def test_a_snapshot_must_differ_from_the_last_by_a_safe_group_and_follow_it_by_t
 def test_a_snapshot_is_compared_with_every_earlier_one_and_an_identical_membership_is_not_a_new_release(fresh):
     base = members(0, 12, [1, 2, 3, 4])
     twenty = members(100, 20, [5, 6, 7, 8])
-    assert register(fresh, snap(base, "2026-01-01T00:00:00+00:00")).returncode == 0
-    assert register(fresh, snap(base + twenty, "2026-03-01T00:00:00+00:00")).returncode == 0
-    r = register(fresh, snap(base + twenty[:1], "2026-05-01T00:00:00+00:00"))        # nineteen away from the last, ONE away from the first
+    assert register(fresh, snap(base)).returncode == 0
+    age_registry(fresh, 60)
+    assert register(fresh, snap(base + twenty)).returncode == 0
+    age_registry(fresh, 60)
+    r = register(fresh, snap(base + twenty[:1]))                                        # nineteen away from the last, ONE away from the first
     assert r.returncode != 0 and "differ from every earlier release" in r.stderr
-    again = register(fresh, snap(base + twenty, "2026-07-01T00:00:00+00:00", figures={"n": "again"}))
+    again = register(fresh, snap(base + twenty, figures={"n": "again"}))
     assert again.returncode != 0 and "differ from every earlier release" in again.stderr
+
+
+def test_the_cadence_is_measured_on_the_registrys_clock_so_a_release_cannot_be_dated_to_satisfy_it(fresh):
+    """C6: the cadence used to compare the CALLER-CHOSEN released_at, so S1 registered as released in 2020 and S2 registered 35 ms later as released now
+    both passed. Now S1 cannot be back-dated, S2 follows S1 by the registry's own recorded_at, and a recorded_at supplied by the caller is overwritten."""
+    first = members(0, 12, [1, 2, 3, 4])
+    old = register(fresh, snap(first, at=datetime(2020, 1, 1, tzinfo=timezone.utc)))
+    assert old.returncode != 0 and "back-dated" in old.stderr, old.stderr
+    assert "GF018" in psql(fresh, f"select gf_record_release_snapshot('{json.dumps(snap(first, at=datetime(2020, 1, 1, tzinfo=timezone.utc)).to_record())}'::jsonb)",
+                           check=False, sqlstate=True).stderr
+    assert count(fresh, "calibration_release_snapshots") == 0
+    assert register(fresh, snap(first)).returncode == 0
+    second = first + members(100, 12, [5, 6, 7, 8])                                       # a safe step in membership, recorded moments later
+    for at in (datetime.now(timezone.utc), datetime(2020, 6, 1, tzinfo=timezone.utc), datetime.now(timezone.utc) + timedelta(days=40)):
+        r = register(fresh, snap(second, at=at))
+        assert r.returncode != 0, f"a release dated {at} was registered moments after the previous one"
+    assert "may not be recorded within 30 days" in register(fresh, snap(second)).stderr
+    assert count(fresh, "calibration_release_snapshots") == 1
+    age_registry(fresh, 30)
+    assert register(fresh, snap(second)).returncode == 0                                 # a month later on the registry's clock, released now
+
+
+def test_a_released_at_more_than_a_day_from_the_registrys_clock_is_refused_and_a_day_is_not(fresh):
+    obs = members(0, 12, [1, 2, 3, 4])
+    now = datetime.now(timezone.utc)
+    for at in (now - timedelta(days=1, minutes=5), now - timedelta(days=30), now + timedelta(minutes=10)):
+        r = register(fresh, snap(obs, at=at))
+        assert r.returncode != 0 and ("back-dated" in r.stderr or "in the future" in r.stderr), (at, r.stderr)
+    assert register(fresh, snap(obs, at=now - timedelta(hours=23))).returncode == 0
+
+
+def test_a_recorded_at_written_by_the_caller_is_replaced_by_the_registrys_own_clock(fresh):
+    snap0 = snap(members(0, 12, [1, 2, 3, 4]))
+    rec = snap0.to_record()
+    insert = ("insert into calibration_release_snapshots (snapshot_id, released_at, members, cells, figures_sha256, recorded_at) values "
+              f"('{rec['snapshot_id']}', '{rec['released_at']}', {reg.q(json.dumps(rec['members']))}::jsonb, {reg.q(json.dumps(rec['cells']))}::jsonb, "
+              f"'{rec['figures_sha256']}', '2020-01-01T00:00:00Z')")
+    assert as_service_role(fresh, insert).returncode == 0
+    assert scalar(fresh, "select recorded_at > now() - interval '1 minute' from calibration_release_snapshots") == "t"
 
 
 def test_a_snapshot_with_a_withdrawn_observation_is_refused_before_any_other_check(fresh):
@@ -609,9 +904,9 @@ def test_a_snapshot_with_a_withdrawn_observation_is_refused_before_any_other_che
     _, a = eligible(fresh, c)
     withdraw(fresh, c.org)
     obs = members(0, 11, [1, 2, 3]) + [R.Contribution(R.observation_hash(a), R.organisation_hash(c.org))]
-    r = register(fresh, snap(obs, "2026-01-01T00:00:00+00:00"))
+    r = register(fresh, snap(obs))
     assert r.returncode != 0 and "withdrew its consent" in r.stderr
-    assert "GF017" in psql(fresh, f"select gf_record_release_snapshot('{json.dumps(snap(obs, '2026-01-01T00:00:00+00:00').to_record())}'::jsonb)", check=False, sqlstate=True).stderr
+    assert "GF017" in psql(fresh, f"select gf_record_release_snapshot('{json.dumps(snap(obs).to_record())}'::jsonb)", check=False, sqlstate=True).stderr
 
 
 @pytest.mark.parametrize("mutate,needle", [
@@ -625,7 +920,7 @@ def test_a_snapshot_with_a_withdrawn_observation_is_refused_before_any_other_che
     (lambda r: r.__setitem__("figures_sha256", "xyz"), "figures_sha256"),
 ])
 def test_a_malformed_snapshot_record_is_refused(fresh, mutate, needle):
-    rec = snap(members(0, 12, [1, 2, 3, 4]), "2026-01-01T00:00:00+00:00").to_record()
+    rec = snap(members(0, 12, [1, 2, 3, 4])).to_record()
     mutate(rec)
     r = call(fresh, "gf_record_release_snapshot", rec)
     assert r.returncode != 0 and needle in r.stderr, r.stderr
@@ -634,12 +929,15 @@ def test_a_malformed_snapshot_record_is_refused(fresh, mutate, needle):
 
 def test_a_snapshot_the_pure_policy_allows_is_one_the_database_registers(fresh):
     """The two halves agree on a run of releases: whatever propose_release releases, the registry accepts."""
-    history, now = [], datetime(2026, 1, 1, tzinfo=timezone.utc)
+    history, now = [], datetime(2026, 1, 1, tzinfo=timezone.utc)                         # the pure policy runs in a virtual calendar ...
     pool = members(0, 12, [1, 2, 3, 4])
     for month in range(5):
         p = R.propose_release({"total": pool}, history=history, now=now, figures_for=lambda names: {"n": len(pool)})
         assert p.decision.allowed, (month, p.decision)
-        assert register(fresh, p.snapshot).returncode == 0, month
+        if month:
+            age_registry(fresh, 31)                                                       # ... the registry on its own clock, a month later each time
+        registered = R.Snapshot.make(p.plan.published, released_at=datetime.now(timezone.utc), figures=p.figures)
+        assert register(fresh, registered).returncode == 0, month
         history.append(p.snapshot)
         pool = pool + members(1000 * (month + 1), 10, [5 + month, 6 + month, 7 + month])
         now += timedelta(days=31)
@@ -659,6 +957,48 @@ def test_the_new_functions_and_tables_are_for_the_service_role_alone(db, ctx):
                     "insert into calibration_consents (organisation_id) values (gen_random_uuid())"):
             r = role_runner(db, sql, check=False)
             assert r.returncode != 0 and "permission denied" in r.stderr, (sql, r.stderr)
+
+
+#: what the application's role may do to each object 0056 adds: select everywhere, insert where a gf_* function writes the table as the caller
+SERVICE_ROLE_MAY = {"calibration_consents": {"select", "insert"}, "calibration_release_snapshots": {"select", "insert"},
+                    "project_completion_milestones": {"select", "insert"}, "calibration_tombstones": {"select"},
+                    "calibration_snapshot_supersessions": {"select"}, "calibration_ledger_rows": {"select"}}
+ALL_TABLE_PRIVILEGES = ("select", "insert", "update", "delete", "truncate", "trigger", "references")
+
+
+def test_under_supabase_default_privileges_service_role_keeps_only_what_the_code_path_needs():
+    """C7: the migration's comment said the tombstones, supersessions and view were readable by service_role ALONE, but a Supabase project grants ALL on every new
+    public table to anon, authenticated and service_role, and a GRANT of select takes nothing away: a forged INSERT as service_role then suppressed any
+    observation for ever. Built with those default privileges and WITHOUT the rig's blanket re-grant, so the migration's own REVOKE is what is checked."""
+    name = make_database(regrant=False, supabase_default_acls=True)
+    try:
+        for table, may in SERVICE_ROLE_MAY.items():
+            for role in ("service_role", "anon", "authenticated", "public"):
+                for priv in ALL_TABLE_PRIVILEGES:
+                    want = "t" if role == "service_role" and priv in may else "f"
+                    assert scalar(name, f"select has_table_privilege('{role}', 'public.{table}', '{priv}')" if role != "public"
+                                  else f"select exists (select 1 from information_schema.role_table_grants where grantee = 'PUBLIC' and table_name = '{table}' "
+                                       f"and privilege_type = '{priv.upper()}')") == want, (table, role, priv)
+        for table in ("calibration_consents", "calibration_release_snapshots"):
+            seq = scalar(name, f"select pg_get_serial_sequence('public.{table}', 'seq')")
+            for role in ("service_role", "anon", "authenticated"):
+                for priv in ("usage", "select", "update"):
+                    assert scalar(name, f"select has_sequence_privilege('{role}', '{seq}', '{priv}')") == "f", (seq, role, priv)
+        # the forgery itself: a tombstone written by the application's role is refused, a withdrawal through the function still writes them
+        forged = as_service_role(name, f"insert into calibration_tombstones (observation_hash, withdrawn_at, withdrawal_id) values ('{'a' * 64}', now(), gen_random_uuid())")
+        assert forged.returncode != 0 and "permission denied" in forged.stderr, forged.stderr
+        for sql in ("delete from calibration_tombstones", "update calibration_tombstones set withdrawn_at = now()", "truncate calibration_tombstones",
+                    "insert into calibration_snapshot_supersessions (snapshot_id, withdrawal_id, superseded_at, reason) values ('x', gen_random_uuid(), now(), 'x')"):
+            r = as_service_role(name, sql)
+            assert r.returncode != 0 and "permission denied" in r.stderr, (sql, r.stderr)
+        c = org_context(name)
+        assert grant(name, c.org).returncode == 0                                    # the writer still works for the same role (identity column: no sequence privilege)
+        project, _ = prepared(name, c)
+        assert submit(name, project=project)[2].returncode == 0
+        assert result(withdraw(name, c.org))["tombstoned"] == 1
+        assert scalar(name, "select count(*) from calibration_tombstones") == "1"
+    finally:
+        drop_database(name)
 
 
 def test_the_new_tables_have_row_level_security_and_no_policies(db):
@@ -691,6 +1031,83 @@ def test_applying_0056_to_a_database_that_already_has_rows_changes_none_of_them_
         assert {t: scalar(name, f"select count(*) from {t}") for t in again} == again
     finally:
         drop_database(name)
+
+
+# ---- C8: locks. A reader that holds a table open must make an apply fail fast, not queue behind it and block everyone else; a re-apply takes no such lock.
+
+def apply_0056(name, one_transaction):
+    """Apply the file the way an operator does, timed: statement by statement (plain psql -f) or as one transaction (psql -1, as the applier's single query is)."""
+    t0 = time.monotonic()
+    r = subprocess.run(rig._cmd(name) + (["-1"] if one_transaction else []) + ["-f", str(next(MIGRATIONS.glob("0056_*.sql")))], capture_output=True, text=True, timeout=120)
+    return r, time.monotonic() - t0
+
+
+def open_reader(name, tables, seconds):
+    """A session that has read `tables` and holds its transaction open (so holds ACCESS SHARE on them) for `seconds`; returns it once it is holding."""
+    tag = uuid.uuid4().hex
+    reads = "; ".join(f"select count(*) from {t}" for t in tables)
+    p = popen_psql(name, f"begin; {reads}; select pg_sleep({seconds}) /* reader-{tag} */; commit;")
+    assert wait_for_backend(name, f"reader-{tag}", "wait_event = 'PgSleep'", "the reader to be holding its tables", p)
+    return p
+
+
+@pytest.mark.parametrize("table", ["project_observations", "project_events"])
+@pytest.mark.parametrize("one_transaction", [False, True])
+def test_applying_0056_against_an_open_reader_fails_within_the_lock_timeout_instead_of_queueing(monkeypatch, table, one_transaction):
+    monkeypatch.setattr(rig, "UPTO", "0055")
+    name = make_database()
+    try:
+        reader = open_reader(name, [table], seconds=10)
+        try:
+            r, took = apply_0056(name, one_transaction)
+        finally:
+            still_open = reader.poll() is None
+        assert still_open, "the reader ended before the apply did: the apply waited for it instead of timing out"
+        assert r.returncode != 0 and "lock timeout" in r.stderr, r.stderr
+        assert took < 9, f"the apply took {took:.1f}s against a reader that holds the table for 10s: no lock timeout bounded it"
+        reader.communicate(timeout=60)
+        r, _ = apply_0056(name, one_transaction)                                              # the table is quiet now: the same file applies
+        assert r.returncode == 0, r.stderr
+        assert scalar(name, "select count(*) from information_schema.columns where table_name = 'project_observations' and column_name in ('organisation_id', 'consent_id')") == "2"
+    finally:
+        drop_database(name)
+
+
+@pytest.mark.parametrize("one_transaction", [False, True])
+def test_re_applying_0056_takes_no_lock_on_the_tables_other_sessions_use(db, one_transaction):
+    """With a reader holding project_observations and project_events open, a re-apply neither waits nor times out: the column, the event-type check and the
+    trigger are already in place and are left alone (ADD COLUMN IF NOT EXISTS and DROP TRIGGER IF EXISTS would each have taken an ACCESS EXCLUSIVE lock)."""
+    reader = open_reader(db, ["project_observations", "project_events"], seconds=5)
+    try:
+        r, took = apply_0056(db, one_transaction)
+        assert reader.poll() is None, "the reader ended before the re-apply did: it waited for the reader"
+    finally:
+        reader.communicate(timeout=60)
+    assert r.returncode == 0, r.stderr
+    assert took < 4, f"the re-apply took {took:.1f}s"
+    assert scalar(db, "select count(*) from pg_trigger where tgname = 'project_observations_publication_gates' and tgenabled = 'O'") == "1"
+    assert scalar(db, "select convalidated::text from pg_constraint where conname = 'project_events_event_type_check'") == "true"
+
+
+def test_re_applying_0056_switches_the_insert_trigger_back_on_if_it_was_disabled(fresh):
+    psql(fresh, "alter table public.project_observations disable trigger project_observations_publication_gates")
+    r, _ = apply_0056(fresh, one_transaction=True)
+    assert r.returncode == 0, r.stderr
+    assert scalar(fresh, "select tgenabled from pg_trigger where tgname = 'project_observations_publication_gates'") == "O"
+
+
+def test_the_event_type_check_is_rebuilt_not_valid_then_validated_when_a_type_is_missing(fresh):
+    """The one case in which the check IS rebuilt: an older list without the new type. It ends validated, still holds every earlier type, and refuses others."""
+    psql(fresh, "alter table public.project_events drop constraint project_events_event_type_check;"
+                "alter table public.project_events add constraint project_events_event_type_check check (event_type in ('project_created', 'share_issued'))")
+    r, _ = apply_0056(fresh, one_transaction=False)
+    assert r.returncode == 0, r.stderr
+    d = scalar(fresh, "select pg_get_constraintdef(oid) from pg_constraint where conname = 'project_events_event_type_check'")
+    for kept in ("completion_milestone_attested", "share_issued", "project_created", "observation_submitted", "supplier_actual_reviewed"):
+        assert f"'{kept}'" in d, (kept, d)
+    assert scalar(fresh, "select convalidated::text from pg_constraint where conname = 'project_events_event_type_check'") == "true"
+    r = psql(fresh, "insert into project_events (project_id, event_type, actor, payload) values (gen_random_uuid(), 'not_a_type', 'x', '{}')", check=False)
+    assert r.returncode != 0 and "project_events_event_type_check" in r.stderr, r.stderr
 
 
 def test_nothing_depends_on_the_ledger_view_so_it_can_be_dropped_and_rebuilt(fresh):

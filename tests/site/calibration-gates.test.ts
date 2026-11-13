@@ -21,6 +21,7 @@ import {
   PUBLISHED_VARIABLES,
   RECORD_SHAPE,
   RESIDUAL_CELL_FIELDS,
+  PUBLIC_MIN_SITES,
   RESIDUAL_REQUIREMENTS,
   RESIDUAL_TOP_FIELDS,
   RESIDUAL_VARIABLE_FIELDS,
@@ -143,7 +144,7 @@ describe("the gate list in code is the final view's, not a copy that can drift",
     // 0056's three conditions are filed apart from the six gates: they are the organisation's and the project's decisions, but the administrator's
     // checklist does not read them, so they must not be counted as gates (and a gate must not quietly absorb one).
     expect(conditionsOf("publication").map((c) => c.label)).toEqual([
-      "the organisation's LATEST consent is a grant",
+      "the organisation's LATEST consent is a grant, and no withdrawal followed the consent the row was recorded under",
       "the project attested its completion milestone and no supplier record shows delivery in flight",
       "the observation was not withdrawn (no tombstone)",
     ]);
@@ -174,6 +175,16 @@ describe("the residual-report schema in code is the engine's", () => {
     const withheld = [...(residuals.match(/WITHHELD_FROM_PUBLIC[^=]*=\s*frozenset\(\{([^}]*)\}\)/)?.[1] ?? "").matchAll(/"(\w+)"/g)].map((m) => m[1]);
     expect(withheld.sort()).toEqual([...WITHHELD_VARIABLES].sort());
     expect(PUBLISHED_VARIABLES).toEqual(all.filter((v) => !withheld.includes(v.name)));
+  });
+
+  it("states the number of sites a statistic needs before it is published as the engine's own constant, not as a typed number", () => {
+    const publication = readFileSync("gridforge/calibration/publication.py", "utf8");
+    expect(publication).toMatch(new RegExp(`^PUBLIC_MIN_SITES = ${PUBLIC_MIN_SITES}$`, "m"));
+    expect(PUBLIC_MIN_SITES).toBeGreaterThan(RESIDUAL_REQUIREMENTS.min_distinct_sites_per_variable); // publishing needs more sites than labelling does
+    // the page's copy reads the constant: no sentence of the component or the library types a different number of sites
+    for (const file of ["components/CalibrationTransparency.tsx", "lib/calibration-residuals.ts"]) {
+      expect(readFileSync(file, "utf8"), file).not.toMatch(/fewer than (three|3)\b/i);
+    }
   });
 
   it("names the schema, the thresholds and the fields of the report, the variable block and the residual cell", () => {

@@ -52,7 +52,8 @@ export type ProjectEventType =
   | "share_issued"
   | "share_revoked"
   | "calibration_permission_recorded"
-  | "evidence_reviewed";
+  | "evidence_reviewed"
+  | "completion_milestone_attested";
 
 export interface ProjectRow {
   id: string;

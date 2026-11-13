@@ -26,15 +26,23 @@
 --   D1  project_completion_milestones: an append-only record that a project reached the 'energised' milestone on a date, backed by a VERIFIED evidence
 --       file of that project and attested by an editor or owner of the organisation. The insert gate refuses a production observation for a project
 --       with no such record, an observation dated before the milestone, and an observation of a project whose own supplier records (0018) show
---       delivery still in flight at the observed date. The view applies the same rule again.
+--       delivery still in flight at the observed date (any date anywhere in a line's chain of corrections counts, unless the latest record states an
+--       energisation date on or before the observed one). The view applies the same rule again. The date is not before 2000 and not in the future. A
+--       record is bound to the ORGANISATION it was attested under (derived, never supplied): one attested under another organisation is absent for a
+--       project that has been moved (GF016 names the cause), so the new organisation attests it afresh. An OWNER corrects a wrong date by a later record
+--       that supersedes the first (supersedes_id; nothing is edited or deleted), and the gate and the view read the record nothing supersedes.
 --   D5  calibration_tombstones: when an organisation's consent is WITHDRAWN (a new row; the trigger on that insert does the rest in the same
 --       transaction) every observation recorded under the organisation gets a tombstone: the SHA-256 of its id, the time and the withdrawal row, and
 --       NO content. The view excludes tombstoned observations for ever (a later re-grant covers only observations recorded after it), and the insert
---       gate refuses to record an observation whose id hash is tombstoned, so a re-import cannot resurrect one. Every released snapshot that contained
---       any of the organisation's observations gets an appended supersession row; the snapshot itself is never edited.
+--       gate refuses to record an observation whose id hash is tombstoned, so a re-import cannot resurrect one. The insert gate takes the SAME advisory lock
+--       as the consent writer before it reads the consent, so a withdrawal that arrives while an observation insert is open waits for it and tombstones that
+--       row too; and the view also requires that no withdrawal followed the consent a row was recorded under (consent_id), whatever was granted since.
+--       Every released snapshot that contained any of the organisation's observations gets an appended supersession row; the snapshot itself is never edited.
 --   R4  calibration_release_snapshots: an append-only registry of what was released, keyed by the hashes of the observations and organisations behind
 --       it. A new snapshot is refused unless it is a safe group by itself (at least 10 observations, from at least 3 organisations, none supplying
---       more than 40%), is released no sooner than the cadence after the previous one, contains no tombstoned observation, and differs from EVERY earlier
+--       more than 40%), is recorded no sooner than the cadence after the previous one (measured between the registry's OWN recorded_at stamps, which the
+--       trigger sets from the database clock; the caller's released_at is only bounded to within a day of it, GF018, so a release cannot be back-dated or
+--       forward-dated to satisfy the cadence), contains no tombstoned observation, and differs from EVERY earlier
 --       snapshot (superseded ones too: the reader still holds them) by a safe group (the larger of the two differences, the one a reader cannot know).
 --       The constants live in gf_calibration_release_policy() and are the same numbers as gridforge/calibration/release.py (a test compares them).
 --       The database checks the snapshot as a whole; the per-cell and the multi-release linear-algebra checks are release.py's, which must run first.
@@ -63,14 +71,24 @@
 -- OPERATOR NOTES
 --   * BEFORE YOU APPLY THIS, the application must be able to meet it. From the moment it is applied a PRODUCTION observation is refused (SQLSTATE GF015, GF016
 --     or GF017) unless its project is attached to a hall of an organisation that has recorded a consent (gf_record_calibration_consent) and the project has attested
---     its completion milestone (gf_attest_completion_milestone). Nothing in lib/ or app/ calls those functions yet and lib/project-observations.ts maps none of the
---     codes, so applied before that exists every production submission fails closed. That is the intended direction (no observation is accepted without the gates),
---     and one reason this is written and not applied. lib/calibration-gates.ts lists the view's conditions and must gain the three added here.
---   * Locks. The only change to an existing table is two nullable columns on project_observations (no rewrite; a short ACCESS EXCLUSIVE lock) and the event-type
---     check on project_events, which is rebuilt and re-validated once (see 0049). Run it in a session with `set lock_timeout = '5s';` and re-run it if it times out.
+--     its completion milestone (gf_attest_completion_milestone). Nothing in lib/ or app/ calls those functions yet, so applied before that exists every production
+--     submission fails closed. lib/project-observations.ts DOES map the codes (GF015-GF017, in words that name what is missing: lib/calibration-gate-errors.ts) so the
+--     customer is told, with HTTP 409, and lib/calibration-gates.ts lists the view's conditions (the page /evidence reads it). That is the intended direction (no
+--     observation is accepted without the gates), and one reason this is written and not applied.
+--   * Locks. The only changes to an existing table are two nullable columns and one trigger on project_observations (no rewrite; a short ACCESS EXCLUSIVE lock) and
+--     the event-type check on project_events, added NOT VALID and then validated (see 0049). The file sets `lock_timeout = '5s'` (SET LOCAL) at its top and each of
+--     those statements sets it again for itself, so a reader that holds the table open makes the apply FAIL after five seconds instead of queueing behind it and
+--     blocking everyone else; re-run it when the table is quiet. Each is done only when it is not already in place, so a re-apply takes none of these locks. (The
+--     view is replaced with CREATE OR REPLACE, which does lock the view: a query that is reading calibration_ledger_rows at that moment also meets the timeout.)
 --   * Personal data. recorded_by and attested_by are e-mail addresses written to append-only tables (0049's note applies: erasure is the owner's decision).
 --
 -- Additive and idempotent. RLS on, no policies (service role only), like every table that holds a customer's material.
+
+-- Every lock wait in this file is bounded. LOCAL: it lasts to the end of the transaction the file runs in (the applier submits the file as ONE query, which is
+-- one transaction; so does `psql -1`). Run statement by statement (plain `psql -f`, autocommit) SET LOCAL has no effect and says so in a warning, which is why the
+-- statements below that take an ACCESS EXCLUSIVE lock on a table other sessions use also set the same bound for themselves, and why they take no lock at all when
+-- there is nothing to change (a re-apply).
+set local lock_timeout = '5s';
 
 -- ---------------------------------------------------------------------------
 -- 0. The history gains one event type: the list as it stands plus this one (see 0047)
@@ -85,9 +103,18 @@ begin
   select pg_get_constraintdef(c.oid) into cur from pg_constraint c
    where c.conrelid = 'public.project_events'::regclass and c.conname = 'project_events_event_type_check';
   select coalesce(array_agg(distinct m[1]), '{}') into have from regexp_matches(coalesce(cur, ''), '''([a-z_]+)''', 'g') as m;
+  -- Already holding every type it should (a re-apply): nothing to rebuild, so no lock is taken on the busiest table of the record.
+  if cur is not null and have @> (base || want) then
+    return;
+  end if;
+  perform set_config('lock_timeout', '5s', true);
   alter table public.project_events drop constraint if exists project_events_event_type_check;
+  -- NOT VALID takes the lock only to register the constraint (new rows are checked from now on, no scan under it); VALIDATE then reads the existing rows
+  -- under a lock that blocks neither readers nor writers. (Inside one transaction the first lock is held to its end all the same: the gain is that the
+  -- scan is not what holds it up, and that a re-apply takes no lock at all, above.)
   execute 'alter table public.project_events add constraint project_events_event_type_check check (event_type in ('
-    || (select string_agg(quote_literal(x), ', ' order by x) from (select distinct unnest(base || have || want) as x) u) || '))';
+    || (select string_agg(quote_literal(x), ', ' order by x) from (select distinct unnest(base || have || want) as x) u) || ')) not valid';
+  alter table public.project_events validate constraint project_events_event_type_check;
 end
 $$;
 
@@ -256,8 +283,15 @@ begin
               where jsonb_typeof(h.x) <> 'string' or not (new.members ? (h.x #>> '{}'))) then
     raise exception 'a cell lists an observation that is not among the snapshot''s members' using errcode = 'GF018';
   end if;
-  if new.released_at > clock_timestamp() + interval '5 minutes' then
+  -- The registry's OWN clock decides when a snapshot was recorded; whatever the caller put in recorded_at is overwritten. released_at is the caller's
+  -- statement of when the figures were released, and is held to within a day of that clock, so the cadence below cannot be satisfied by dating a release.
+  new.recorded_at := clock_timestamp();
+  if new.released_at > new.recorded_at + interval '5 minutes' then
     raise exception 'a snapshot cannot be released in the future' using errcode = 'GF018';
+  end if;
+  if new.released_at < new.recorded_at - interval '1 day' then
+    raise exception 'a snapshot is dated % but is being recorded at %: a release is registered within a day of the time it is released, and cannot be back-dated',
+      new.released_at, new.recorded_at using errcode = 'GF018';
   end if;
   if exists (select 1 from jsonb_object_keys(new.members) k join public.calibration_tombstones t on t.observation_hash = k) then
     raise exception 'a snapshot contains an observation whose organisation withdrew its consent' using errcode = 'GF017';
@@ -267,9 +301,10 @@ begin
       pol ->> 'min_cell_observations', pol ->> 'min_cell_organisations', pol ->> 'max_organisation_share_permille' using errcode = 'GF018';
   end if;
   select * into prev from public.calibration_release_snapshots order by seq desc limit 1;
-  if found and new.released_at < prev.released_at + make_interval(days => (pol ->> 'min_release_interval_days')::int) then
-    raise exception 'the previous snapshot was released at %; the next may not be released within % days of it',
-      prev.released_at, pol ->> 'min_release_interval_days' using errcode = 'GF018';
+  -- the cadence is measured between the times the registry recorded the two (its own clock), never between dates a caller chose
+  if found and new.recorded_at < prev.recorded_at + make_interval(days => (pol ->> 'min_release_interval_days')::int) then
+    raise exception 'the previous snapshot was recorded at %; the next may not be recorded within % days of it',
+      prev.recorded_at, pol ->> 'min_release_interval_days' using errcode = 'GF018';
   end if;
   if exists (select 1 from public.calibration_release_snapshots s where not public.gf_release_step_ok(new.members, s.members)) then
     raise exception 'a snapshot must differ from every earlier release by a safe group (at least % observations from at least % organisations): the difference of two releases is what a reader computes',
@@ -331,28 +366,54 @@ $$;
 create table if not exists public.project_completion_milestones (
   id uuid primary key default gen_random_uuid(),
   project_id uuid not null references public.projects (id),
+  -- The organisation the project belonged to when this was attested: derived by the guard from the project's hall attachment, never supplied. A milestone
+  -- stands for the project only under the organisation that attested it; when the project moves to another organisation that one attests it afresh.
+  organisation_id uuid not null references public.organisations (id),
   milestone text not null check (milestone in ('energised')),
-  reached_on date not null,
+  -- not before 2000: an implausible date is not a milestone (and a wrong one is corrected by an owner, below, never edited)
+  reached_on date not null check (reached_on >= date '2000-01-01'),
   -- The file that shows it (a commissioning or energisation record). It must be one of this project's files and VERIFIED by a reviewer (0048).
   evidence_id uuid not null references public.project_evidence (id),
   basis text not null check (length(btrim(basis)) between 1 and 1000),
   attested_by text not null
     check (attested_by = lower(btrim(attested_by)) and position('@' in attested_by) > 1 and length(attested_by) <= 254 and attested_by !~ '\s'),
   attested_at timestamptz not null default clock_timestamp(),
-  -- a milestone is reached once; it is not edited, retracted or repeated
-  unique (project_id, milestone)
+  -- A CORRECTION: an owner's later record that supersedes this one (a wrong date). Nothing is edited or deleted; the standing record of a project under its
+  -- organisation is the one nothing supersedes.
+  supersedes_id uuid references public.project_completion_milestones (id)
 );
+
+-- One first attestation per project, milestone and organisation; each record is corrected at most once (the next correction supersedes the correction).
+create unique index if not exists project_completion_milestones_one_initial
+  on public.project_completion_milestones (project_id, milestone, organisation_id) where supersedes_id is null;
+create unique index if not exists project_completion_milestones_one_correction
+  on public.project_completion_milestones (supersedes_id) where supersedes_id is not null;
 
 create or replace function public.gf_milestone_guard() returns trigger
 language plpgsql as $$
-declare org uuid; ev public.project_evidence;
+declare org uuid; ev public.project_evidence; prev public.project_completion_milestones;
 begin
   select s.org_id into org from public.projects p join public.sites s on s.id = p.site_id where p.id = new.project_id;
   if org is null then
     raise exception 'a completion milestone can be attested only for a project that is attached to a hall of an organisation' using errcode = 'GF016';
   end if;
-  if public.gf_org_access(org, new.attested_by, 'editor') <> 'ok' then
-    raise exception 'only an active owner or editor of the project''s organisation can attest its completion milestone' using errcode = 'GF016';
+  new.organisation_id := org;
+  if new.supersedes_id is null then
+    if public.gf_org_access(org, new.attested_by, 'editor') <> 'ok' then
+      raise exception 'only an active owner or editor of the project''s organisation can attest its completion milestone' using errcode = 'GF016';
+    end if;
+  else
+    -- a correction of a wrong date: an OWNER's act, of a record of this project under the organisation it belongs to now, and of the standing one
+    select * into prev from public.project_completion_milestones where id = new.supersedes_id;
+    if not found or prev.project_id <> new.project_id or prev.milestone <> new.milestone or prev.organisation_id <> org then
+      raise exception 'a correction must supersede a completion milestone record of this project that was attested under the organisation it belongs to now' using errcode = 'GF016';
+    end if;
+    if exists (select 1 from public.project_completion_milestones x where x.supersedes_id = prev.id) then
+      raise exception 'that completion milestone record has already been corrected: correct the latest one' using errcode = 'GF016';
+    end if;
+    if public.gf_org_access(org, new.attested_by, 'owner') <> 'ok' then
+      raise exception 'only an active owner of the project''s organisation can correct its completion milestone' using errcode = 'GF016';
+    end if;
   end if;
   select * into ev from public.project_evidence where id = new.evidence_id and project_id = new.project_id;
   if not found then
@@ -363,6 +424,9 @@ begin
   end if;
   if new.reached_on > (clock_timestamp() at time zone 'UTC')::date then
     raise exception 'a milestone dated in the future is a plan, not a milestone that has been reached' using errcode = 'GF016';
+  end if;
+  if new.reached_on < date '2000-01-01' then
+    raise exception 'a milestone dated before 2000 is not a plausible date for a project to have been energised' using errcode = 'GF016';
   end if;
   return new;
 end;
@@ -382,31 +446,55 @@ create trigger project_completion_milestones_no_truncate
   for each statement execute function public.gf_append_only();
 alter table public.project_completion_milestones enable row level security;
 
--- Do the project's own supplier records (0018) show delivery still in flight at `p_observed_on`? A record (the current one of its line, not rejected by a
--- reviewer) that gives a purchase, dispatch, arrival or installation date but no energisation date, or an energisation date after the observed date.
--- A project with no supplier record is not in flight by this test: absence of a record is not a date.
+-- Do the project's own supplier records (0018) show delivery still in flight at `p_observed_on`? A LINE is one procurement package's chain of records: the
+-- initial one and each correction of it (0018: one initial and at most one correction per record; a correction is a whole new record of only the facts it
+-- supplies, nothing is inherited). The line's LATEST record that a reviewer has not rejected speaks for it:
+--   * it has an energisation date on or before the observed date: the line is delivered, not in flight (a correction that retracts or moves the date is the
+--     supplier's own, later word);
+--   * otherwise (no energisation date, or one after the observed date): the line is in flight if ANY record of its chain (not rejected) gives any date at all
+--     (purchase, dispatch, arrival, installation, energisation). A later record that carries a cost only, or any other fact but the energisation date, does
+--     not erase the dates of the records it corrects: it cannot be used to make an in-flight delivery look absent. To clear the line the correction must state
+--     the energisation date.
+-- A rejected record is ignored, as before. A project with no supplier record, or only records that carry no date, is not in flight by this test: absence
+-- of a date is not a date.
 create or replace function public.gf_project_delivery_in_flight(p_project uuid, p_observed_on date) returns boolean
 language sql stable as $$
+  with recursive chain as (
+    select a.id, a.package_id, 1 as depth, a.po_date, a.dispatch_date, a.on_site_date, a.install_complete_date, a.energised_date
+      from public.supplier_actuals a where a.project_id = p_project and a.supersedes_id is null
+    union all
+    select b.id, b.package_id, c.depth + 1, b.po_date, b.dispatch_date, b.on_site_date, b.install_complete_date, b.energised_date
+      from public.supplier_actuals b join chain c on b.supersedes_id = c.id
+     where b.project_id = p_project and c.depth < 1000
+  ),
+  live as (
+    select c.* from chain c
+     where not exists (select 1 from public.supplier_actual_reviews r where r.actual_id = c.id and r.decision = 'rejected')
+  ),
+  latest as (
+    select distinct on (l.package_id) l.* from live l order by l.package_id, l.depth desc
+  )
   select exists (
-    select 1 from public.supplier_actuals a
-     where a.project_id = p_project
-       and not exists (select 1 from public.supplier_actuals s where s.supersedes_id = a.id)
-       and not exists (select 1 from public.supplier_actual_reviews r where r.actual_id = a.id and r.decision = 'rejected')
-       and ((a.energised_date is null
-             and (a.po_date is not null or a.dispatch_date is not null or a.on_site_date is not null or a.install_complete_date is not null))
-            or a.energised_date > p_observed_on))
+    select 1 from latest h
+     where (h.energised_date is null or h.energised_date > p_observed_on)
+       and exists (select 1 from live l
+                    where l.package_id = h.package_id
+                      and (l.po_date is not null or l.dispatch_date is not null or l.on_site_date is not null
+                           or l.install_complete_date is not null or l.energised_date is not null)))
 $$;
 
 create or replace function public.gf_attest_completion_milestone(p jsonb, p_event jsonb) returns jsonb
 language plpgsql as $$
 declare r public.project_completion_milestones;
 begin
-  insert into public.project_completion_milestones (project_id, milestone, reached_on, evidence_id, basis, attested_by)
+  -- `supersedes_id` present: a correction of a wrong date by an owner (the guard checks it); absent: the first attestation under the project's organisation.
+  insert into public.project_completion_milestones (project_id, milestone, reached_on, evidence_id, basis, attested_by, supersedes_id)
   values ((p->>'project_id')::uuid, p->>'milestone', (p->>'reached_on')::date, (p->>'evidence_id')::uuid, p->>'basis',
-          lower(btrim(p->>'attested_by')))
+          lower(btrim(p->>'attested_by')), (p->>'supersedes_id')::uuid)
   returning * into r;
   perform public.gf_emit(r.project_id, p_event,
-      jsonb_build_object('milestone_id', r.id, 'milestone', r.milestone, 'reached_on', r.reached_on, 'evidence_id', r.evidence_id));
+      jsonb_build_object('milestone_id', r.id, 'milestone', r.milestone, 'reached_on', r.reached_on, 'evidence_id', r.evidence_id,
+                         'supersedes_id', r.supersedes_id));
   return to_jsonb(r);
 end;
 $$;
@@ -465,9 +553,18 @@ $$;
 -- ---------------------------------------------------------------------------
 -- F. The insert gate on observations (D1, D3) and the refusal to resurrect a withdrawn one (D5)
 -- ---------------------------------------------------------------------------
-alter table public.project_observations
-  add column if not exists organisation_id uuid references public.organisations (id),
-  add column if not exists consent_id uuid references public.calibration_consents (id);
+-- ADD COLUMN IF NOT EXISTS takes the ACCESS EXCLUSIVE lock BEFORE it looks, so a re-apply would queue behind (and block) every reader of the table: look first.
+do $$
+begin
+  if (select count(*) from information_schema.columns
+       where table_schema = 'public' and table_name = 'project_observations' and column_name in ('organisation_id', 'consent_id')) < 2 then
+    perform set_config('lock_timeout', '5s', true);
+    alter table public.project_observations
+      add column if not exists organisation_id uuid references public.organisations (id),
+      add column if not exists consent_id uuid references public.calibration_consents (id);
+  end if;
+end
+$$;
 comment on column public.project_observations.organisation_id is
   'The organisation the observation was recorded under: derived by the database from the project''s open hall attachment at insert, never supplied. '
   'NULL for rows written before 0056 and for rows that are not production. Only a production row with an organisation and a standing consent can be exported.';
@@ -491,6 +588,11 @@ begin
   if org is null then
     raise exception 'a production observation needs a project attached to a hall of an organisation: there is no organisation whose consent could cover it' using errcode = 'GF015';
   end if;
+  -- The SAME lock the consent writer takes (gf_calibration_consent_guard), taken BEFORE the consent is read and held to the end of this transaction. A
+  -- withdrawal that arrives while this insert is open therefore waits for it, and then tombstones this row too (its trigger reads project_observations
+  -- with a fresh snapshot once the lock is its own); a withdrawal that committed first is seen by the read below. Without it the row would be recorded under
+  -- a consent that was withdrawn a moment later, escape the tombstones, and come back when the organisation granted consent again.
+  perform pg_advisory_xact_lock(hashtextextended('calibration_consent:' || org::text, 0));
   select * into c from public.calibration_consents where organisation_id = org order by seq desc limit 1;
   if not found or c.kind <> 'granted' then
     raise exception 'the organisation has no standing calibration consent (none was recorded, or it was withdrawn)' using errcode = 'GF015';
@@ -498,8 +600,15 @@ begin
   new.organisation_id := org;
   new.consent_id := c.id;
   -- D1. The project has reached, and attested, its completion milestone; the observation is not older than it; its own supplier records agree.
-  select * into m from public.project_completion_milestones where project_id = new.project_id and milestone = 'energised';
+  -- The standing record of the project's milestone UNDER ITS ORGANISATION NOW (not superseded by a correction). One attested under another organisation is
+  -- absent for this one: a milestone does not travel with a project that has been moved.
+  select * into m from public.project_completion_milestones pm
+   where pm.project_id = new.project_id and pm.milestone = 'energised' and pm.organisation_id = org
+     and not exists (select 1 from public.project_completion_milestones x where x.supersedes_id = pm.id);
   if not found then
+    if exists (select 1 from public.project_completion_milestones where project_id = new.project_id and milestone = 'energised') then
+      raise exception 'the project''s completion milestone was attested under another organisation; the organisation it belongs to now has to attest it again: a milestone does not move with the project' using errcode = 'GF016';
+    end if;
     raise exception 'the project has not attested that it reached its completion milestone (energised): partial or in-flight data is not recorded' using errcode = 'GF016';
   end if;
   if m.reached_on > new.observed_on then
@@ -512,10 +621,24 @@ begin
 end;
 $$;
 
-drop trigger if exists project_observations_publication_gates on public.project_observations;
-create trigger project_observations_publication_gates
-  before insert on public.project_observations
-  for each row execute function public.gf_observation_publication_gates();
+-- DROP TRIGGER takes an ACCESS EXCLUSIVE lock on project_observations; the trigger's body is the function above (replaced in place), so on a re-apply it is left
+-- alone, and only created when absent or switched back on when disabled.
+do $$
+declare st "char";
+begin
+  select t.tgenabled into st from pg_trigger t
+   where t.tgrelid = 'public.project_observations'::regclass and t.tgname = 'project_observations_publication_gates' and not t.tgisinternal;
+  if not found then
+    perform set_config('lock_timeout', '5s', true);
+    create trigger project_observations_publication_gates
+      before insert on public.project_observations
+      for each row execute function public.gf_observation_publication_gates();
+  elsif st <> 'O' then
+    perform set_config('lock_timeout', '5s', true);
+    alter table public.project_observations enable trigger project_observations_publication_gates;
+  end if;
+end
+$$;
 
 -- ---------------------------------------------------------------------------
 -- G. The FINAL ledger view: 0052's definition plus the three publication conditions
@@ -567,15 +690,25 @@ where r.decision = 'verified'
     join public.sites st on st.id = hpa.site_id
     where hpa.project_id = o.project_id
       and st.data_origin <> 'production')
-  -- 0056 (D3): the organisation the row was recorded under still has a standing consent, and its latest decision is a grant.
+  -- 0056 (D3): the organisation the row was recorded under still has a standing consent, and its latest decision is a grant; and (D3/D5, defence in depth) the
+  -- consent the row was RECORDED UNDER (consent_id) has not been followed by a withdrawal, whatever has been granted since. A tombstone is the primary record of a
+  -- withdrawal; the second term keeps out a row that somehow escaped it (an insert whose snapshot predates the withdrawal, a withdrawal written with the triggers
+  -- off) when the organisation grants consent again.
   and exists (
     select 1 from public.calibration_consents cc
     where cc.organisation_id = o.organisation_id and cc.kind = 'granted'
       and cc.seq = (select max(c3.seq) from public.calibration_consents c3 where c3.organisation_id = o.organisation_id))
-  -- 0056 (D1): the project attested its completion milestone, the observation is not older than it, and no supplier record of the project shows delivery in flight.
+  and exists (
+    select 1 from public.calibration_consents rc
+    where rc.id = o.consent_id and rc.organisation_id = o.organisation_id and rc.kind = 'granted'
+      and not exists (select 1 from public.calibration_consents w
+                      where w.organisation_id = rc.organisation_id and w.kind = 'withdrawn' and w.seq > rc.seq))
+  -- 0056 (D1): the project attested its completion milestone UNDER THE ORGANISATION THE ROW WAS RECORDED UNDER (the standing record, not one an owner has since
+  -- corrected), the observation is not older than it, and no supplier record of the project shows delivery in flight.
   and exists (
     select 1 from public.project_completion_milestones pm
-    where pm.project_id = o.project_id and pm.milestone = 'energised' and pm.reached_on <= o.observed_on
+    where pm.project_id = o.project_id and pm.milestone = 'energised' and pm.organisation_id = o.organisation_id and pm.reached_on <= o.observed_on
+      and not exists (select 1 from public.project_completion_milestones x where x.supersedes_id = pm.id)
       and not public.gf_project_delivery_in_flight(o.project_id, o.observed_on))
   -- 0056 (D5): the observation was not withdrawn with its organisation's consent (a tombstone is permanent, a later re-grant does not lift it).
   and not exists (
@@ -604,9 +737,16 @@ $$;
 -- ---------------------------------------------------------------------------
 -- Privileges, per 0020/0038/0047: the gf_* functions are service_role-only; the new tables and views are readable (and, where a function writes
 -- them as the caller, insertable) by service_role alone. The tombstones and supersessions are written by the SECURITY DEFINER trigger alone.
+--
+-- A Supabase project hands ALL on every new public table to anon, authenticated and service_role through default privileges (0040), so a GRANT of select to
+-- service_role takes nothing away: service_role would keep INSERT, UPDATE, DELETE, TRUNCATE, TRIGGER and REFERENCES, and a forged INSERT into
+-- calibration_tombstones (no trigger stops an insert there) would suppress any observation for ever. Each object is therefore REVOKED from every API role
+-- (and public) first, and only what the code path needs is granted back: select everywhere, insert where a gf_* function writes the table as the caller
+-- (the consent log, the snapshot registry, the milestone record). The identity sequences behind the two `seq` columns are revoked too: an insert into an
+-- identity column needs no privilege on its sequence, and setval on one could hand a withdrawal a lower seq than the grant it ends.
 -- ---------------------------------------------------------------------------
 do $$
-declare f text; r text; t text;
+declare f text; r text; t text; sq text;
 begin
   for f in select p.oid::regprocedure::text from pg_proc p
            join pg_namespace n on n.oid = p.pronamespace
@@ -625,7 +765,7 @@ begin
                            'calibration_tombstones', 'calibration_snapshot_supersessions',
                            'calibration_ledger_rows'] loop
     execute format('revoke all on public.%I from public', t);
-    foreach r in array array['anon', 'authenticated'] loop
+    foreach r in array array['anon', 'authenticated', 'service_role'] loop
       if exists (select 1 from pg_roles where rolname = r) then
         execute format('revoke all on public.%I from %I', t, r);
       end if;
@@ -636,6 +776,17 @@ begin
       else
         execute format('grant select on public.%I to service_role', t);
       end if;
+    end if;
+  end loop;
+  foreach t in array array['calibration_consents', 'calibration_release_snapshots'] loop
+    sq := pg_get_serial_sequence(format('public.%I', t), 'seq');
+    if sq is not null then
+      execute format('revoke all on sequence %s from public', sq);
+      foreach r in array array['anon', 'authenticated', 'service_role'] loop
+        if exists (select 1 from pg_roles where rolname = r) then
+          execute format('revoke all on sequence %s from %I', sq, r);
+        end if;
+      end loop;
     end if;
   end loop;
 end

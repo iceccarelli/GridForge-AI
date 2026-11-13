@@ -8,8 +8,12 @@ ledger, read whenever the ledger is read.
 
   * ``load_ledger`` leaves out of the private ledger every observation whose source reference carries a tombstoned id (``is_withdrawn``). The bytes of the
     chained file are unchanged; the observation is no longer counted in any aggregate that reads the ledger through ``load_ledger``.
-  * ``import_export`` refuses, and writes nothing, an export that holds a tombstoned observation (from this file or from a ``tombstones`` list in the export
-    itself), so a re-import cannot resurrect it.
+  * ``import_export`` RECORDS the ``tombstones`` list an export carries in this file (before it looks at the rows, so a withdrawal does not wait for the rest of
+    the export to be valid), and refuses, writing no observation, an export that holds a tombstoned observation, so a re-import cannot resurrect it.
+    ``gridforge calibrate withdraw <hash>...`` records them by hand. Nothing reads the network: a withdrawal reaches this file when an operator imports an export
+    that lists it or runs that command, and not before.
+  * ``ledger._read`` (the count ``calibrate add`` prints, the total an import reports) leaves them out too; the chain readers (``read_chain``, ``_load``) stay whole,
+    because they verify the file.
 
 The file is ``calibration.local.tombstones.json`` beside the private ledger (``GRIDFORGE_CALIBRATION_TOMBSTONES`` overrides it), private and git-ignored like the
 ledger. An unreadable file STOPS everything that reads the ledger: ignoring it would count withdrawn observations again, which is the one thing it is for.
@@ -95,8 +99,8 @@ def add_tombstones(path: Path, hashes: Iterable[str], *, withdrawn_at: datetime 
     half-written. Each entry is the hash and the time, no content."""
     existing: dict[str, str] = {}
     if path.exists():
+        read_tombstones(path)                                   # refuses a file that is not ours (or unreadable) before anything is added to it
         doc = json.loads(path.read_text(encoding="utf-8"))
-        read_tombstones(path)                                   # refuses a file that is not ours before anything is added to it
         existing = {_entry_hash(e, str(path)): (e.get("withdrawn_at", "") if isinstance(e, Mapping) else "") for e in doc["tombstones"]}
     at = (withdrawn_at or datetime.now(timezone.utc)).astimezone(timezone.utc).isoformat().replace("+00:00", "Z")
     new = {_entry_hash(h, "add_tombstones"): at for h in hashes if h not in existing}

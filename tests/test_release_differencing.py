@@ -14,9 +14,11 @@ Pure: no database, no network, no clock. The database half is tests/test_calibra
 """
 import copy
 import dataclasses
+import itertools
 import json
 import random
 import re
+import time
 from datetime import datetime, timedelta, timezone
 from fractions import Fraction
 from pathlib import Path
@@ -375,17 +377,310 @@ def test_the_algebra_alone_stops_the_three_sets_so_removing_it_would_let_them_th
     a, b, d = three_sets()
     s1, s2 = snap({"c1": a + d}, T0), snap({"c2": b + d}, T0 + MONTH)
     third = snap({"c3": a + b}, T0 + 2 * MONTH)
-    monkeypatch.setattr(R, "_unsafe_recoverable", lambda rows, members: set())
+    monkeypatch.setattr(R, "_unsafe_recoverable", lambda rows, members, base=None: set())
     assert R.evaluate_release(third, [s1, s2], now=T0 + 2 * MONTH).allowed
 
 
-def test_the_proof_refuses_when_it_has_too_many_rows(monkeypatch):
-    monkeypatch.setattr(R, "MAX_PROOF_ROWS", 3)
+def test_the_proof_refuses_when_it_has_too_many_atoms(monkeypatch):
+    """The size limit is on ATOMS (what the proof's cost follows), not on how many sets were published: nothing is proved beyond it, so nothing is released."""
+    monkeypatch.setattr(R, "MAX_PROOF_ATOMS", 3)
     s1 = snap({"total": spread(0, 20, [1, 2, 3, 4]), "a": spread(0, 12, [1, 2, 3, 4]), "b": spread(0, 14, [1, 2, 3, 4]), "c": spread(0, 16, [1, 2, 3, 4])})
     d = accepted(s1, [])
     assert not d.allowed and R.PROOF_TOO_LARGE in d.codes
     with pytest.raises(ValueError):
         R.recoverable_atoms([frozenset({str(i)}) for i in range(4)])
+    assert not hasattr(R, "MAX_PROOF_ROWS"), "the limit on rows is gone: a long history is not a reason to stop releasing"
+
+
+# ---- C2: the proof holds against an organisation (or a coalition below M) that knows its own observations
+
+def two_small_groups():
+    """Cells p = U + a, q = V + b, r = U + V (U and V safe groups of ten from four organisations; a and b one observation each, a the victim's and b the
+    attacker's): p + q - r = a + b exactly. No unit vector is in the row space (no single group is recoverable), yet the organisation that owns b reads a off it."""
+    u = [c(i, i % 4) for i in range(10)]
+    v = [c(100 + i, 10 + i % 4) for i in range(10)]
+    a, b = c(200, "victim"), c(201, "attacker")
+    return u, v, a, b, {"cell_p": u + [a], "cell_q": v + [b], "cell_r": u + v}
+
+
+def test_a_sum_over_two_small_groups_is_refused_although_neither_is_recoverable_alone():
+    u, v, a, b, cells = two_small_groups()
+    s = snap(cells)
+    rows = list(s.cell_sets.values())
+    assert R.recoverable_atoms(rows) == [], "the earlier, single-group proof sees nothing here (that is the defect)"
+    values = {o.observation: 100 + 7 * i for i, o in enumerate(u + v + [a, b])}
+    sums = [(r, sum(values[k] for k in r)) for r in rows]
+    # the attacker that owns b (independent of release.py): add b as a known value and read off a
+    recovered = attack(sums + [(frozenset({b.observation}), values[b.observation])])
+    assert (frozenset({a.observation}), values[a.observation]) in recovered, "the fixture must show the attack works on exact sums"
+    d = accepted(s, [])
+    assert not d.allowed and d.codes == (R.LEAK,), d
+    plan = R.plan_cells(cells)
+    assert len(plan.published) < 3 and set(plan.withheld.values()) <= {R.COMPLEMENT}, plan
+    kept = [frozenset(o.observation for o in g) for g in plan.published.values()]
+    rec = attack([(r, sum(values[k] for k in r)) for r in kept] + [(frozenset({b.observation}), values[b.observation])])
+    assert (frozenset({a.observation}), values[a.observation]) not in rec
+
+
+def test_a_small_group_a_combination_isolates_is_refused_and_two_safe_groups_are_not():
+    u, v, a, b, _ = two_small_groups()
+    one_more = snap({"p": u + v, "q": u + v + [a]})                                                 # q - p is a: one observation
+    assert not accepted(one_more, []).allowed
+    three = snap({"p": u + [a], "q": v + [a], "r": u + v + [a]})                                    # p + q - r is a again, from three sets that each look fine
+    d = accepted(three, [])
+    assert not d.allowed and R.LEAK in d.codes
+    assert accepted(snap({"p": u + v, "q": u}), []).allowed                                         # atoms U and V, both safe, both recoverable, and published anyway
+
+
+def test_two_organisations_that_own_the_rest_of_a_small_group_isolate_its_last_observation():
+    """Sets p = U + A, q = V + Y, r = U + V where A holds x (organisation 9) and y5 (organisation 5) and Y holds y6 (organisation 6): p + q - r = A + Y. The
+    pair {5, 6} owns y5 and y6, so it reads x off the sum over A + Y. A coalition of ONE organisation cannot (it would have to own all but x of both atoms), which
+    is what ``MAX_COALITION`` = M - 1 = 2 is about: the pair is refused, and with the coalition limited to one the same release would pass."""
+    u, v = spread(0, 12, [1, 2, 3, 4]), spread(100, 12, [1, 2, 3, 4])
+    x, y5, y6 = c(300, 9), c(301, 5), c(302, 6)
+    cells = {"p": u + [x, y5], "q": v + [y6], "r": u + v}
+    values = {o.observation: 100 + 11 * i for i, o in enumerate(u + v + [x, y5, y6])}
+    sums = [(frozenset(o.observation for o in g), sum(values[o.observation] for o in g)) for g in cells.values()]
+    known = [(frozenset({k.observation}), values[k.observation]) for k in (y5, y6)]
+    assert (frozenset({x.observation}), values[x.observation]) in attack(sums + known), "the fixture must show that the pair of organisations wins on exact sums"
+    assert not attack(sums + known[:1]) or (frozenset({x.observation}), values[x.observation]) not in attack(sums + known[:1])         # one of them alone does not
+    d = accepted(snap(cells), [])
+    assert not d.allowed and R.LEAK in d.codes, d
+
+
+def test_the_coalition_limit_is_the_only_thing_that_lets_the_pair_through(monkeypatch):
+    u, v = spread(0, 12, [1, 2, 3, 4]), spread(100, 12, [1, 2, 3, 4])
+    cells = {"p": u + [c(300, 9), c(301, 5)], "q": v + [c(302, 6)], "r": u + v}
+    assert not accepted(snap(cells), []).allowed
+    monkeypatch.setattr(R, "MAX_COALITION", 1)
+    assert accepted(snap(cells), []).allowed, "with the coalition limited to one organisation the proof does not look for the pair"
+
+
+def test_an_exposure_already_in_the_history_is_not_charged_to_a_release_that_did_not_cause_it():
+    u, v, a, b, cells = two_small_groups()
+    history = snap(cells)                                                                           # released before the policy existed (its rows are trusted)
+    more = list(history.member_map.values()) + spread(500, 12, [30, 31, 32, 33])
+    d = R.evaluate_release(total(more, T0 + MONTH), [history], now=T0 + MONTH)
+    assert R.LEAK not in d.codes, d
+
+
+def exact_isolation(sets, members_by_hash, observations):
+    """Independent of release.py and of its atoms: build the sums of a seeded set of exact values, and ask the exact solver, for each organisation that knows only
+    its own observations, which OTHER observations it determines."""
+    values = {o: 1000 + 37 * i for i, o in enumerate(sorted(observations))}
+    sums = [(s, sum(values[k] for k in s)) for s in sets]
+    leaks = []
+    by_org = {}
+    for o in observations:
+        by_org.setdefault(members_by_hash[o].organisation, set()).add(o)
+    for org, own in sorted(by_org.items(), key=lambda kv: -len(kv[1]))[:3]:                       # the three organisations with the most to subtract
+        known = [(frozenset({k}), values[k]) for k in sorted(own)]
+        for group, _ in attack(sums + known):
+            if len(group) == 1 and not (group <= own):
+                leaks.append((org[:8], sorted(group)[0][:8]))
+    return leaks
+
+
+def months_of_arrivals(seed, publisher=None, months=14):
+    """The review's sweep: breakdown cells over arrivals from seven organisations, released month by month under the policy."""
+    rng = random.Random(seed)
+    pool, history, attrs = [], [], {}
+    for month in range(months):
+        for _ in range(rng.randint(2, 14)):
+            o = c(len(attrs), rng.randrange(7))
+            attrs[o.observation] = {"cap": rng.choice("sml"), "ev": rng.choice("AB"), "arch": rng.choice("XYZ")}
+            pool.append(o)
+        dim = rng.choice(["cap", "ev", "arch"])
+        groups = {}
+        for o in pool:
+            groups.setdefault(f"{dim}:{attrs[o.observation][dim]}", []).append(o)
+        p = R.propose_release({"total": pool, **groups}, history=history, now=T0 + MONTH * month, figures_for=lambda names: {"cells": names})
+        if p.snapshot:
+            history.append(p.snapshot)
+    return pool, history
+
+
+@pytest.mark.parametrize("seed", range(8))
+def test_an_organisation_that_knows_only_its_own_observations_isolates_nobody_elses(seed):
+    """C2's realistic case (4 of 150 seeds under the earlier proof)."""
+    pool, history = months_of_arrivals(seed)
+    sets = [cs for s_ in history for cs in s_.cell_sets.values()]
+    assert len(history) >= 2, "the run must release something for it to mean anything"
+    assert exact_isolation(sets, {o.observation: o for o in pool}, set().union(*sets)) == []
+
+
+def test_the_leaks_the_earlier_proof_let_through_are_found_by_the_independent_attacker(monkeypatch):
+    """Revert-check: with the proof reduced to the earlier single-group test the same seeded months DO release a history that an organisation with only its own
+    observations reads another's observation from (seeds 1, 31, 119 and 136 of the review's sweep)."""
+    def single_group(rows, members, base=None):
+        space = base.copy() if base is not None else R._Space()
+        for r in R._distinct_rows(rows):
+            space.extend(r)
+        return {a for a in space.recoverable() if not R.check_group(members[o] for o in a).safe}
+    monkeypatch.setattr(R, "_unsafe_recoverable", single_group)
+    found = 0
+    for seed in (1, 31, 119, 136):
+        pool, history = months_of_arrivals(seed)
+        sets = [cs for s_ in history for cs in s_.cell_sets.values()]
+        found += bool(exact_isolation(sets, {o.observation: o for o in pool}, set().union(*sets)))
+    assert found >= 1, "the independent attacker must be able to find what the earlier proof missed, or the sweep above proves nothing"
+
+
+def brute_exposed(sets, members, size=None):
+    """The criterion written a second way, from the definition, in exact fractions and at the level of single observations (no atoms carried between steps, no
+    reduced basis, no pivot bookkeeping): (a) unsafe groups of observations that no published set tells apart whose own sum is a combination of the published
+    sums; (b) for each coalition of at most `size` organisations, delete its observations from every published set and ask which single observation is then a
+    combination of what is left. Returns the groups (frozensets of observations) the incremental proof reports, so the two can be compared."""
+    size = R.MAX_COALITION if size is None else size
+    obs = sorted(set().union(*sets))
+    sig = {o: tuple(1 if o in s else 0 for s in sets) for o in obs}
+    classes = {}
+    for o in obs:
+        classes.setdefault(sig[o], []).append(o)
+    atom_of = {o: frozenset(v) for v in classes.values() for o in v}
+
+    def in_span(rows, target):
+        rows = [[Fraction(x) for x in r] for r in rows if any(r)]
+        t = [Fraction(x) for x in target]
+        for col in range(len(t)):
+            piv = next((i for i, r in enumerate(rows) if r[col] != 0 and all(r[k] == 0 for k in range(col))), None)
+            if piv is None:
+                continue
+            f = t[col] / rows[piv][col]
+            t = [a - f * b for a, b in zip(t, rows[piv])]
+        return not any(t)
+
+    def echelon(rows):
+        rows = [[Fraction(x) for x in r] for r in rows]
+        out = []
+        for col in range(len(rows[0]) if rows else 0):
+            piv = next((i for i, r in enumerate(rows) if r[col] != 0), None)
+            if piv is None:
+                continue
+            row = rows.pop(piv)
+            row = [x / row[col] for x in row]
+            rows = [[a - r[col] * b for a, b in zip(r, row)] for r in rows]
+            out.append(row)
+        return out
+
+    found = set()
+    full = echelon([[1 if o in s else 0 for o in obs] for s in sets])
+    for atom in set(atom_of.values()):
+        if not R.check_group(members[o] for o in atom).safe and in_span(full, [1 if o in atom else 0 for o in obs]):
+            found.add(atom)
+    orgs = sorted({members[o].organisation for o in obs})
+    for k in range(1, size + 1):
+        for coalition in itertools.combinations(orgs, k):
+            known = {o for o in obs if members[o].organisation in coalition}
+            rest = [o for o in obs if o not in known]
+            if not rest:
+                continue
+            reduced = echelon([[1 if o in s else 0 for o in rest] for s in sets])
+            for i, x in enumerate(rest):
+                if in_span(reduced, [1 if j == i else 0 for j in range(len(rest))]):
+                    found.add(atom_of[x])
+    return found
+
+
+@pytest.mark.parametrize("seed", range(14))
+def test_the_incremental_proof_agrees_with_the_definition_computed_from_scratch(seed):
+    rng = random.Random(seed)
+    pool = [c(i, rng.randrange(6)) for i in range(rng.randint(24, 34))]
+    members = {o.observation: o for o in pool}
+    blocks = [rng.sample(pool, rng.randint(1, 14)) for _ in range(rng.randint(2, 5))]
+    sets = []
+    for _ in range(rng.randint(3, 7)):
+        picks = rng.sample(blocks, rng.randint(1, min(3, len(blocks))))
+        sets.append(frozenset(o.observation for blk in picks for o in blk))
+    sets = sorted({s_ for s_ in sets if s_}, key=sorted)
+    space = R._Space()
+    for s_ in sets:
+        space.extend(s_)
+    assert space.exposed(members) == brute_exposed(sets, members)
+    other = R._Space()                                                                              # the order the sets arrive in does not change the answer
+    for s_ in sorted(sets, key=lambda x: (-len(x), sorted(x))):
+        other.extend(s_)
+    assert other.exposed(members) == space.exposed(members)
+
+
+def test_the_proof_state_of_a_history_is_a_cache_of_a_pure_computation():
+    s1 = first_release()
+    s2 = total(list(s1.member_map.values()) + spread(100, 12, [5, 6, 7]), T0 + MONTH)
+    third = total(list(s2.member_map.values()) + spread(300, 12, [8, 9, 10]), T0 + 2 * MONTH)
+    R._SPACES.clear()
+    cold = R.evaluate_release(third, [s1, s2], now=third.released_at)
+    warm = R.evaluate_release(third, [s1, s2], now=third.released_at)
+    R._SPACES.clear()
+    assert cold == warm and cold.allowed
+    assert len(R._space_for([s1, s2]).atoms) == 2 and len(R._space_for([s1]).atoms) == 1
+
+
+def test_a_release_cannot_be_back_dated_by_more_than_a_day():
+    s = first_release()
+    now = T0 + timedelta(days=100)
+    d = R.evaluate_release(s, [], now=now)
+    assert not d.allowed and R.BACKDATED in d.codes
+    assert R.evaluate_release(s, [], now=T0 + R.MAX_BACKDATE).allowed
+    assert R.BACKDATED in R.evaluate_release(s, [], now=T0 + R.MAX_BACKDATE + timedelta(seconds=1)).codes
+
+
+def long_history(releases):
+    """`releases` consecutive releases of three sets each (the total and two halves of it), every one a safe group, built directly: twenty-four new observations a
+    release, from six organisations, so each half's step is twelve observations from three organisations. Returns the history and the next release's cells."""
+    pool, history = [], []
+    for k in range(releases):
+        pool += [c(1000 * k + j, f"o{(3 * k + j) % 12}") for j in range(24)]
+        half = {h: [o for i, o in enumerate(pool) if i % 2 == h] for h in (0, 1)}
+        history.append(snap({"total": list(pool), "even": half[0], "odd": half[1]}, T0 + MONTH * k))
+    return history, pool
+
+
+def test_a_history_of_hundreds_of_published_sets_does_not_stop_releases():
+    """C11: the proof reduced a matrix with one row per distinct published set and refused beyond 300 of them, so every release was refused once a monthly
+    history held that many (about thirteen years of the three-cell releases below). It now holds one column per atom, and what stands for the history is a state
+    that is grown, so a candidate after 160 releases (481 distinct sets) is judged on the atoms."""
+    history, pool = long_history(160)
+    rows = len({cell for s_ in history for cell in s_.cell_sets.values()})
+    assert rows > 450
+    nxt = pool + [c(990000 + j, f"o{j % 12}") for j in range(24)]
+    cells = {"total": nxt, "even": [o for i, o in enumerate(nxt) if i % 2 == 0], "odd": [o for i, o in enumerate(nxt) if i % 2 == 1]}
+    started = time.monotonic()
+    d = R.evaluate_release(snap(cells, T0 + MONTH * 160), history, now=T0 + MONTH * 160)
+    assert d.allowed, d
+    space = R._space_for(history)
+    assert len(space.atoms) <= 2 * len(history) and len(space.basis) <= len(space.atoms) < R.MAX_PROOF_ATOMS
+    assert time.monotonic() - started < 60
+    assert not hasattr(R, "MAX_PROOF_ROWS")
+
+
+def test_a_twenty_year_monthly_history_still_releases_and_the_proof_stays_within_its_budget():
+    """Two hundred and forty months of arrivals from twelve organisations, three breakdown cells offered each month besides the total, and a withdrawal of six
+    observations every year. (The earlier proof, run on a denser version of the same months, stopped releasing at about month 158: the last 82 of 240 decisions refused.)"""
+    rng = random.Random(20)
+    pool, history, attrs = [], [], {}
+    nobs, slowest = 0, 0.0
+    started = time.monotonic()
+    for month in range(240):
+        for _ in range(rng.randint(1, 6)):
+            o = c(nobs, rng.randrange(12))
+            nobs += 1
+            attrs[o.observation] = rng.choice("sml")
+            pool.append(o)
+        if month % 12 == 11 and history:
+            gone = [o for o in pool if o.organisation == R.organisation_hash(f"org-{rng.randrange(12)}")][:6]
+            pool = [o for o in pool if o not in gone]
+        cells = {"total": pool, **{f"cap:{k}": [o for o in pool if attrs[o.observation] == k] for k in "sml"}}
+        t0 = time.monotonic()
+        p = R.propose_release(cells, history=history, now=T0 + MONTH * month, figures_for=lambda names: {"cells": names})
+        slowest = max(slowest, time.monotonic() - t0)
+        if p.snapshot:
+            history.append(p.snapshot)
+    space = R._space_for(history)
+    assert len(history) >= 100 and history[-1].released_at > T0 + MONTH * 225, (len(history), history[-1].released_at)       # a release every other month, to the end
+    assert len(space.atoms) < R.MAX_PROOF_ATOMS // 2 and len(space.basis) <= len(space.atoms)
+    assert slowest < 20 and time.monotonic() - started < 240, (slowest, time.monotonic() - started)
+    members = {c_.observation: c_ for s_ in history for c_ in s_.members}
+    assert space.exposed(members) == set()                                                          # nothing in the whole history is isolated
 
 
 # =============================================================================================== proposing a release
@@ -628,7 +923,7 @@ def test_with_the_step_and_the_algebra_switched_off_the_same_attacker_wins(monke
     """Revert-check for the rules together: take the step, the combination proof and the cadence out and the policy is the naive publisher, and loses to
     the same attacker in the same seeded months."""
     monkeypatch.setattr(R, "_step_ok", lambda x, y, members: True)
-    monkeypatch.setattr(R, "_unsafe_recoverable", lambda rows, members: set())
+    monkeypatch.setattr(R, "_unsafe_recoverable", lambda rows, members, base=None: set())
     monkeypatch.setattr(R, "MIN_RELEASE_INTERVAL", timedelta(0))
     wins = 0
     for seed in SEEDS:
@@ -638,12 +933,20 @@ def test_with_the_step_and_the_algebra_switched_off_the_same_attacker_wins(monke
     assert wins >= int(0.8 * len(SEEDS)), wins
 
 
-def test_the_step_alone_stops_a_swap_of_one_observation_for_another(monkeypatch):
+def test_the_step_and_the_algebra_each_stop_a_swap_of_one_observation_for_another(monkeypatch):
+    """Drop the first observation (organisation 1's) and add one of organisation 9's: the two releases differ by one observation each way. The step refuses it. The
+    earlier single-group proof saw nothing here (no group is recoverable on its own); the coalition proof refuses it too, since organisation 1 owns the dropped one."""
     p = first_release()
     swapped = total(list(p.member_map.values())[1:] + [c(500, 9)], T0 + MONTH)
-    assert not accepted(swapped, [p]).allowed
-    monkeypatch.setattr(R, "_step_ok", lambda x, y, members: True)
-    assert accepted(swapped, [p]).allowed, "the algebra sees no atom here: only the step stops a swap"
+    d = accepted(swapped, [p])
+    assert not d.allowed and R.STEP in d.codes and R.LEAK in d.codes, d
+    with monkeypatch.context() as m:
+        m.setattr(R, "_unsafe_recoverable", lambda rows, members, base=None: set())
+        assert R.STEP in accepted(swapped, [p]).codes and R.LEAK not in accepted(swapped, [p]).codes
+    with monkeypatch.context() as m:
+        m.setattr(R, "_step_ok", lambda x, y, members: True)
+        d = accepted(swapped, [p])
+        assert not d.allowed and R.LEAK in d.codes and R.STEP not in d.codes
 
 
 def test_the_cadence_bounds_how_often_a_difference_can_exist(monkeypatch):

@@ -29,8 +29,10 @@ HARD PRECONDITION FOR PUBLISHING ANY REAL OBSERVATION (review R4: the policy is 
   even with three-figure rounding). Nothing in a pure function of the ledger can stop that: it needs successive releases to be a policy
   decision, i.e. the report served from a snapshot, refreshed on a fixed cadence and only when the new release differs from EVERY earlier one by
   a safe group (never by one site), or no public statistic at all.
-  BUILT: ``release.py`` is that policy (cell floors K and M in organisations, the step, the cadence, an exact proof that no combination of published sums
-  isolates a small group; ``propose_release`` returns what to serve and what to register), tested against an attacker built independently of it
+  BUILT: ``release.py`` is that policy (cell floors K and M in organisations, the step, the cadence, and an exact proof, in integer arithmetic, that no combination
+  of the published sums isolates a group of observations too small to be safe by itself FROM A READER WHO KNOWS EVERY SUCH SMALL GROUP: its own observations and
+  every other small group, but none of the safe ones; the stated attacker model and what it does not cover, tenant splitting among them, are in release.py's
+  header; ``propose_release`` returns what to serve and what to register), tested against an attacker built independently of it
   (tests/test_release_differencing.py); supabase/migrations/0056 holds the registry of released snapshots and its database half.
   NOT BUILT: anything that CALLS it. gridforge/api/server.py still recomputes ``public_report`` on every request, so the precondition stands: DO NOT put a
   real observation into the ledger or the record store, or serve the report over one, until the route serves ``Proposal.served`` and registers

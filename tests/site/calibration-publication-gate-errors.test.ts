@@ -221,3 +221,31 @@ describe("through the observation route", () => {
     expect(logged()).not.toMatch(/gate \(GF0/);
   });
 });
+
+describe("the history's event types", () => {
+  it("lib/projects.ts names every event type that migration 0056 adds to the history's check, so the type system knows what the database may hold", () => {
+    const added = [...(migration.match(/want text\[\] := array\[([^\]]*)\]/)?.[1] ?? "").matchAll(/'([a-z_]+)'/g)].map((m) => m[1]);
+    expect(added).toContain("completion_milestone_attested");
+    const projects = readFileSync(path.join(ROOT, "lib", "projects.ts"), "utf8");
+    const union = projects.slice(projects.indexOf("export type ProjectEventType"), projects.indexOf("export interface ProjectRow"));
+    for (const type of added) expect(union, type).toContain(`"${type}"`);
+  });
+});
+
+describe("the copy that states what 0056 and the site do", () => {
+  it("the migration header does not say the library maps none of the codes, and the library does map the three the insert gate raises", () => {
+    expect(migration.slice(0, 9000)).not.toMatch(/maps none of the[\s-]+codes/);
+    const lib = readFileSync(path.join(ROOT, "lib", "project-observations.ts"), "utf8");
+    expect(lib).toContain("publicationRefusal(added.code)");
+    for (const code of ["GF015", "GF016", "GF017"]) expect(publicationRefusal(code)?.code).toBe(code);
+  });
+
+  it("the capability registry's calibration entry names every table 0056 adds and says it is written, not applied", () => {
+    const registry = readFileSync(path.join(ROOT, "lib", "capability-registry.ts"), "utf8");
+    const entry = registry.slice(registry.indexOf('capability_id: "calibration_capture"'), registry.indexOf('capability_id: "site_hall_registry"'));
+    for (const table of ["calibration_consents", "project_completion_milestones", "calibration_tombstones", "calibration_release_snapshots", "calibration_snapshot_supersessions"]) {
+      expect(entry, table).toContain(table);
+    }
+    expect(entry).toMatch(/0056[^"]*(written, not applied|WRITTEN, NOT APPLIED)/i);
+  });
+});
