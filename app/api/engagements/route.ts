@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { storeFault } from "@/lib/safe-log";
 import { identify, identityRefusal } from "@/lib/portal";
 import { PRODUCT_BY_KIND } from "@/lib/products";
+import { narrowPattern, normalisedEmail } from "@/lib/deliverables";
 
 export const runtime = "nodejs";
 
@@ -37,7 +38,12 @@ export async function GET(req: Request) {
     ? { apikey: key }
     : { apikey: key, Authorization: `Bearer ${key}` };
 
-  const eq = `eq.${encodeURIComponent(who.email)}`;
+  // The Stripe webhook stores the address exactly as the buyer typed it at checkout (`Jane.Doe@Acme.com`), the columns are plain text and a
+  // PostgREST `eq` is case-sensitive, so matching on the lower-cased verified address showed a paying buyer "no purchases". Narrow the
+  // fetch case-insensitively (the same ilike lib/deliverables.ts uses for credits; every LIKE wildcard becomes a one-character
+  // wildcard, so the pattern can only ever return a superset), then decide identity here on the EXACT normalised address.
+  const mine = normalisedEmail(who.email);
+  const like = `ilike.${encodeURIComponent(narrowPattern(mine))}`;
 
   // A store we could not read says nothing about this customer. Answering with an
   // empty list would tell somebody who has paid us that they have bought nothing,
@@ -47,14 +53,14 @@ export async function GET(req: Request) {
   try {
     const [d, w] = await Promise.all([
       fetch(
-        `${url}/rest/v1/deliverables?email=${eq}&select=` +
-          `token,intake_token,kind,status,title,amount_cents,created_at,released_at` +
+        `${url}/rest/v1/deliverables?email=${like}&select=` +
+          `email,token,intake_token,kind,status,title,amount_cents,created_at,released_at` +
           `&order=created_at.desc&limit=100`,
         { headers, cache: "no-store" }
       ),
       fetch(
-        `${url}/rest/v1/watches?email=${eq}&select=` +
-          `token,status,cadence,site_name,hall_id,created_at,last_run_at,next_run_at` +
+        `${url}/rest/v1/watches?email=${like}&select=` +
+          `email,token,status,cadence,site_name,hall_id,created_at,last_run_at,next_run_at` +
           `&order=created_at.desc&limit=100`,
         { headers, cache: "no-store" }
       ),
@@ -67,8 +73,9 @@ export async function GET(req: Request) {
       console.error("[GridForge] portal watches read failed:", await storeFault(w));
       return unreachable();
     }
-    engagements = (await d.json()) as Row[];
-    watches = (await w.json()) as WatchRow[];
+    // Only rows whose address, normalised, IS this buyer's: another address that merely fits the pattern is never shown.
+    engagements = ((await d.json()) as Row[]).filter((r) => normalisedEmail(r.email) === mine);
+    watches = ((await w.json()) as WatchRow[]).filter((r) => normalisedEmail(r.email) === mine);
   } catch (err) {
     console.error("[GridForge] portal store unreachable:", err);
     return unreachable();
@@ -129,6 +136,7 @@ function unreachable() {
 }
 
 interface Row {
+  email: string | null;
   token: string;
   intake_token: string | null;
   kind: string;
@@ -140,6 +148,7 @@ interface Row {
 }
 
 interface WatchRow {
+  email: string | null;
   token: string;
   status: string;
   cadence: string;

@@ -13,7 +13,9 @@ export const revalidate = 900;
 // from a private asset into the reason this practice is the one people call.
 //
 // Two rules, both non-negotiable:
-//   * nothing identifying leaves this route — no company, site, hall, email;
+//   * nothing identifying leaves this route — no company, site, hall, email, and NO FREE TEXT AT ALL: `metro` is whatever
+//     any visitor typed (up to 80 characters), so a list of metros would publish one visitor's words as soon as eight
+//     halls exist. Only counts, shares and medians are published, never a string a visitor chose;
 //   * nothing is published below MIN_HALLS, because a distribution over four halls
 //     is noise wearing the clothes of evidence, and a small sample can point at
 //     the individual who filled it in.
@@ -49,6 +51,8 @@ export async function GET() {
   // carry their evidence, and a published figure whose stated basis does not match
   // its own arithmetic is the one claim that would cost more than it earns.
   //
+  // `summariseQualifications` also returns the admin view's metro counts. They are NOT forwarded here (see the rule above).
+  //
   // The admin view still calls this with every row — internally, "how many came in
   // and how many did we answer" is exactly the question worth asking.
   const s = summariseQualifications(scored);
@@ -69,7 +73,6 @@ export async function GET() {
       busway_A: s.medianBuswayA,
       plant_supply_C: s.medianPlantSupplyC,
     },
-    metros: s.metros.map((m) => m.metro),
     basis:
       "Halls submitted to the public capacity qualifier. Each was solved with the same " +
       "constraint set; figures not supplied were filled from library defaults and are named as " +

@@ -592,6 +592,8 @@ export function summariseQualifications(rows: AdminQualification[]): Qualificati
     if (p !== null) plant.push(p);
   }
 
+  // ADMIN VIEW ONLY. `metro` is free text any visitor typed, so this list must never be forwarded to a public route or page
+  // (app/api/insights deliberately omits it; tests/site/insights.test.ts fails if it reappears there).
   const metroCounts = new Map<string, number>();
   for (const r of rows) {
     const m = (r.metro || "").trim();

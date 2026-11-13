@@ -26,7 +26,6 @@ interface Insights {
     busway_A: number | null;
     plant_supply_C: number | null;
   };
-  metros?: string[];
   basis?: string;
 }
 
