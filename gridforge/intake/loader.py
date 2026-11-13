@@ -182,6 +182,18 @@ def _ceil(num: float, key: str, what: str, unit: str = "") -> float:
     return num
 
 
+def plausible_floor(key: str, unit: str = "") -> tuple[float | None, str]:
+    """The lowest figure the loader accepts for the intake path `key` and the hint that goes with its refusal: (None, "") when the figure has no floor.
+    A temperature with no floor of its own is bounded by absolute zero. For the free route, which refuses a figure by the name the caller sent it
+    under and not by the intake path (`/v1/qualify` with `plant_supply_C: -6`), from the same table the loader refuses from."""
+    low = PLAUSIBLE_MIN.get(key)
+    if low is not None:
+        return low, _FLOOR_HINT.get(key, "")
+    if unit in _TEMPERATURE_UNITS:
+        return ABSOLUTE_ZERO_C, "No temperature can be below absolute zero; check the sign and the unit (degC, not K)."
+    return None, ""
+
+
 def _floor(num: float, key: str, what: str, unit: str = "") -> float:
     """Refuse a value below its plausibility floor (or, for a temperature, below absolute zero), by name and with the allowed range. Returns the
     value unchanged otherwise."""

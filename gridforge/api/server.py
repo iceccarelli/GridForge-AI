@@ -101,7 +101,7 @@ from ..calibration.ledger import LedgerIntegrityError
 from ..calibration.residuals import public_report as public_residual_report
 from ..calibration.store import approved_records as approved_observation_records
 from ..compute.library import PLATFORMS, UNPUBLISHED_PLATFORMS
-from ..intake.loader import PLAUSIBLE_MAX, IntakeError, blank_intake, ignored_top_level_keys, load_document
+from ..intake.loader import PLAUSIBLE_MAX, IntakeError, blank_intake, ignored_top_level_keys, load_document, plausible_floor
 from ..intake.schema import FIELD_BY_PATH as _INTAKE_FIELD_BY_PATH
 from ..reporting import to_html, to_markdown
 from ..reporting.gates import ReportMode, run_all_gates
@@ -322,6 +322,12 @@ def _qualify_number(name: str, raw) -> float:
             raise ApiError(422, f"{name} is {raw!r}; it must be a whole number, zero or more")
     elif num < 0 and unit != "degC":
         raise ApiError(422, f"{name} is {shown}; it cannot be negative")
+    # The loader's floors (a chilled-water supply below -5 degC, a temperature below absolute zero), applied by the caller's own name: the loader's
+    # refusal would name `thermal.plant.design_supply_C`, an intake path the caller never sent, and carry no `field`.
+    floor, floor_hint = plausible_floor(path, unit) if path else (None, "")
+    if floor is not None and num < floor:
+        raise ApiError(422, f"{name} is {shown}, below {floor:g}{(' ' + unit) if unit else ''}, the lowest this tool will model for one hall. "
+                            + (floor_hint or "Check the unit and the sign."), field=name, limit=floor)
     ceiling = PLAUSIBLE_MAX.get(path) if path else None
     if ceiling is not None and num > ceiling:
         raise ApiError(422, f"{name} is {shown}, above {ceiling:g}{(' ' + unit) if unit else ''}, the most this tool will model for one hall. "
