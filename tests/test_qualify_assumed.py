@@ -133,7 +133,10 @@ def test_the_connection_capacity_derived_from_an_assumed_contract_is_assumed_too
     assert [(s.path, s.evidence, s.note) for s in plain.report.sourced] == [("grid.firm_capacity_MVA", QUALIFY_ASSUMED_CLASS, S.QUALIFY_DERIVED_FIRM_NOTE)]
     marked = load_document(qualify_to_intake({**HALL, "assumed_fields": ["contracted_MW"]}))
     firm = [s for s in marked.report.sourced if s.path == "grid.firm_capacity_MVA"]
-    assert [(s.evidence, s.note) for s in firm] == [(QUALIFY_ASSUMED_CLASS, S.QUALIFY_ASSUMED_NOTE)]
+    # The caller declared the CONTRACT assumed, not the firm figure: the firm figure is derived in this branch exactly as in the plain one, so it carries
+    # the same derived note. (It used to carry the generic 'declared assumed by the caller' note, which made the answer differ from the plain request by
+    # more than class labels: the lab's metamorphic oracle caught it.)
+    assert [(s.evidence, s.note) for s in firm] == [(QUALIFY_ASSUMED_CLASS, S.QUALIFY_DERIVED_FIRM_NOTE)]
     # a caller that gives the firm capacity itself keeps it as theirs
     own = load_document(qualify_to_intake({**HALL, "firm_capacity_MVA": 13, "assumed_fields": ["contracted_MW"]}))
     assert not [s for s in own.report.sourced if s.path == "grid.firm_capacity_MVA"]

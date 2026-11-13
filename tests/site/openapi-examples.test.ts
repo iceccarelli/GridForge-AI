@@ -128,7 +128,15 @@ describe("the examples are the repository's own inputs, not retyped copies", () 
   });
 
   it("states no price (the document states none)", () => {
-    expect(JSON.stringify(doc)).not.toMatch(/[€$]\s?\d|\bEUR\b/i);
+    // The example supplier bids carry `"currency":"EUR"`: a bid names the currency its price is in, and one without is disqualified. That
+    // is a currency CODE in an invented example, not a price. Exactly that property is exempt; the original pattern applies to everything else.
+    const text = JSON.stringify(doc).replace(/"currency":"EUR"/g, '"currency":"<code>"');
+    expect(text).not.toMatch(/[€$]\s?\d|\bEUR\b/i);
+  });
+  it("the only place the document says EUR is the currency code of an example bid", () => {
+    const hits = JSON.stringify(doc).match(/.{24}\bEUR\b.{12}/gi) ?? [];
+    expect(hits.length).toBeGreaterThan(0);
+    for (const h of hits) expect(h).toContain('"currency":"EUR"');
   });
 });
 
@@ -160,7 +168,7 @@ describe("every engine operation names the top-level keys of its answer", () => 
 
   it("the deck's hand-built schema has exactly the keys the engine's list gives", () => {
     const schema = postOf("/v1/deck").responses["200"].content["application/json"].schema;
-    expect(Object.keys(schema.properties).sort()).toEqual([...honesty.responses["/v1/deck"].top_level, ...honesty.responses["/v1/deck"].additive_top_level, "schema_version"].sort());
+    expect(Object.keys(schema.properties).sort()).toEqual([...honesty.responses["/v1/deck"].top_level, ...((honesty.responses["/v1/deck"] as { additive_top_level?: string[] }).additive_top_level ?? []), "schema_version"].sort());
   });
 
   it("each operation's description carries its evidence boundary, and the deck's carries its own", () => {

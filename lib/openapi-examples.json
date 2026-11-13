@@ -89,6 +89,7 @@
               "$set": {
                 "supplier": "Synthetic Supplier A",
                 "received_on": "2026-10-01",
+                "currency": "EUR",
                 "specification.site_conditions": [],
                 "specification.assumed_inputs": [],
                 "values.capex_eur": 1000000,
@@ -151,6 +152,7 @@
               {
                 "supplier": "Synthetic Supplier A",
                 "received_on": "2026-10-01",
+                "currency": "EUR",
                 "values": {"capex_eur": 20000000, "lead_time_weeks": 40, "install_weeks": 6, "warranted_availability": 0.97, "validity_days": 90},
                 "compliance": {
                   "G1-01": "C", "G1-02": "C", "G1-03": "C", "G1-05": "C",

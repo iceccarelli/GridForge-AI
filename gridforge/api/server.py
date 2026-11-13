@@ -260,8 +260,10 @@ def qualify_to_intake(body: dict) -> dict:
         # parity rather than inventing headroom the site may not have.
         contracted = doc["grid"]["contracted_MW"]
         if "contracted_MW" in assumed:
-            # Derived from a figure the caller declared assumed, so it is assumed too: it must not become customer data by arithmetic.
-            doc["grid"]["firm_capacity_MVA"] = _declared_assumed(float(contracted["value"]) / 0.97)
+            # Derived from a figure the caller declared assumed, so it is assumed too: it must not become customer data by arithmetic. The
+            # caller did not declare THIS figure in either branch (it is derived in both), so it carries the same derived note as the branch
+            # below: declaring the contract assumed changes the class labels of what the caller declared and nothing else.
+            doc["grid"]["firm_capacity_MVA"] = _declared_assumed(float(contracted["value"]) / 0.97, QUALIFY_DERIVED_FIRM_NOTE)
         else:
             # Derived from a figure the caller gave, but not a figure the caller gave: it is labelled an assumption (E0) like the branch above, and
             # `handle_qualify` lists it as a required gap. It used to go in as a plain number, which the loader read as customer data (E5).

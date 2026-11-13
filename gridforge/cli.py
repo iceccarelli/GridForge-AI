@@ -986,6 +986,7 @@ def cmd_spec(args) -> int:
         "received_on": "",
         "reference": "",
         "valid_until": "",
+        "currency": "",          # a priced response names its currency; one without is disqualified (same slot as the API template)
         "values": {f.key: None for f in pkg.response_fields},
         "compliance": {q.id: "" for q in pkg.mandatory()},
         "text": {"exclusions": "", "long_lead_item": ""},

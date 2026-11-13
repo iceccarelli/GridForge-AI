@@ -207,7 +207,7 @@ INTAKE_FIELDS: tuple[FieldSpec, ...] = (
               why_it_binds=("What the existing plant achieves in free cooling sets how much a higher loop temperature is worth. No constraint reads "
                             "it and PUE is a fixed library figure; it is printed in the procurement specification. When absent the library "
                             "2,500 h is printed, an assumption (E0)."),
-              how_to_get_it="BMS economiser run-hours over 12 months, or the plant's TMY-based energy model."),
+              how_to_get_it="BMS economiser run-hours over a full year, or the plant's TMY-based energy model."),
     FieldSpec("thermal.plant.dry_cooler_capacity_kW", "Dry-cooler heat rejection on the dedicated loop", "kW", False,
               supplied_evidence=EvidenceClass.E3_ENGINEERING_ESTIMATE,
               counts_toward_completeness=False,

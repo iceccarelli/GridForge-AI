@@ -24,7 +24,9 @@ HONESTY = json.loads((ROOT / "lib" / "openapi-honesty.json").read_text())
 HALL = json.loads((ROOT / "public" / "reference" / "examples" / "qualify-request.json").read_text())
 
 
-ADDITIVE = [(path, name, e) for path, spec in HONESTY["responses"].items() if spec.get("additive_top_level")
+# Every documented route with an example. The additive keys of the first merge were folded into `top_level` once the engine tracks that
+# add them were integrated; the all-or-none rule below stays for any key a later change adds.
+ADDITIVE = [(path, name, e) for path, spec in HONESTY["responses"].items() if path in EXAMPLES["requests"]
             for name, e in EXAMPLES["requests"][path].items()]
 
 
@@ -32,7 +34,7 @@ ADDITIVE = [(path, name, e) for path, spec in HONESTY["responses"].items() if sp
 def test_an_engine_returns_all_of_a_routes_additive_keys_for_the_example_or_none(path, name, example):
     tier = Tier.PUBLIC if path in ("/v1/qualify", "/v1/estimate") else Tier.CLIENT
     out = S._invoke(path, S.ROUTES[path][0], resolve(example["value"]), tier)
-    additive = HONESTY["responses"][path]["additive_top_level"]
+    additive = HONESTY["responses"][path].get("additive_top_level", [])
     present = [k for k in additive if k in out]
     assert present in ([], additive), f"{path} returns only {present} of the additive keys {additive}"
     for k in HONESTY["responses"][path]["top_level"]:

@@ -688,10 +688,10 @@ def test_the_conditional_shapes_the_documents_name_are_the_shapes_the_engine_ret
     def run(path, body, tier=Tier.CLIENT):
         return S._invoke(path, S.ROUTES[path][0], body, tier)
 
-    assert set(run("/v1/study", {"intake": ref, "format": "csv"})) == {"format", "files"}
+    assert set(run("/v1/study", {"intake": ref, "format": "csv"})) == {"format", "files", "calibration"}
     assert {"format", "title", "document"} <= set(run("/v1/study", {"intake": ref, "format": "md"})) and "document_full" not in run("/v1/study", {"intake": ref, "format": "md"})
     assert {"document", "model_packs"} <= set(run("/v1/portfolio", {"intakes": [dub, lon], "format": "md"}))
-    assert set(run("/v1/spec", {"intake": ref, "list": True})) == {"reliefs"}
+    assert set(run("/v1/spec", {"intake": ref, "list": True})) == {"reliefs", "calibration"}
     assert "document_full" not in run("/v1/spec", {"intake": ref, "constraint": "busway_ampacity", "format": "md"})
     assert "document_full" not in run("/v1/proposal", {"intake": ref, "format": "md"})
     assert set(run("/v1/screen", {"intake": ref, "format": "md"})) == {"format", "title", "document"}

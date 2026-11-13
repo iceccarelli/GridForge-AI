@@ -194,7 +194,8 @@
         "first_three_constraints",
         "intake",
         "calibration",
-        "notice"
+        "notice",
+        "inputs_derived_assumed"
       ],
       "after_relief": [
         "date_basis",
@@ -209,9 +210,6 @@
         "gaps",
         "warnings",
         "recommended_engagement"
-      ],
-      "additive_top_level": [
-        "inputs_derived_assumed"
       ]
     },
     "/v1/estimate": {
@@ -262,9 +260,7 @@
         "intake_completeness",
         "grid_queue_context",
         "retail_price_context",
-        "provenance"
-      ],
-      "additive_top_level": [
+        "provenance",
         "calibration"
       ]
     },
@@ -277,22 +273,17 @@
         "scenarios",
         "cost_evidence",
         "sensitivity",
-        "disclaimer"
-      ],
-      "when": "format json, the default; md and html return format, title and the rendered document (html adds document_full), and csv returns format and files",
-      "additive_top_level": [
+        "disclaimer",
         "calibration"
-      ]
+      ],
+      "when": "format json, the default; md and html return format, title, the rendered document and calibration (html adds document_full), and csv returns format, files and calibration"
     },
     "/v1/portfolio": {
       "top_level": [
         "objective",
         "halls",
         "total_racks",
-        "total_racks_evidence"
-      ],
-      "when": "format json, the default; md and html add document and model_packs (one model pack per hall). warnings is present only when there is something to warn about",
-      "additive_top_level": [
+        "total_racks_evidence",
         "calibration",
         "total_racks_upper_bound",
         "total_racks_by_site_max",
@@ -302,7 +293,8 @@
         "incomparable_halls",
         "constraint_rollup",
         "totals_note"
-      ]
+      ],
+      "when": "format json, the default; md and html add document and model_packs (one model pack per hall). warnings is present only when there is something to warn about"
     },
     "/v1/diff": {
       "top_level": [
@@ -326,14 +318,12 @@
         "model_drift",
         "model_drift_known",
         "unprobed_inputs",
-        "unprobeable_inputs"
-      ],
-      "when": "format json, the default; md and html add format, title and document to the same keys",
-      "additive_top_level": [
+        "unprobeable_inputs",
         "material_reasons",
         "not_compared",
         "calibration"
-      ]
+      ],
+      "when": "format json, the default; md and html add format, title and document to the same keys"
     },
     "/v1/spec": {
       "top_level": [
@@ -342,12 +332,10 @@
         "document",
         "document_full",
         "specification",
-        "response_template"
-      ],
-      "when": "format html, the default; md leaves out document_full; list=true returns the reliefs that can be tendered instead",
-      "additive_top_level": [
+        "response_template",
         "calibration"
-      ]
+      ],
+      "when": "format html, the default; md leaves out document_full; list=true returns the reliefs that can be tendered, with calibration, instead"
     },
     "/v1/bids": {
       "top_level": [
@@ -356,12 +344,10 @@
         "sized_for_racks",
         "ranked",
         "leading",
-        "note"
-      ],
-      "when": "the default ranking; evidence_only=true returns the validated quote lines instead, and ingest=true adds cost_library_entries",
-      "additive_top_level": [
+        "note",
         "calibration"
-      ]
+      ],
+      "when": "the default ranking; evidence_only=true returns the validated quote lines instead, and ingest=true adds cost_library_entries"
     },
     "/v1/proposal": {
       "top_level": [
@@ -369,12 +355,10 @@
         "title",
         "document",
         "document_full",
-        "engagement"
-      ],
-      "when": "format html, the default; md leaves out document_full",
-      "additive_top_level": [
+        "engagement",
         "calibration"
-      ]
+      ],
+      "when": "format html, the default; md leaves out document_full"
     },
     "/v1/deck": {
       "top_level": [
@@ -382,9 +366,7 @@
         "title",
         "slides",
         "document",
-        "document_full"
-      ],
-      "additive_top_level": [
+        "document_full",
         "calibration"
       ]
     },
@@ -407,21 +389,17 @@
         "load_profile",
         "capacity",
         "architectures",
-        "next_action"
-      ],
-      "additive_top_level": [
+        "next_action",
         "calibration"
       ]
     },
     "/v1/power/deploy/spec": {
       "top_level": [
         "specification",
-        "response_template"
-      ],
-      "when": "format json; html (the default) and md add format, title and the rendered document (html also document_full and document_md)",
-      "additive_top_level": [
+        "response_template",
         "calibration"
-      ]
+      ],
+      "when": "format json; html (the default) and md add format, title and the rendered document (html also document_full and document_md)"
     },
     "/v1/power/deploy/bids": {
       "top_level": [
@@ -429,9 +407,7 @@
         "units",
         "ranked",
         "leading",
-        "note"
-      ],
-      "additive_top_level": [
+        "note",
         "calibration"
       ]
     }

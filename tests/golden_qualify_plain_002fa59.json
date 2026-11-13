@@ -303,6 +303,51 @@
        "required": false,
        "unit": "positions",
        "why_it_binds": "Only the busway check against the load already in the hall reads it: the racks already installed are counted from this figure at the hall's design density. When absent the engine does not know how many positions are occupied; it reads every position that is not free (hall.rack_positions less hall.positions_available) as occupied, an assumption (E0) that is only as good as the total, and says so. Zero is a statement (nothing is occupied) and is asked for when free positions equal the total. It changes no rack count, cost or date."
+      },
+      {
+       "assumed": "2015 assumed (library, E0)",
+       "how_to_get_it": "The building record or the lease.",
+       "input": "Year the hall was built",
+       "path": "hall.build_year",
+       "required": false,
+       "unit": "-",
+       "why_it_binds": "No constraint reads the build year; it dates the equipment the report describes. When absent the report prints the library 2015, an assumption (E0)."
+      },
+      {
+       "assumed": "raised floor assumed (library, E0)",
+       "how_to_get_it": "Structural record drawings or a site walk: raised_floor or slab.",
+       "input": "Floor type",
+       "path": "hall.floor_type",
+       "required": false,
+       "unit": "-",
+       "why_it_binds": "A raised floor adds a structural note to the floor-loading result (load-spreading plates, or removing the floor and deploying on slab); the load capacity itself is the separate figure above. When absent the report prints the library raised floor, an assumption (E0)."
+      },
+      {
+       "assumed": "cold aisle assumed (library, E0)",
+       "how_to_get_it": "A site walk or the mechanical drawings: none, cold aisle, hot aisle or chimney.",
+       "input": "Aisle containment",
+       "path": "hall.containment",
+       "required": false,
+       "unit": "-",
+       "why_it_binds": "Containment quality decides how much heat an existing hall can remove per position. No constraint reads this field; the air removal per position is the separate figure above. When absent the report prints the library cold-aisle containment, an assumption (E0)."
+      },
+      {
+       "assumed": "250 kPa assumed (library, E0)",
+       "how_to_get_it": "Pump curves at the operating point, or commissioning pressure readings across the hall's loops.",
+       "input": "Available pump head",
+       "path": "thermal.plant.available_head_kPa",
+       "required": false,
+       "unit": "kPa",
+       "why_it_binds": "A flow figure without a head figure is not a duty point. No constraint compares head today; the figure is printed in the procurement specification as the duty the supplier must confirm. When absent the library 250 kPa is printed, an assumption (E0)."
+      },
+      {
+       "assumed": "2,500 h assumed (library, E0)",
+       "how_to_get_it": "BMS economiser run-hours over a full year, or the plant's TMY-based energy model.",
+       "input": "Free-cooling hours per year",
+       "path": "thermal.plant.free_cooling_hours_per_year",
+       "required": false,
+       "unit": "h",
+       "why_it_binds": "What the existing plant achieves in free cooling sets how much a higher loop temperature is worth. No constraint reads it and PUE is a fixed library figure; it is printed in the procurement specification. When absent the library 2,500 h is printed, an assumption (E0)."
       }
      ],
      "recommended_engagement": "Intake too thin for a full study. Sell the Density Screen instead: it produces the binding constraint and the data-request list, and its fee credits against the study when the data arrives.",
@@ -635,6 +680,51 @@
        "required": false,
        "unit": "positions",
        "why_it_binds": "Only the busway check against the load already in the hall reads it: the racks already installed are counted from this figure at the hall's design density. When absent the engine does not know how many positions are occupied; it reads every position that is not free (hall.rack_positions less hall.positions_available) as occupied, an assumption (E0) that is only as good as the total, and says so. Zero is a statement (nothing is occupied) and is asked for when free positions equal the total. It changes no rack count, cost or date."
+      },
+      {
+       "assumed": "2015 assumed (library, E0)",
+       "how_to_get_it": "The building record or the lease.",
+       "input": "Year the hall was built",
+       "path": "hall.build_year",
+       "required": false,
+       "unit": "-",
+       "why_it_binds": "No constraint reads the build year; it dates the equipment the report describes. When absent the report prints the library 2015, an assumption (E0)."
+      },
+      {
+       "assumed": "raised floor assumed (library, E0)",
+       "how_to_get_it": "Structural record drawings or a site walk: raised_floor or slab.",
+       "input": "Floor type",
+       "path": "hall.floor_type",
+       "required": false,
+       "unit": "-",
+       "why_it_binds": "A raised floor adds a structural note to the floor-loading result (load-spreading plates, or removing the floor and deploying on slab); the load capacity itself is the separate figure above. When absent the report prints the library raised floor, an assumption (E0)."
+      },
+      {
+       "assumed": "cold aisle assumed (library, E0)",
+       "how_to_get_it": "A site walk or the mechanical drawings: none, cold aisle, hot aisle or chimney.",
+       "input": "Aisle containment",
+       "path": "hall.containment",
+       "required": false,
+       "unit": "-",
+       "why_it_binds": "Containment quality decides how much heat an existing hall can remove per position. No constraint reads this field; the air removal per position is the separate figure above. When absent the report prints the library cold-aisle containment, an assumption (E0)."
+      },
+      {
+       "assumed": "250 kPa assumed (library, E0)",
+       "how_to_get_it": "Pump curves at the operating point, or commissioning pressure readings across the hall's loops.",
+       "input": "Available pump head",
+       "path": "thermal.plant.available_head_kPa",
+       "required": false,
+       "unit": "kPa",
+       "why_it_binds": "A flow figure without a head figure is not a duty point. No constraint compares head today; the figure is printed in the procurement specification as the duty the supplier must confirm. When absent the library 250 kPa is printed, an assumption (E0)."
+      },
+      {
+       "assumed": "2,500 h assumed (library, E0)",
+       "how_to_get_it": "BMS economiser run-hours over a full year, or the plant's TMY-based energy model.",
+       "input": "Free-cooling hours per year",
+       "path": "thermal.plant.free_cooling_hours_per_year",
+       "required": false,
+       "unit": "h",
+       "why_it_binds": "What the existing plant achieves in free cooling sets how much a higher loop temperature is worth. No constraint reads it and PUE is a fixed library figure; it is printed in the procurement specification. When absent the library 2,500 h is printed, an assumption (E0)."
       }
      ],
      "recommended_engagement": "Intake too thin for a full study. Sell the Density Screen instead: it produces the binding constraint and the data-request list, and its fee credits against the study when the data arrives.",
@@ -973,6 +1063,51 @@
        "required": false,
        "unit": "positions",
        "why_it_binds": "Only the busway check against the load already in the hall reads it: the racks already installed are counted from this figure at the hall's design density. When absent the engine does not know how many positions are occupied; it reads every position that is not free (hall.rack_positions less hall.positions_available) as occupied, an assumption (E0) that is only as good as the total, and says so. Zero is a statement (nothing is occupied) and is asked for when free positions equal the total. It changes no rack count, cost or date."
+      },
+      {
+       "assumed": "2015 assumed (library, E0)",
+       "how_to_get_it": "The building record or the lease.",
+       "input": "Year the hall was built",
+       "path": "hall.build_year",
+       "required": false,
+       "unit": "-",
+       "why_it_binds": "No constraint reads the build year; it dates the equipment the report describes. When absent the report prints the library 2015, an assumption (E0)."
+      },
+      {
+       "assumed": "raised floor assumed (library, E0)",
+       "how_to_get_it": "Structural record drawings or a site walk: raised_floor or slab.",
+       "input": "Floor type",
+       "path": "hall.floor_type",
+       "required": false,
+       "unit": "-",
+       "why_it_binds": "A raised floor adds a structural note to the floor-loading result (load-spreading plates, or removing the floor and deploying on slab); the load capacity itself is the separate figure above. When absent the report prints the library raised floor, an assumption (E0)."
+      },
+      {
+       "assumed": "cold aisle assumed (library, E0)",
+       "how_to_get_it": "A site walk or the mechanical drawings: none, cold aisle, hot aisle or chimney.",
+       "input": "Aisle containment",
+       "path": "hall.containment",
+       "required": false,
+       "unit": "-",
+       "why_it_binds": "Containment quality decides how much heat an existing hall can remove per position. No constraint reads this field; the air removal per position is the separate figure above. When absent the report prints the library cold-aisle containment, an assumption (E0)."
+      },
+      {
+       "assumed": "250 kPa assumed (library, E0)",
+       "how_to_get_it": "Pump curves at the operating point, or commissioning pressure readings across the hall's loops.",
+       "input": "Available pump head",
+       "path": "thermal.plant.available_head_kPa",
+       "required": false,
+       "unit": "kPa",
+       "why_it_binds": "A flow figure without a head figure is not a duty point. No constraint compares head today; the figure is printed in the procurement specification as the duty the supplier must confirm. When absent the library 250 kPa is printed, an assumption (E0)."
+      },
+      {
+       "assumed": "2,500 h assumed (library, E0)",
+       "how_to_get_it": "BMS economiser run-hours over a full year, or the plant's TMY-based energy model.",
+       "input": "Free-cooling hours per year",
+       "path": "thermal.plant.free_cooling_hours_per_year",
+       "required": false,
+       "unit": "h",
+       "why_it_binds": "What the existing plant achieves in free cooling sets how much a higher loop temperature is worth. No constraint reads it and PUE is a fixed library figure; it is printed in the procurement specification. When absent the library 2,500 h is printed, an assumption (E0)."
       }
      ],
      "recommended_engagement": "Intake too thin for a full study. Sell the Density Screen instead: it produces the binding constraint and the data-request list, and its fee credits against the study when the data arrives.",
@@ -1305,6 +1440,51 @@
        "required": false,
        "unit": "positions",
        "why_it_binds": "Only the busway check against the load already in the hall reads it: the racks already installed are counted from this figure at the hall's design density. When absent the engine does not know how many positions are occupied; it reads every position that is not free (hall.rack_positions less hall.positions_available) as occupied, an assumption (E0) that is only as good as the total, and says so. Zero is a statement (nothing is occupied) and is asked for when free positions equal the total. It changes no rack count, cost or date."
+      },
+      {
+       "assumed": "2015 assumed (library, E0)",
+       "how_to_get_it": "The building record or the lease.",
+       "input": "Year the hall was built",
+       "path": "hall.build_year",
+       "required": false,
+       "unit": "-",
+       "why_it_binds": "No constraint reads the build year; it dates the equipment the report describes. When absent the report prints the library 2015, an assumption (E0)."
+      },
+      {
+       "assumed": "raised floor assumed (library, E0)",
+       "how_to_get_it": "Structural record drawings or a site walk: raised_floor or slab.",
+       "input": "Floor type",
+       "path": "hall.floor_type",
+       "required": false,
+       "unit": "-",
+       "why_it_binds": "A raised floor adds a structural note to the floor-loading result (load-spreading plates, or removing the floor and deploying on slab); the load capacity itself is the separate figure above. When absent the report prints the library raised floor, an assumption (E0)."
+      },
+      {
+       "assumed": "cold aisle assumed (library, E0)",
+       "how_to_get_it": "A site walk or the mechanical drawings: none, cold aisle, hot aisle or chimney.",
+       "input": "Aisle containment",
+       "path": "hall.containment",
+       "required": false,
+       "unit": "-",
+       "why_it_binds": "Containment quality decides how much heat an existing hall can remove per position. No constraint reads this field; the air removal per position is the separate figure above. When absent the report prints the library cold-aisle containment, an assumption (E0)."
+      },
+      {
+       "assumed": "250 kPa assumed (library, E0)",
+       "how_to_get_it": "Pump curves at the operating point, or commissioning pressure readings across the hall's loops.",
+       "input": "Available pump head",
+       "path": "thermal.plant.available_head_kPa",
+       "required": false,
+       "unit": "kPa",
+       "why_it_binds": "A flow figure without a head figure is not a duty point. No constraint compares head today; the figure is printed in the procurement specification as the duty the supplier must confirm. When absent the library 250 kPa is printed, an assumption (E0)."
+      },
+      {
+       "assumed": "2,500 h assumed (library, E0)",
+       "how_to_get_it": "BMS economiser run-hours over a full year, or the plant's TMY-based energy model.",
+       "input": "Free-cooling hours per year",
+       "path": "thermal.plant.free_cooling_hours_per_year",
+       "required": false,
+       "unit": "h",
+       "why_it_binds": "What the existing plant achieves in free cooling sets how much a higher loop temperature is worth. No constraint reads it and PUE is a fixed library figure; it is printed in the procurement specification. When absent the library 2,500 h is printed, an assumption (E0)."
       }
      ],
      "recommended_engagement": "Intake too thin for a full study. Sell the Density Screen instead: it produces the binding constraint and the data-request list, and its fee credits against the study when the data arrives.",
@@ -1661,6 +1841,51 @@
        "required": false,
        "unit": "positions",
        "why_it_binds": "Only the busway check against the load already in the hall reads it: the racks already installed are counted from this figure at the hall's design density. When absent the engine does not know how many positions are occupied; it reads every position that is not free (hall.rack_positions less hall.positions_available) as occupied, an assumption (E0) that is only as good as the total, and says so. Zero is a statement (nothing is occupied) and is asked for when free positions equal the total. It changes no rack count, cost or date."
+      },
+      {
+       "assumed": "2015 assumed (library, E0)",
+       "how_to_get_it": "The building record or the lease.",
+       "input": "Year the hall was built",
+       "path": "hall.build_year",
+       "required": false,
+       "unit": "-",
+       "why_it_binds": "No constraint reads the build year; it dates the equipment the report describes. When absent the report prints the library 2015, an assumption (E0)."
+      },
+      {
+       "assumed": "raised floor assumed (library, E0)",
+       "how_to_get_it": "Structural record drawings or a site walk: raised_floor or slab.",
+       "input": "Floor type",
+       "path": "hall.floor_type",
+       "required": false,
+       "unit": "-",
+       "why_it_binds": "A raised floor adds a structural note to the floor-loading result (load-spreading plates, or removing the floor and deploying on slab); the load capacity itself is the separate figure above. When absent the report prints the library raised floor, an assumption (E0)."
+      },
+      {
+       "assumed": "cold aisle assumed (library, E0)",
+       "how_to_get_it": "A site walk or the mechanical drawings: none, cold aisle, hot aisle or chimney.",
+       "input": "Aisle containment",
+       "path": "hall.containment",
+       "required": false,
+       "unit": "-",
+       "why_it_binds": "Containment quality decides how much heat an existing hall can remove per position. No constraint reads this field; the air removal per position is the separate figure above. When absent the report prints the library cold-aisle containment, an assumption (E0)."
+      },
+      {
+       "assumed": "250 kPa assumed (library, E0)",
+       "how_to_get_it": "Pump curves at the operating point, or commissioning pressure readings across the hall's loops.",
+       "input": "Available pump head",
+       "path": "thermal.plant.available_head_kPa",
+       "required": false,
+       "unit": "kPa",
+       "why_it_binds": "A flow figure without a head figure is not a duty point. No constraint compares head today; the figure is printed in the procurement specification as the duty the supplier must confirm. When absent the library 250 kPa is printed, an assumption (E0)."
+      },
+      {
+       "assumed": "2,500 h assumed (library, E0)",
+       "how_to_get_it": "BMS economiser run-hours over a full year, or the plant's TMY-based energy model.",
+       "input": "Free-cooling hours per year",
+       "path": "thermal.plant.free_cooling_hours_per_year",
+       "required": false,
+       "unit": "h",
+       "why_it_binds": "What the existing plant achieves in free cooling sets how much a higher loop temperature is worth. No constraint reads it and PUE is a fixed library figure; it is printed in the procurement specification. When absent the library 2,500 h is printed, an assumption (E0)."
       }
      ],
      "recommended_engagement": "Intake too thin for a full study. Sell the Density Screen instead: it produces the binding constraint and the data-request list, and its fee credits against the study when the data arrives.",
@@ -1691,5 +1916,5 @@
    }
   }
  ],
- "note": "POST /v1/qualify answers for requests that carry no assumed_fields, produced by the engine at commit 002fa59 BEFORE assumed_fields existed (explicit_null_assumed: HEAD ignored the unknown key, so a null is the same request). tests/test_qualify_assumed.py requires today's engine to answer them identically: a plain request must not change. UPDATED at the commit that added the optional hall.occupied_positions. Exactly TWO places no longer prove byte-identity to 002fa59, and nothing else changed: (1) response.intake.gaps carries ONE appended optional entry, hall.occupied_positions (last); (2) response.intake.warnings: the text of the busway warning, where it fires, no longer states a derived occupied count as a fact. Every other byte is as the engine produced it at 002fa59. UPDATED AGAIN at the commit that labels what the qualifier invents (2026-11-12, tests/test_intake_integrity.py). Every answer's numbers, binding constraints and basis text are byte-identical to before; what changed is the LABELLING of two figures the engine assumed without saying so: (3) response.intake.gaps carries two more rows, grid.firm_capacity_MVA (REQUIRED: the qualifier derives it as contracted_MW / 0.97, class E0, when the caller gives no firm_capacity_MVA) and lv.phases (optional: three-phase is assumed when it is not given); (4) so response.intake.completeness falls and response.intake.required_inputs_missing rises by one (the firm capacity was counted as supplied); (5) response.inputs_derived_assumed is added, listing the derived firm capacity with its class and note. response.inputs_declared_assumed stays absent: it lists exactly what the caller declared. (6) the data-request 'assumed' cell of transformers, ups and thermal.cdus no longer prints the literal [] (a bank that was not declared is 'not evaluated: treated as no limit, so the rack count is an upper bound'; for the CDUs it states the assumed kit that is priced and dated), and thermal.cdus' why_it_binds no longer says the kit is installed 'at no cost'."
+ "note": "POST /v1/qualify answers for requests that carry no assumed_fields, produced by the engine at commit 002fa59 BEFORE assumed_fields existed (explicit_null_assumed: HEAD ignored the unknown key, so a null is the same request). tests/test_qualify_assumed.py requires today's engine to answer them identically: a plain request must not change. UPDATED at the commit that added the optional hall.occupied_positions. Exactly TWO places no longer prove byte-identity to 002fa59, and nothing else changed: (1) response.intake.gaps carries ONE appended optional entry, hall.occupied_positions (last); (2) response.intake.warnings: the text of the busway warning, where it fires, no longer states a derived occupied count as a fact. Every other byte is as the engine produced it at 002fa59. UPDATED AGAIN at the commit that labels what the qualifier invents (2026-11-12, tests/test_intake_integrity.py). Every answer's numbers, binding constraints and basis text are byte-identical to before; what changed is the LABELLING of two figures the engine assumed without saying so: (3) response.intake.gaps carries two more rows, grid.firm_capacity_MVA (REQUIRED: the qualifier derives it as contracted_MW / 0.97, class E0, when the caller gives no firm_capacity_MVA) and lv.phases (optional: three-phase is assumed when it is not given); (4) so response.intake.completeness falls and response.intake.required_inputs_missing rises by one (the firm capacity was counted as supplied); (5) response.inputs_derived_assumed is added, listing the derived firm capacity with its class and note. response.inputs_declared_assumed stays absent: it lists exactly what the caller declared. (6) the data-request 'assumed' cell of transformers, ups and thermal.cdus no longer prints the literal [] (a bank that was not declared is 'not evaluated: treated as no limit, so the rack count is an upper bound'; for the CDUs it states the assumed kit that is priced and dated), and thermal.cdus' why_it_binds no longer says the kit is installed 'at no cost'. UPDATED AGAIN at the commit that merged the thermal-input tracks (2026-11-13, tests/test_thermal_integrity.py): the ONLY change is that response.intake.gaps carries five more OPTIONAL entries appended after the existing ones (hall.build_year, hall.containment, hall.floor_type, thermal.plant.available_head_kPa, thermal.plant.free_cooling_hours_per_year), each worded '<value> assumed (library, E0)', because the engine used to print those library figures as facts with no gap row. They are not counted in completeness. Every other byte of every answer is unchanged."
 }
