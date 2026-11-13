@@ -75,6 +75,9 @@ describe("the follow-up mail to the address the caller typed", () => {
     expect(all).toContain("Transformer");
     expect(all).toContain("/q/tok_attacker_1");
     expect(toVictim!.html).toBeUndefined();
+    // The count is an upper bound (a free read evaluates no transformer or UPS bank) and the mail says so, as the live page and the shared page do.
+    expect(all).toMatch(/at most \S+ racks/);
+    expect(all).toContain("upper bound");
   });
 
   it("still tells the desk who asked and what they typed, as one inert plain-text line each", async () => {
