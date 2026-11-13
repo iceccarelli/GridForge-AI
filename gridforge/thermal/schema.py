@@ -50,6 +50,10 @@ class CDUSpec:
     #: over the platform's flow per rack, ``cdu_capacity``); otherwise ``rated_flow_l_per_min`` is a library placeholder that no constraint
     #: reads, so an undeclared flow can never refuse a rack.
     rated_flow_declared: bool = False
+    #: False when the client left ``units`` / ``redundancy`` out and the loader read the library default (1 unit, N+1). The engine still computes with
+    #: the default, but the specification must not print it as "supplied" (procurement.build site conditions). True for every other construction.
+    units_declared: bool = True
+    redundancy_declared: bool = True
 
 
 @dataclass
