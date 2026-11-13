@@ -342,3 +342,85 @@ describe("J1-3: the engine's warnings are shown above the verdict, and a unit wa
     });
   });
 });
+
+// ================================================================================================ J1-4: the gap table
+/** The first cell of each body row of the assumed-inputs tables in this markup, "Name" or "Name *" for a required one. */
+const rowsIn = (html: string): string[] =>
+  [...html.matchAll(/<tr class="border-t[^"]*"[^>]*><td[^>]*>(.*?)<\/td>/g)].map((m) => m[1].replace(/<!-- -->/g, "").replace(/<[^>]+>/g, "").replace(/\s+/g, " ").trim());
+/** What a visitor sees without opening anything: the markup before the disclosure. */
+const beforeDisclosure = (html: string) => (html.includes("<details") ? html.slice(0, html.indexOf("<details")) : html);
+const insideDisclosure = (html: string) => (html.includes("<details") ? html.slice(html.indexOf("<details"), html.indexOf("</details>")) : "");
+const required = EXAMPLE_GAPS.filter(([, r]) => r).map(([i]) => i);
+const optional = EXAMPLE_GAPS.filter(([, r]) => !r).map(([i]) => i);
+
+describe("J1-4: every required gap is on the page, with an honest count of the rest", () => {
+  it("the example has five required gaps, and the chilled-water plant is not among the first eight the engine lists", () => {
+    // the arithmetic of the defect: it showed gaps.slice(0, 8)
+    const firstEight = EXAMPLE_GAPS.slice(0, 8);
+    expect(required).toHaveLength(5);
+    expect(firstEight.filter(([, r]) => r)).toHaveLength(4);
+    expect(firstEight.map(([i]) => i)).not.toContain("Chilled-water plant capacity");
+  });
+
+  it("all five starred rows are visible without a click, and the footer's count is the stars on screen", () => {
+    const html = readout(EXAMPLE);
+    const shown = rowsIn(beforeDisclosure(html));
+    const stars = shown.filter((r) => r.endsWith("*"));
+    expect(stars.map((r) => r.replace(/ \*$/, ""))).toEqual(required);
+    expect(stars).toHaveLength(5);
+    expect(text(html)).toContain("5 required inputs assumed.");
+    // required first, in the engine's order; then optional ones in the engine's order, eight rows in all
+    expect(shown.map((r) => r.replace(/ \*$/, ""))).toEqual([...required, ...optional.slice(0, 3)]);
+    expect(shown).toHaveLength(8);
+  });
+
+  it("the rest is behind a native disclosure that says how many, and holds exactly the rest, none twice", () => {
+    const html = readout(EXAMPLE);
+    expect(html).toMatch(/<details[^>]*>\s*<summary[^>]*>[^<]*\+21 more optional inputs/);
+    const rest = rowsIn(insideDisclosure(html));
+    expect(rest).toEqual(optional.slice(3));
+    expect(rest).toHaveLength(21);
+    expect(rest.some((r) => r.endsWith("*"))).toBe(false);
+    expect(new Set([...rowsIn(beforeDisclosure(html)), ...rest].map((r) => r.replace(/ \*$/, ""))).size).toBe(EXAMPLE_GAPS.length);
+    // it starts closed: nothing is revealed that the visitor did not ask for
+    expect(html).not.toMatch(/<details[^>]*\bopen\b/);
+  });
+
+  it("more required gaps than the cap are all shown, and the disclosure then holds only optional ones", () => {
+    const many = Array.from({ length: 11 }, (_, i) => gap(`Required ${i + 1}`, true, "x")).concat(Array.from({ length: 4 }, (_, i) => gap(`Optional ${i + 1}`, false, "y")));
+    const html = readout(resultOf({ intake: { gaps: many, required_inputs_missing: 11 } }));
+    expect(rowsIn(beforeDisclosure(html))).toEqual(Array.from({ length: 11 }, (_, i) => `Required ${i + 1} *`));
+    expect(rowsIn(insideDisclosure(html))).toEqual(["Optional 1", "Optional 2", "Optional 3", "Optional 4"]);
+    expect(text(html)).toContain("+4 more optional inputs");
+    expect(text(html)).toContain("11 required inputs assumed.");
+  });
+
+  it("with nothing to hide there is no disclosure, and the counts agree for one and for none", () => {
+    const few = resultOf({ intake: { gaps: [gap("Hall design floor loading", true, "12 kPa"), gap("Site power factor", false, "0.97")], required_inputs_missing: 1 } });
+    const html = readout(few);
+    expect(html).not.toContain("<details");
+    expect(rowsIn(html)).toEqual(["Hall design floor loading *", "Site power factor"]);
+    expect(text(html)).toContain("1 required input assumed.");
+    expect(text(html)).not.toContain("1 required inputs");
+    const none = readout(resultOf({ intake: { gaps: [gap("Site power factor", false, "0.97")], required_inputs_missing: 0 } }));
+    expect(text(none)).toContain("No required inputs assumed.");
+    // one optional input hidden: singular
+    const one = readout(resultOf({ intake: { gaps: Array.from({ length: 9 }, (_, i) => gap(`Optional ${i + 1}`, false, "y")) } }));
+    expect(text(one)).toContain("+1 more optional input");
+    expect(text(one)).not.toContain("+1 more optional inputs");
+  });
+
+  it("the footer counts the starred rows even when the engine's own counter disagrees with them", () => {
+    const html = readout(resultOf({ intake: { gaps: EXAMPLE_GAPS.map(([i, r, a]) => gap(i, r, a)), required_inputs_missing: 9 } }));
+    expect(text(html)).toContain("5 required inputs assumed.");
+    expect(text(html)).not.toContain("9 required inputs");
+  });
+
+  it("each row keeps what it said: why it binds and where to find it, in both tables", () => {
+    const html = readout(EXAMPLE);
+    expect(text(html)).toContain("Where to find it: Where to get Chilled-water plant capacity.");
+    expect(text(insideDisclosure(html))).toContain("Where to find it: Where to get Free-cooling hours per year.");
+    expect(html).toContain('aria-label="Inputs the engine assumed"');
+    expect(html).toContain('aria-label="More optional inputs the engine assumed"');
+  });
+});

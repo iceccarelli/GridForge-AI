@@ -12,7 +12,7 @@ import { PAYG } from "@/lib/products";
 import { formatSetsTheDate } from "@/lib/date-basis";
 import FreeAllowanceForm from "@/components/FreeAllowanceForm";
 import { NEXT_STEP_HREFS } from "@/lib/qualify-next-steps";
-import { isInputProblem, joinNames, orderedWarnings, rackNoun, upperBoundInputs } from "@/lib/qualify-readout";
+import { isInputProblem, joinNames, orderedWarnings, rackNoun, splitGaps, upperBoundInputs, type QualifyGap } from "@/lib/qualify-readout";
 import { assumedRecordMatches, type QualifyAssumable } from "@/lib/qualify-assumed";
 import {
   HALL_PRESETS,
@@ -543,6 +543,8 @@ export function QualifyReadout({
   const unevaluated = upperBoundInputs(result);
   // Everything the engine warned about, the unit and inconsistency findings first. The verdict below is not a finding about the hall while one stands.
   const warnings = orderedWarnings(result);
+  // Every required gap is shown, then optional ones up to a cap; the rest sit behind a disclosure. The footer counts the starred rows.
+  const gapRows = splitGaps(intake.gaps);
   return (
     <div className="mt-8 animate-slide-up">
       {template ? <TemplateNotice template={template} recorded={result.inputs_declared_assumed ?? []} /> : null}
@@ -593,48 +595,25 @@ export function QualifyReadout({
         </div>
       ) : null}
 
-      {intake.gaps.length ? (
+      {gapRows.shown.length ? (
         <div className="mt-6">
           <p className="font-mono text-[10px] uppercase tracking-[0.14em] text-faint mb-2">
             Assumed, because nobody supplied it
             {template ? "" : ` · intake ${Math.round(intake.completeness * 100)}% complete`}
           </p>
-          <div role="region" aria-label="Inputs the engine assumed" tabIndex={0} className="overflow-x-auto rounded border border-line focus:outline-none focus-visible:ring-2 focus-visible:ring-power/60">
-            <table className="w-full text-sm">
-              <thead>
-                <tr className="bg-panel">
-                  {["Input", "Assumed", "Why it binds"].map((h) => (
-                    <th
-                      key={h}
-                      className="text-left font-mono text-[10px] uppercase tracking-[0.12em] text-faint px-3 py-2"
-                    >
-                      {h}
-                    </th>
-                  ))}
-                </tr>
-              </thead>
-              <tbody>
-                {intake.gaps.slice(0, 8).map((g) => (
-                  <tr key={g.input} className="border-t border-line align-top">
-                    <td className="px-3 py-2 text-ghost">
-                      {g.input}
-                      {g.required ? <span className="text-flag"> *</span> : null}
-                    </td>
-                    <td className="px-3 py-2 font-mono text-mute">{assumedText(g.assumed)}</td>
-                    <td className="px-3 py-2 text-faint">
-                      {g.why_it_binds}
-                      {g.how_to_get_it ? (
-                        <span className="mt-1 block text-mute">Where to find it: {g.how_to_get_it}</span>
-                      ) : null}
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
+          <GapTable rows={gapRows.shown} label="Inputs the engine assumed" />
+          {gapRows.more.length ? (
+            <details data-testid="qualify-more-gaps" className="mt-3">
+              <summary className="flex min-h-11 cursor-pointer items-center text-sm text-power underline decoration-power/60 underline-offset-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-power/60">
+                +{gapRows.more.length} more optional input{gapRows.more.length === 1 ? "" : "s"}
+              </summary>
+              <div className="mt-2">
+                <GapTable rows={gapRows.more} label="More optional inputs the engine assumed" />
+              </div>
+            </details>
+          ) : null}
           <p className="text-[11px] text-faint mt-2">
-            {intake.required_inputs_missing} required input
-            {intake.required_inputs_missing === 1 ? "" : "s"} assumed. Each one moves the answer. A * marks an input the paid document requires.
+            {gapRows.requiredCount === 0 ? "No required inputs assumed. Each optional one still moves the answer." : `${gapRows.requiredCount} required input${gapRows.requiredCount === 1 ? "" : "s"} assumed. Each one moves the answer.`} A * marks an input the paid document requires.
             {template ? " The figures that are still the template's are assumed too (listed above); the engine's completeness score would count them as supplied, so it is not shown for a template." : ""}
           </p>
         </div>
@@ -646,7 +625,7 @@ export function QualifyReadout({
         commission={
           <CommissionPanel
             recommendation={intake.recommended_engagement}
-            summary={`${headline} Binding constraint: ${found.binding_constraint}. ${intake.required_inputs_missing} required inputs still assumed.`}
+            summary={`${headline} Binding constraint: ${found.binding_constraint}. ${gapRows.requiredCount} required input${gapRows.requiredCount === 1 ? "" : "s"} still assumed.`}
             capacityMW={Math.round((found.it_load_kW?.value ?? 0) / 1000)}
             qualificationId={qualificationId}
             qualificationToken={qualificationToken}
@@ -655,6 +634,45 @@ export function QualifyReadout({
       />
 
       <p className="text-[11px] text-faint mt-5 leading-relaxed max-w-3xl">{result.notice}</p>
+    </div>
+  );
+}
+
+/** One table of assumed inputs. A required one carries a star; the paid document needs it. */
+function GapTable({ rows, label }: { rows: QualifyGap[]; label: string }) {
+  return (
+    <div role="region" aria-label={label} tabIndex={0} className="overflow-x-auto rounded border border-line focus:outline-none focus-visible:ring-2 focus-visible:ring-power/60">
+      <table className="w-full text-sm">
+        <thead>
+          <tr className="bg-panel">
+            {["Input", "Assumed", "Why it binds"].map((h) => (
+              <th
+                key={h}
+                className="text-left font-mono text-[10px] uppercase tracking-[0.12em] text-faint px-3 py-2"
+              >
+                {h}
+              </th>
+            ))}
+          </tr>
+        </thead>
+        <tbody>
+          {rows.map((g, i) => (
+            <tr key={`${g.input}-${i}`} className="border-t border-line align-top">
+              <td className="px-3 py-2 text-ghost">
+                {g.input}
+                {g.required ? <span className="text-flag"> *</span> : null}
+              </td>
+              <td className="px-3 py-2 font-mono text-mute">{assumedText(g.assumed)}</td>
+              <td className="px-3 py-2 text-faint">
+                {g.why_it_binds}
+                {g.how_to_get_it ? (
+                  <span className="mt-1 block text-mute">Where to find it: {g.how_to_get_it}</span>
+                ) : null}
+              </td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
     </div>
   );
 }
