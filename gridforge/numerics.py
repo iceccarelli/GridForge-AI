@@ -23,3 +23,19 @@ def leq(a: float, b: float) -> bool:
     passes. Infinite and non-finite values follow IEEE rules: ``leq(inf, inf)`` is True, anything compared with NaN is False (a gate on
     an undetermined number fails closed)."""
     return a <= b or math.isclose(a, b, rel_tol=LIMIT_REL_TOL, abs_tol=0.0)
+
+
+def floor_whole(x: float) -> int:
+    """``floor(x)`` of a FINITE figure, counting a value within ``LIMIT_REL_TOL`` below a whole number as that whole number.
+
+    Racks are whole, and rounding down is the honest direction, but a plain ``floor`` rounds float noise down as well: a hall whose spare power
+    is exactly 16 racks of 135 kW (2160 kW) comes out of a few additions and a division as 15.999999999999998 and floors to 15, and the same hall
+    listed in another order sums to 16.000000000000002 and floors to 16. At about 55 kEUR a rack that is a money defect, and a number that
+    changes with the order of a list. The allowance is ``LIMIT_REL_TOL * max(1, |x|)``: relative like ``leq`` (so a limit comparison and a floor
+    agree on what "exactly at the limit" means), and never smaller than ``LIMIT_REL_TOL`` itself, so a figure of 0.9999999995 racks is one rack
+    (it is 5e-10 short of it, which no input can express) while 0.999 is none. A figure genuinely short of a whole number by more than the
+    tolerance (15.99999 racks) still floors down.
+
+    Callers handle NaN and infinities first (``constraints._floor_whole``); this function is for finite input."""
+    return math.floor(x + LIMIT_REL_TOL * max(1.0, abs(x)))
+

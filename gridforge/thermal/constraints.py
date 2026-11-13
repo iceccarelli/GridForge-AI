@@ -15,10 +15,10 @@ from ..common import ASSUMED, ESTIMATED, SIMULATED, V
 from ..costs import cdu_cost, cost, scaled_cost
 from ..constraints import (ConstraintResult, EnvelopeContext, ReliefOption, constraint, floor_racks,
                            gate_racks)
-from ..numerics import leq
+from ..numerics import floor_whole, leq
 from ..thermal.library import ARCH_RACK_CAPABILITY_kW, implied_delta_T_K
 from ..thermal.schema import Architecture
-from ..validation import Provenance, Quantity
+from ..validation import Provenance, Quantity, qsum
 
 
 def _effective_units(units: int, redundancy: str) -> int:
@@ -98,8 +98,10 @@ def _required_fws(t) -> Quantity:
 
 
 def _floor(x: float) -> int | float:
-    """Whole racks for a basis sentence: floor of a finite figure, the figure itself (inf, nan) otherwise."""
-    return math.floor(x) if math.isfinite(x) else x
+    """Whole racks for a basis sentence and for the tie tests below: floor of a finite figure, the figure itself (inf, nan) otherwise.
+    It rounds exactly as ``floor_racks`` does (``numerics.floor_whole``), so a sentence or a tie test never says 15 racks where the
+    constraint's own rack count says 16."""
+    return floor_whole(x) if math.isfinite(x) else x
 
 
 def _lesser(label: str, model_id: str, a: Quantity, b: Quantity) -> Quantity:
@@ -159,11 +161,11 @@ def cdu_capacity(ctx: EnvelopeContext) -> ConstraintResult:
     available_approach = (t.tcs_target_supply_C - fws_supply).relabel(
         "available CDU approach (TCS target minus facility water supply)",
         "thermal.available_approach", step_evidence=ESTIMATED)
-    total = None
+    caps: list[Quantity] = []
     # A CDU flow is a limit only when EVERY CDU in the schedule declared one: summing the declared flows alone would understate the bank's
     # flow and refuse racks it can carry. An undeclared flow is a library placeholder that nothing reads (and a named gap at load).
     flow_declared = all(c.rated_flow_declared for c in t.cdus)
-    flow_total = None
+    flows: list[Quantity] = []
     for c in t.cdus:
         n = _effective_units(c.units, c.redundancy)
         # Vendor ratings are stated AT a specific approach. Derate linearly, capped at rated.
@@ -176,13 +178,14 @@ def cdu_capacity(ctx: EnvelopeContext) -> ConstraintResult:
                    assumptions=[f"Rating quoted at {c.rated_approach_K.value:g} K approach; site offers "
                                 f"{available_approach.value:g} K. Linear derate is a screening "
                                 f"approximation - confirm against the manufacturer's performance curve."])
-        cap = (c.rated_capacity_kW * derate * V(float(n), "1", f"{c.id} usable units ({c.redundancy})", ASSUMED)
-               ).relabel(f"{c.id} usable capacity at site conditions", "thermal.cdu_usable")
-        total = cap if total is None else total + cap
+        caps.append((c.rated_capacity_kW * derate * V(float(n), "1", f"{c.id} usable units ({c.redundancy})", ASSUMED)
+                     ).relabel(f"{c.id} usable capacity at site conditions", "thermal.cdu_usable"))
         if flow_declared:
-            flow = (c.rated_flow_l_per_min * V(float(n), "1", f"{c.id} usable units ({c.redundancy})", ASSUMED)
-                    ).relabel(f"{c.id} usable CDU flow", "thermal.cdu_flow_usable")
-            flow_total = flow if flow_total is None else flow_total + flow
+            flows.append((c.rated_flow_l_per_min * V(float(n), "1", f"{c.id} usable units ({c.redundancy})", ASSUMED)
+                          ).relabel(f"{c.id} usable CDU flow", "thermal.cdu_flow_usable"))
+    # qsum: order-independent (math.fsum), so the same banks listed in another order are the same capacity and the same rack count.
+    total = qsum(caps)
+    flow_total = qsum(flows) if flows else None
     plat = ctx.cluster.platform
     racks = total / plat.liquid_kW()
     flow_text = ""

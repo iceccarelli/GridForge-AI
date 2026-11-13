@@ -12,7 +12,8 @@ from ..common import ASSUMED, ESTIMATED, V
 from ..costs import cost, scaled_cost
 from ..constraints import (ConstraintResult, EnvelopeContext, ReliefOption, constraint, floor_racks,
                            gate_racks)
-from ..validation import Provenance, Quantity
+from ..numerics import leq
+from ..validation import Provenance, Quantity, qsum
 from .btm import installed_firm_kW, next_option, option_capex
 from .redundancy import usable_units
 
@@ -133,16 +134,16 @@ def grid_firm_capacity(ctx: EnvelopeContext) -> ConstraintResult:
 def transformer_capacity(ctx: EnvelopeContext) -> ConstraintResult:
     if not ctx.power.transformers:
         return _unbounded("transformer_capacity", "electrical", "Transformer capacity", "no transformers declared")
-    total = None
+    caps = []
     lead = None
     for t in ctx.power.transformers:
         n = _effective_units(t.units, t.redundancy)
-        cap = (t.unit_rating_MVA * ctx.power.grid.power_factor * t.derating_factor).convert(
-            1000.0 * n, "kW", f"{t.id} usable capacity ({t.redundancy}, {n} of {t.units} units)")
-        total = cap if total is None else total + cap
+        caps.append((t.unit_rating_MVA * ctx.power.grid.power_factor * t.derating_factor).convert(
+            1000.0 * n, "kW", f"{t.id} usable capacity ({t.redundancy}, {n} of {t.units} units)"))
         if t.replacement_lead_time_weeks is not None and (
                 lead is None or t.replacement_lead_time_weeks.value > lead.value):
             lead = t.replacement_lead_time_weeks      # the slowest bank sets the date
+    total = qsum(caps)         # order-independent (math.fsum): the same banks listed in another order are the same capacity
     headroom = (total - ctx.power.grid.current_site_peak_MW.convert(1000.0, "kW", "current site peak")).relabel(
         "transformer headroom", "power.transformer_headroom", step_evidence=ESTIMATED)
     racks = _it_headroom_to_racks(headroom, ctx, "transformer headroom")
@@ -154,7 +155,7 @@ def transformer_capacity(ctx: EnvelopeContext) -> ConstraintResult:
         return c
 
     # What is bought is nameplate MVA: every bank is uprated, so the price follows the MVA added.
-    added_MVA = sum(t.units * t.unit_rating_MVA.value for t in ctx.power.transformers) * (TRANSFORMER_UPRATE - 1.0)
+    added_MVA = math.fsum(t.units * t.unit_rating_MVA.value for t in ctx.power.transformers) * (TRANSFORMER_UPRATE - 1.0)
     price = scaled_cost(
         "transformer.replacement", 1_200_000 / 9.0, "EUR/MVA", added_MVA, "MVA",
         "transformer and switchgear uprate",
@@ -185,12 +186,12 @@ def transformer_capacity(ctx: EnvelopeContext) -> ConstraintResult:
 def ups_capacity(ctx: EnvelopeContext) -> ConstraintResult:
     if not ctx.power.ups:
         return _unbounded("ups_capacity", "electrical", "UPS capacity", "no UPS declared (unprotected load assumed)")
-    total = None
+    caps = []
     for u in ctx.power.ups:
         n = _effective_units(u.units, u.redundancy)
-        cap = (u.unit_rating_kW * V(float(n), "1", f"{u.id} usable units ({u.redundancy})", ASSUMED)).relabel(
-            f"{u.id} usable UPS capacity", "power.ups_capacity")
-        total = cap if total is None else total + cap
+        caps.append((u.unit_rating_kW * V(float(n), "1", f"{u.id} usable units ({u.redundancy})", ASSUMED)).relabel(
+            f"{u.id} usable UPS capacity", "power.ups_capacity"))
+    total = qsum(caps)         # order-independent (math.fsum): the same blocks listed in another order are the same capacity
     headroom = (total - ctx.power.current_it_load_MW.convert(1000.0, "kW", "existing protected IT load")).relabel(
         "UPS headroom for new IT load", "power.ups_headroom", step_evidence=ESTIMATED)
     racks = headroom / ctx.cluster.platform.rack_kW
@@ -202,7 +203,7 @@ def ups_capacity(ctx: EnvelopeContext) -> ConstraintResult:
         return c
 
     # The relief adds two modules to every block; the price follows the nameplate kW actually added.
-    added_kW = sum(2 * u.unit_rating_kW.value for u in ctx.power.ups)
+    added_kW = math.fsum(2 * u.unit_rating_kW.value for u in ctx.power.ups)
     price = scaled_cost("ups.per_kW", 320, "EUR/kW", added_kW, "kW", "UPS module addition, installed",
                         note="Placeholder per nameplate kW of UPS added.")
     return ConstraintResult(
@@ -357,7 +358,9 @@ def rack_feed_tapoff(ctx: EnvelopeContext) -> ConstraintResult:
         return _unbounded("rack_feed_tapoff", "electrical", "Rack feed / tap-off rating",
                           "platform rack feed current not declared")
     need, feed_note = rack_feed_current_at(need, lv)
-    ok = need.value <= lv.tapoff_max_A.value
+    # leq, not <=: 76 A x 400 V / 500 V is 60.800000000000004 in binary, so a 60.8 A tap-off failed the rack it exactly carries and the hall
+    # was priced a EUR 6.17M plan to 0 racks (a 60.81 A part gave 36). A part exactly at the need passes (numerics.LIMIT_REL_TOL).
+    ok = leq(need.value, lv.tapoff_max_A.value)
     racks = gate_racks(ok, "racks permitted by tap-off rating", need, lv.tapoff_max_A)
 
     def _apply(c: EnvelopeContext) -> EnvelopeContext:
