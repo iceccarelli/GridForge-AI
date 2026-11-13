@@ -143,6 +143,9 @@ describe("the changelog is seeded with the commitment and the additive keys of 2
       "schema_version, $schema, warnings",
       "id",
       "field, limit",
+      "inputs_derived_assumed",
+      "material_reasons, not_compared",
+      "comparable_total_racks, incomparable_halls and rankable",
     ]);
     // one correction, after the additions of the day, and no entry of a kind the renderer does not label
     expect(API_CHANGELOG.filter((e) => e.kind === "correction")).toHaveLength(1);
@@ -190,6 +193,7 @@ describe("the changelog is seeded with the commitment and the additive keys of 2
 type Proof = { file: string; pattern: RegExp };
 const SERVER = "gridforge/api/server.py";
 const PAYLOADS = "gridforge/api/payloads.py";
+const PORTFOLIO = "gridforge/reporting/portfolio.py";
 const toolsJson = JSON.parse(readFileSync("public/reference/tools.json", "utf8")) as {
   tools: { name: string; inputSchema: { required?: string[]; properties: Record<string, any> } }[];
   rate_card: { endpoint: string; units: number; max_halls_per_request?: number }[];
@@ -267,6 +271,21 @@ const PROOFS: Record<string, Proof[] | (() => boolean)> = {
     { file: SERVER, pattern: /raise ApiError\(422, str\(exc\), \*\*exc\.detail\(\)\) from None/ },
   ],
   id: [{ file: SERVER, pattern: /def _mcp_id_is_valid\(rid\) -> bool:/ }],
+  inputs_derived_assumed: [{ file: PAYLOADS, pattern: /out\["inputs_derived_assumed"\] = _declared_assumed_inputs\(intake, derived_assumed\)/ }],
+  material_reasons: [{ file: SERVER, pattern: /"material_reasons": d\.material_reasons,/ }, { file: "gridforge/change.py", pattern: /def material_reasons\(self\) -> list\[str\]:/ }],
+  not_compared: [{ file: SERVER, pattern: /"not_compared": d\.not_compared,/ }],
+  total_racks_upper_bound: [{ file: PORTFOLIO, pattern: /"total_racks_upper_bound": sum\(e\.racks for e in ordered\),/ }],
+  total_racks_by_site_max: [{ file: PORTFOLIO, pattern: /"total_racks_by_site_max": _by_site_max\(ordered\),/ }],
+  comparable_total_racks: [{ file: PORTFOLIO, pattern: /"comparable_total_racks": sum\(e\.racks for e in comparable\) if comparable else None,/ }],
+  comparable_total_racks_by_site_max: [{ file: PORTFOLIO, pattern: /"comparable_total_racks_by_site_max": _by_site_max\(comparable\) if comparable else None,/ }],
+  comparable_total_racks_evidence: [{ file: PORTFOLIO, pattern: /"comparable_total_racks_evidence": min\(e\.rack_class for e in comparable\)\.name if comparable else None,/ }],
+  incomparable_halls: [{ file: PORTFOLIO, pattern: /"incomparable_halls": \[\{"rank": rk, "site":/ }],
+  totals_note: [{ file: PORTFOLIO, pattern: /"totals_note": \(f"Every total sums/ }],
+  rankable: [{ file: PORTFOLIO, pattern: /"rankable": e\.rankable,/ }],
+  rankable_reason: [{ file: PORTFOLIO, pattern: /"rankable_reason": e\.rankable_reason,/ }],
+  unassessed_banks: [{ file: PORTFOLIO, pattern: /"unassessed_banks": e\.unassessed_banks,/ }],
+  shares_site_connection: [{ file: PORTFOLIO, pattern: /"shares_site_connection": list\(e\.site_siblings\),/ }],
+  likely_shares_connection_with: [{ file: PORTFOLIO, pattern: /"likely_shares_connection_with": list\(e\.likely_siblings\),/ }],
   rank: [
     { file: "gridforge/reporting/portfolio.py", pattern: /"rank": rk, "site":/ },
     { file: "gridforge/reporting/portfolio.py", pattern: /out\.append\(None\)/ },

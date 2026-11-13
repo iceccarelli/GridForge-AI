@@ -223,6 +223,35 @@ export const API_CHANGELOG: ApiChangelogEntry[] = [
   },
   {
     date: API_POLICY_DATE,
+    kind: "additive",
+    text:
+      "inputs_derived_assumed: a new key of the POST /v1/qualify answer, present only when the qualifier derived a figure because you did not send it (the firm connection capacity, from the contract). " +
+      "It lists each such figure under the class E0, with a note saying how it was derived. It is a different list from inputs_declared_assumed, which stays exactly the figures you declared as assumptions.",
+    keys: ["inputs_derived_assumed"],
+  },
+  {
+    date: API_POLICY_DATE,
+    kind: "additive",
+    text:
+      "material_reasons, not_compared: new keys of the POST /v1/diff answer. material_reasons names each reason the change is material (racks, racks_as_found, binding, date_moved, date_vanished, date_appeared, schedule_completeness, recommendation, capex, capex_completeness, evidence), in a fixed order; " +
+      "an empty list means nothing that changes the answer was found. not_compared names what could not be compared because the earlier record does not carry it, which is unknown and is not read as no change.",
+    keys: ["material_reasons", "not_compared"],
+  },
+  {
+    date: API_POLICY_DATE,
+    kind: "additive",
+    text:
+      "comparable_total_racks, incomparable_halls and rankable: new keys of the POST /v1/portfolio answer. total_racks is unchanged and is an upper bound: it adds every hall, whatever was not evaluated. " +
+      "total_racks_upper_bound is that sum under its true name, and total_racks_by_site_max counts only the largest hall at each declared site. comparable_total_racks adds only the halls that are rankable, " +
+      "and is null, not 0, when none is; comparable_total_racks_by_site_max and comparable_total_racks_evidence read the same way. incomparable_halls lists each hall that is not rankable with its reason, and totals_note says what each total adds up and leaves out. " +
+      "Each hall row gains rankable and rankable_reason, unassessed_banks (the transformer and UPS banks it did not declare, so those limits were not evaluated), shares_site_connection (the other halls declared with the same site id) and likely_shares_connection_with (halls under another or no site id whose grid block is identical: a likely shared connection, said and never merged).",
+    keys: [
+      "comparable_total_racks", "total_racks_upper_bound", "total_racks_by_site_max", "comparable_total_racks_by_site_max", "comparable_total_racks_evidence",
+      "incomparable_halls", "totals_note", "rankable", "rankable_reason", "unassessed_banks", "shares_site_connection", "likely_shares_connection_with",
+    ],
+  },
+  {
+    date: API_POLICY_DATE,
     kind: "correction",
     text:
       "Four values the engine returned or published in a form that misled, now what they should have been. schema_version stays gridforge/api/1, and a client that read any of them in the old form must change. " +
