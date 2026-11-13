@@ -18,13 +18,92 @@ from datetime import date
 
 from ..clock import report_date
 from ..intake.loader import PLAUSIBLE_MAX
-from .schema import (MANDATORY, EvaluationCriterion, ProcurementError, Requirement,
-                     SpecPackage, SupplierResponse)
+from .schema import (BOUND_MIN, MANDATORY, EvaluationCriterion, ProcurementError, Requirement,
+                     SpecPackage, SupplierResponse, figure_text)
 
 #: Compliance codes, as used in every tender response schedule in the industry.
 COMPLIANT = "C"
 COMPLIES_WITH_DEVIATION = "CD"
 NON_COMPLIANT = "N"
+
+#: What a score is, said wherever one is shown. The price and programme criteria are scaled across the bids in THIS comparison (best = full marks,
+#: worst = none, a lone bid = full marks), so the same bid scores 85 against one set of peers and 35 against another.
+SCORE_BASIS = ("Scores are relative, not absolute: price and programme are scaled linearly from the best bid in this comparison (full marks) "
+               "to the worst (none), and a lone bid gets full marks on both. The same bid scores differently against different competitors, "
+               "so compare scores only within one comparison, never across comparisons.")
+
+
+@dataclass(frozen=True)
+class FigureContradiction:
+    """A bid's own number set against a numeric 'shall' it is held to: the requirement, the figure asked for and the figure offered."""
+    requirement_id: str
+    clause: str
+    response_key: str             # the response field the figure was read from ("duty_at_site_conditions")
+    bound: str                    # BOUND_MIN or BOUND_MAX
+    asked: float
+    offered: float
+    unit: str
+    declared: str                 # the code the bidder returned for the requirement ("" when none)
+    path: str = ""                # where that field sits in the request, when it has a place there
+
+    @property
+    def asked_text(self) -> str:
+        return f"{'not less than' if self.bound == BOUND_MIN else 'not more than'} {figure_text(self.asked)} {self.unit}".strip()
+
+    @property
+    def offered_text(self) -> str:
+        return f"{figure_text(self.offered)} {self.unit}".strip()
+
+    def message(self) -> str:
+        where = self.path or self.response_key
+        head = (f"{self.requirement_id} ({self.clause}) is a 'shall' {self.asked_text}, but {where} offers {self.offered_text}")
+        if self.declared == COMPLIANT:
+            return (f"{head}. The bid declared C, and its own figure contradicts it, so it is treated as NOT compliant on {self.requirement_id}. "
+                    f"If the figure is in another unit, or at a reference condition rather than the site conditions, the supplier must restate it as "
+                    f"asked ({self.asked_text}) and resubmit.")
+        if self.declared == COMPLIES_WITH_DEVIATION:
+            return (f"{head}. The bid declared a deviation on {self.requirement_id}; the figure is that deviation, and the engineer must "
+                    f"accept it in writing before award.")
+        return f"{head}."
+
+    def to_dict(self) -> dict:
+        return {"requirement": self.requirement_id, "clause": self.clause, "field": self.path or self.response_key,
+                "must_be": "at_least" if self.bound == BOUND_MIN else "at_most", "asked": self.asked, "offered": self.offered,
+                "unit": self.unit, "declared": self.declared or None}
+
+
+def numeric_requirements(pkg) -> list[Requirement]:
+    """The package's 'shall' clauses that hold a bid's own figure to a number (not the ones that only ask for a declaration)."""
+    return [q for q in pkg.mandatory() if q.response_key and q.figure_limit is not None]
+
+
+def _is_short(q: Requirement, offered: float) -> bool:
+    asked = q.figure_limit
+    if asked is None or math.isclose(offered, asked, rel_tol=1e-9, abs_tol=0.0):
+        return False
+    return offered < asked if q.bound == BOUND_MIN else offered > asked
+
+
+def figure_contradictions(pkg, r: SupplierResponse) -> list[FigureContradiction]:
+    """Every numeric 'shall' the bid's own figure contradicts, whatever code the bidder returned for it. A figure that is not stated is not a
+    contradiction (it is reported separately as unchecked), and a figure that is not positive is refused in ``_check_response``: neither is
+    ever read as zero or as a pass."""
+    out: list[FigureContradiction] = []
+    for q in numeric_requirements(pkg):
+        offered = r.get(q.response_key)
+        if offered is None or offered <= 0 or not _is_short(q, offered):
+            continue
+        out.append(FigureContradiction(
+            requirement_id=q.id, clause=q.clause, response_key=q.response_key, bound=q.bound, asked=float(q.figure_limit), offered=offered,
+            unit=q.unit, declared=r.compliance.get(q.id, "").upper(), path=r.where(f"values.{q.response_key}")))
+    return out
+
+
+def unchecked_figures(pkg, r: SupplierResponse) -> list[Requirement]:
+    """Numeric 'shall' clauses the bidder answered C or CD without stating the figure they are held to: the declaration stands on the supplier's
+    word alone, and the report says so."""
+    return [q for q in numeric_requirements(pkg)
+            if r.get(q.response_key) is None and r.compliance.get(q.id, "").upper() in (COMPLIANT, COMPLIES_WITH_DEVIATION)]
 
 
 @dataclass
@@ -50,6 +129,21 @@ class BidAssessment:
     #: True when the supplier quoted a lead time but no installation time. ``weeks_to_energised`` is then the lead time
     #: ALONE (delivery to site, not energisation): a lower bound, never a complete programme.
     install_weeks_missing: bool = False
+    #: The bid's own figures that contradict a numeric 'shall' (E-10's ampacity, C-02's validity). A contradicted requirement the bidder
+    #: declared C on is in ``mandatory_failed``: the bid is not compliant on it, whatever it declared.
+    contradictions: list[FigureContradiction] = field(default_factory=list)
+    #: Numeric 'shall' clauses answered C or CD with no figure stated: declared, not checked.
+    unchecked: list[str] = field(default_factory=list)
+    #: How many bids were evaluated together. Price and programme are scored relative to that set (``SCORE_BASIS``).
+    cohort: int = 0
+
+    @property
+    def score_basis(self) -> str:
+        """What this bid's score is relative to, in words, for every place a score is shown."""
+        if self.disqualified:
+            return "Not scored: the response was not evaluated (see notes)."
+        n = f"the {self.cohort} bids evaluated together" if self.cohort != 1 else "the only bid evaluated"
+        return f"Scored against {n}. {SCORE_BASIS}"
 
     @property
     def programme_basis(self) -> str:
@@ -66,9 +160,10 @@ class BidAssessment:
 
     @property
     def compliant(self) -> bool:
-        """Every mandatory requirement answered, and none answered 'N'. A bid that is
-        silent on a mandatory requirement has not said it complies."""
-        return not self.mandatory_failed and not self.unanswered
+        """Every mandatory requirement answered, none answered 'N', and no figure of the bid's own contradicting one it declared C. A bid that is
+        silent on a mandatory requirement has not said it complies. A response that was not evaluated (disqualified) has shown nothing, so it
+        is never compliant: reporting it as compliant would put a bid that could not be read next to the ones that were."""
+        return not self.disqualified and not self.mandatory_failed and not self.unanswered
 
     def headline(self) -> str:
         if self.disqualified:
@@ -80,7 +175,7 @@ class BidAssessment:
                  if self.install_weeks_missing else f"{self.weeks_to_energised:.0f} weeks to energised")
         flag = ("" if self.compliant else
                 f" — {len(self.mandatory_failed) + len(self.unanswered)} mandatory not met")
-        return f"{self.supplier}: {price}, {weeks}, score {self.total_score:.0f}/100{flag}"
+        return f"{self.supplier}: {price}, {weeks}, score {self.total_score:.0f}/100 (relative to the bids compared){flag}"
 
 
 def _score_lower_is_better(values: list[float], v: float) -> float:
@@ -121,11 +216,12 @@ def currency_problem(currency: str) -> str:
 
 
 def _iso(raw: str, what: str, supplier: str) -> date:
+    """``what`` is the path of the field (``responses[1].received_on``), so the refusal says which field to fix."""
     try:
         return date.fromisoformat(raw)
     except ValueError:
         raise ProcurementError(
-            f"{supplier}: {what} {raw!r} is not an ISO date (YYYY-MM-DD)") from None
+            f"{what}: {raw!r} is not an ISO date (YYYY-MM-DD) (response from {supplier})") from None
 
 
 def _check_response(pkg: SpecPackage, r: SupplierResponse, today: date) -> list[str]:
@@ -141,71 +237,88 @@ def _check_response(pkg: SpecPackage, r: SupplierResponse, today: date) -> list[
             mine = getattr(pkg, attr)
             if key in spec and str(spec[key]) != str(mine):
                 raise ProcurementError(
-                    f"{r.supplier}: this response was written for {key} {spec[key]!r}, "
+                    f"{r.where('specification.' + key)}: {r.supplier}'s response was written for {key} {spec[key]!r}, "
                     f"but the current specification has {key} {mine!r}. The requirements "
                     f"have changed or the response belongs to another tender; ask the "
                     f"supplier to re-price against the current specification.")
-    if _iso(r.received_on, "received_on", r.supplier) > today:
+    if _iso(r.received_on, r.where("received_on"), r.supplier) > today:
         raise ProcurementError(
-            f"{r.supplier}: received_on {r.received_on} is in the future.")
+            f"{r.where('received_on')}: {r.received_on} is in the future (response from {r.supplier}).")
     for rid, code in r.compliance.items():
         if code not in VALID_CODES:
             raise ProcurementError(
-                f"{r.supplier}: compliance code {code!r} for {rid} is not one of "
+                f"{r.where('compliance.' + rid)}: {r.supplier}'s compliance code {code!r} is not one of "
                 f"C, CD or N.")
     problems: list[str] = []
-    if r.valid_until and _iso(r.valid_until, "valid_until", r.supplier) < today:
-        problems.append(f"offer expired on {r.valid_until}")
+    if r.valid_until and _iso(r.valid_until, r.where("valid_until"), r.supplier) < today:
+        problems.append(f"{r.where('valid_until')}: offer expired on {r.valid_until}")
     if not r.currency:
         # A price with no currency was ranked as if it were euros ("capex_eur is euros by contract"), so 30 thousand and 30 million, one
         # of them perhaps in another currency, could both lead. A priced response names its currency; a response with no price needs none.
         if r.get("capex_eur") is not None:
-            problems.append(currency_problem(""))
+            problems.append(f"{r.path + '.currency: ' if r.path else ''}{currency_problem('')}")
     elif r.currency != "EUR":
         # The price is read from capex_eur and ranked against EUR bids, and the engine holds no exchange rate: a JPY or USD figure
         # in that field would rank as if it were euros (800,000 JPY as the cheapest compliant bid). Disqualify, say why, keep the others.
-        problems.append(f"quoted in {r.currency}, but the specification requires EUR (C-01) and the engine holds no exchange rate; "
-                        f"re-quote in EUR so it can be compared")
+        problems.append(f"{r.path + '.currency: ' if r.path else ''}quoted in {r.currency}, but the specification requires EUR (C-01) and the engine holds no "
+                        f"exchange rate; re-quote in EUR so it can be compared")
     capex, lead, install = r.get("capex_eur"), r.get("lead_time_weeks"), r.get("install_weeks")
+    at_capex, at_lead, at_install = (r.where(f"values.{k}") for k in ("capex_eur", "lead_time_weeks", "install_weeks"))
     if capex is not None and capex <= 0:
-        problems.append(f"price {capex:,.0f} is not a positive amount")
+        problems.append(f"{at_capex}: price {capex:,.0f} is not a positive amount")
     if lead is not None and lead <= 0:
-        problems.append(f"lead time {lead:g} weeks is not positive")
+        problems.append(f"{at_lead}: lead time {lead:g} weeks is not positive")
     elif lead is not None and lead < MIN_LEAD_TIME_WEEKS:
-        problems.append(f"lead time {lead:g} weeks is under {MIN_LEAD_TIME_WEEKS:g} week: no purchased item is delivered that fast; "
+        problems.append(f"{at_lead}: lead time {lead:g} weeks is under {MIN_LEAD_TIME_WEEKS:g} week: no purchased item is delivered that fast; "
                         f"confirm the unit (days or weeks) and resubmit")
     elif lead is not None and lead > MAX_WEEKS:
-        problems.append(f"lead time {lead:g} weeks is above the {MAX_WEEKS:g} weeks (ten years) a bid may state; confirm the unit and resubmit")
-    if install is not None and install < 0:
-        problems.append(f"installation duration {install:g} weeks is negative")
-    elif install is not None and install < MIN_INSTALL_WEEKS:
-        problems.append(f"installation duration {install:g} weeks is under {MIN_INSTALL_WEEKS:g} week: a unit is not energised on delivery; "
-                        f"confirm the figure and resubmit")
-    elif install is not None and install > MAX_WEEKS:
-        problems.append(f"installation duration {install:g} weeks is above the {MAX_WEEKS:g} weeks (ten years) a bid may state; "
+        problems.append(f"{at_lead}: lead time {lead:g} weeks is above the {MAX_WEEKS:g} weeks (ten years) a bid may state; "
                         f"confirm the unit and resubmit")
+    if install is not None and install < 0:
+        problems.append(f"{at_install}: installation duration {install:g} weeks is negative")
+    elif install is not None and install < MIN_INSTALL_WEEKS:
+        problems.append(f"{at_install}: installation duration {install:g} weeks is under {MIN_INSTALL_WEEKS:g} week: a unit is not energised "
+                        f"on delivery; confirm the figure and resubmit")
+    elif install is not None and install > MAX_WEEKS:
+        problems.append(f"{at_install}: installation duration {install:g} weeks is above the {MAX_WEEKS:g} weeks (ten years) a bid may state; "
+                        f"confirm the unit and resubmit")
+    # A figure the specification holds the bid to (the duty, the validity) that is not a positive number is not a quotation: zero is what a
+    # placeholder or an unread field looks like, and as a duty it would otherwise sail past a floor of zero. Below a positive floor it is a
+    # contradiction of the clause (figure_contradictions); here it is refused outright, because there is nothing to compare.
+    for q in numeric_requirements(pkg):
+        figure = r.get(q.response_key)
+        if figure is not None and figure <= 0:
+            problems.append(f"{r.where('values.' + q.response_key)}: {figure_text(figure)} {q.unit} is not a positive figure; it is held to "
+                            f"{q.id} ({q.clause}), which asks for {_asks(q)}. State the figure at the site conditions or leave it blank")
     budget = getattr(pkg, "budget_eur", None)
     if capex is not None and capex > 0 and budget is not None and budget.value > 0:
         ratio = capex / budget.value
         if ratio > BUDGET_PLAUSIBILITY_FACTOR or ratio < 1 / BUDGET_PLAUSIBILITY_FACTOR:
             what = getattr(pkg, "budget_label", "modelled budget")      # a BTM package's is the declared capex of its units
             problems.append(
-                f"price EUR {capex:,.0f} is {ratio:.2g}x the {what} of "
+                f"{at_capex}: price EUR {capex:,.0f} is {ratio:.2g}x the {what} of "
                 f"EUR {budget.value:,.0f}; confirm the units and scope and resubmit")
     return problems
+
+
+def _asks(q: Requirement) -> str:
+    """What a numeric clause asks of the bid's figure, as a phrase: 'not less than 1,990 A'."""
+    return f"{'not less than' if q.bound == BOUND_MIN else 'not more than'} {figure_text(q.figure_limit or 0.0)} {q.unit}".strip()
 
 
 def assess(pkg: SpecPackage, responses: list[SupplierResponse]) -> list[BidAssessment]:
     if not responses:
         raise ProcurementError("no responses to assess")
-    seen: set[str] = set()
+    seen: dict[str, SupplierResponse] = {}
     for r in responses:
         key = r.supplier.strip().lower()
         if key in seen:
+            first = seen[key]
             raise ProcurementError(
-                f"two responses from {r.supplier!r}. Supply one current response per "
-                f"supplier; a superseded quotation must not compete with its replacement.")
-        seen.add(key)
+                f"{r.where('supplier')}: two responses from {r.supplier!r}"
+                + (f" (the other is {first.where('supplier')})" if first.path else "")
+                + ". Supply one current response per supplier; a superseded quotation must not compete with its replacement.")
+        seen[key] = r
     today = report_date()
     mandatory = pkg.mandatory()
     required_fields = [f for f in pkg.response_fields if f.required]
@@ -213,8 +326,13 @@ def assess(pkg: SpecPackage, responses: list[SupplierResponse]) -> list[BidAsses
     out: list[BidAssessment] = []
     for r in responses:
         problems = _check_response(pkg, r, today)
+        # A bid's own figure is held to the number of every 'shall' that states one. A requirement the bidder declared C on whose figure
+        # contradicts it is failed exactly as an N is: it is not a second mechanism, it feeds the same list, count and score.
+        contradictions = figure_contradictions(pkg, r)
+        contradicted = {c.requirement_id for c in contradictions}
         failed = [q.id for q in mandatory
-                  if r.compliance.get(q.id, "").upper() == NON_COMPLIANT]
+                  if r.compliance.get(q.id, "").upper() == NON_COMPLIANT
+                  or (q.id in contradicted and r.compliance.get(q.id, "").upper() == COMPLIANT)]
         unanswered = [q.id for q in mandatory if q.id not in r.compliance]
         missing_fields = [f.label for f in required_fields if r.get(f.key) is None]
 
@@ -240,7 +358,8 @@ def assess(pkg: SpecPackage, responses: list[SupplierResponse]) -> list[BidAsses
                           else capex / pkg.sized_for_racks),
             mandatory_total=len(mandatory),
             mandatory_met=len(mandatory) - len(failed) - len(unanswered),
-            mandatory_failed=failed, unanswered=unanswered, install_weeks_missing=install_missing)
+            mandatory_failed=failed, unanswered=unanswered, install_weeks_missing=install_missing,
+            contradictions=contradictions, unchecked=[q.id for q in unchecked_figures(pkg, r)])
 
         a.deviations = [q.id for q in mandatory
                         if r.compliance.get(q.id, "").upper() == COMPLIES_WITH_DEVIATION]
@@ -264,9 +383,16 @@ def assess(pkg: SpecPackage, responses: list[SupplierResponse]) -> list[BidAsses
             a.disqualified = True
             a.notes.append(
                 "required response fields left blank: " + ", ".join(missing_fields))
-        if failed:
+        for c in contradictions:
+            a.notes.append(c.message())
+        for q in unchecked_figures(pkg, r):
             a.notes.append(
-                f"mandatory requirements marked non-compliant: {', '.join(failed)}")
+                f"{q.id} ({q.clause}) is declared {r.compliance[q.id]} but {r.where('values.' + q.response_key)} is not stated, so the "
+                f"declaration is not checked against its figure ({_asks(q)}); it stands on the supplier's word alone.")
+        if failed:
+            declared_n = [i for i in failed if r.compliance.get(i, "").upper() == NON_COMPLIANT]
+            if declared_n:       # the others in `failed` are named, with their figures, by the contradiction notes above
+                a.notes.append(f"mandatory requirements marked non-compliant: {', '.join(declared_n)}")
         if unanswered:
             a.notes.append(
                 f"mandatory requirements with no compliance statement: "
@@ -274,6 +400,8 @@ def assess(pkg: SpecPackage, responses: list[SupplierResponse]) -> list[BidAsses
         out.append(a)
 
     live = [a for a in out if not a.disqualified]
+    for a in out:
+        a.cohort = len(live)
     prices = [a.capex_eur for a in live if a.capex_eur is not None]
     # Only complete programmes set the scale: a lead-only figure is a lower bound and must not become the 'best' week.
     programmes = [a.weeks_to_energised for a in live
@@ -318,6 +446,10 @@ def rank_bids(pkg: SpecPackage, responses: list[SupplierResponse]) -> list[BidAs
 
 def schedule_impact(pkg: SpecPackage, a: BidAssessment) -> str:
     """What this bid does to the date, against the modelled lead time."""
+    if a.disqualified:
+        # Its programme figure may be the very figure that disqualified it (a lead time of 0 weeks is "36 weeks earlier"): no effect on the
+        # date is stated for a response that was set aside.
+        return "Not evaluated: the response was set aside (see notes), so no effect on the energisation date is stated."
     if a.weeks_to_energised is None or pkg.lead_time_weeks is None:
         return "No programme stated; the effect on the energisation date is unknown."
     if a.install_weeks_missing:

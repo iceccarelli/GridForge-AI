@@ -23,7 +23,7 @@ from datetime import date
 
 from ..clock import report_date
 from ..costs import CAPACITY_SCALED_KEYS, COST_EVIDENCE, CostEntry, declared_unit
-from .evaluate import COMPLIES_WITH_DEVIATION, NON_COMPLIANT, _check_response, currency_problem
+from .evaluate import COMPLIES_WITH_DEVIATION, NON_COMPLIANT, _check_response, currency_problem, figure_contradictions
 from .ingest import _to_library_basis
 from .schema import ProcurementError, SpecPackage, SupplierResponse
 
@@ -107,8 +107,8 @@ def quote_lines(pkg: SpecPackage, responses: list[SupplierResponse], *, today: d
         if seen[r.supplier.strip().lower()] > 1:
             base_problems.append("another response from the same supplier is in this submission: supply one current "
                                  "response per supplier")
-        if r.currency != "EUR" and currency_problem(r.currency) not in base_problems:     # the comparison check may have said so already
-            base_problems.append(currency_problem(r.currency))
+        if r.currency != "EUR" and not any(currency_problem(r.currency) in p for p in base_problems):   # the comparison check may have said so already
+            base_problems.append(f"{r.path + '.currency: ' if r.path else ''}{currency_problem(r.currency)}")
         for rid in mandatory:
             code = r.compliance.get(rid, "")
             if not code:
@@ -117,6 +117,9 @@ def quote_lines(pkg: SpecPackage, responses: list[SupplierResponse], *, today: d
                 limits.append(f"mandatory requirement {rid} is marked non-compliant: the price is for a different scope")
             elif code == COMPLIES_WITH_DEVIATION:
                 limits.append(f"complies with deviation on {rid}")
+        for c in figure_contradictions(pkg, r):      # the bid's own figure falls short of a 'shall' it may have declared C on
+            limits.append(f"mandatory requirement {c.requirement_id} is contradicted by the bid's own figure ({c.offered_text} offered, "
+                          f"{c.asked_text} asked): the price is for a different scope")
         for f in cost_fields:
             raw = r.get(f.key)
             problems = list(base_problems)

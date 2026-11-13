@@ -98,6 +98,8 @@ def build(spec: BTMEquipmentSpec, *, reference: str = "", return_by: str = "",
         "State compliance against every requirement in section 3 as C (compliant), CD "
         "(complies with deviation) or N (non-compliant).",
         "Quote duties at the conditions stated, not at a reference condition.",
+        "The price validity in section 6 is held to C-02: a figure that falls short is not compliant on it, "
+        "whatever code is returned. Scores are relative to the bids compared together, not absolute.",
         "List exclusions explicitly and price them separately where you can.",
     ]))
     r.sections.append(s)
