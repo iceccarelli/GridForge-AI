@@ -51,24 +51,44 @@ def test_init_then_gaps_on_a_blank_intake(blank):
     assert "Density Screen" in r.stdout, "a blank intake must route to the screen, not the study"
 
 
-def test_screen_survives_a_blank_intake(blank, tmp_path):
-    r = run("screen", str(blank), "-o", str(tmp_path))
+@pytest.fixture(scope="module")
+def sparse(blank, tmp_path_factory):
+    """The blank pack with ONE figure filled in: the thinnest intake the engine will solve (every other figure is a library default)."""
+    doc = json.loads(blank.read_text())
+    doc["grid"]["contracted_MW"] = 12
+    out = tmp_path_factory.mktemp("sparse") / "intake.json"
+    out.write_text(json.dumps(doc))
+    return out
+
+
+@pytest.mark.parametrize("command", ["screen", "study", "deck", "proposal", "spec"])
+def test_a_command_that_solves_refuses_a_blank_intake_as_the_api_does(command, blank, tmp_path):
+    """The blank pack gives none of the intake fields, so a solve would print a study of a hall nobody described, from library defaults, and exit 0.
+    The API refuses it (422 'none of the intake fields'); the command line exits 2 with the same words and writes nothing."""
+    r = run(command, str(blank), "-o", str(tmp_path))
+    assert r.returncode == 2, r.stderr + r.stdout
+    assert "none of the intake fields, so there is nothing to solve" in r.stderr
+    assert list(tmp_path.iterdir()) == []
+
+
+def test_screen_survives_a_nearly_blank_intake(sparse, tmp_path):
+    r = run("screen", str(sparse), "-o", str(tmp_path))
     assert r.returncode == 0, r.stderr + r.stdout
     for name in ("density_screen.md", "density_screen.html", "model_pack.json"):
         p = tmp_path / name
         assert p.exists() and p.stat().st_size > 0
 
 
-def test_study_survives_a_blank_intake(blank, tmp_path):
-    r = run("study", str(blank), "-o", str(tmp_path))
+def test_study_survives_a_nearly_blank_intake(sparse, tmp_path):
+    r = run("study", str(sparse), "-o", str(tmp_path))
     assert r.returncode == 0, r.stderr + r.stdout
     assert (tmp_path / "envelope_study.md").stat().st_size > 0
     assert "required inputs are assumed" in r.stdout, (
         "a study built on assumptions must say so on the console, not only in the report")
 
 
-def test_blank_intake_report_never_claims_a_client(blank, tmp_path):
-    run("study", str(blank), "-o", str(tmp_path))
+def test_nearly_blank_intake_report_never_claims_a_client(sparse, tmp_path):
+    run("study", str(sparse), "-o", str(tmp_path))
     md = (tmp_path / "envelope_study.md").read_text()
     assert "Unnamed client" in md
     assert "— :" not in md, "an empty client name must not render as a dangling separator"
