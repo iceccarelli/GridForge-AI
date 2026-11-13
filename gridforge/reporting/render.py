@@ -79,15 +79,14 @@ def _appendix_md(r: Report) -> list[str]:
     return out
 
 
-_FONTS = ("<link rel='preconnect' href='https://fonts.gstatic.com' crossorigin>"
-          "<link rel='stylesheet' href='https://fonts.googleapis.com/css2?"
-          "family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500;600"
-          "&family=IBM+Plex+Serif:ital,wght@0,400;1,400&display=swap'>")
-
 # Palette and type are drawn from the subject: engineering record documents.
 # Cool drawing-paper neutrals, instrument teal for structure, semantic colours
-# reserved for constraint state. IBM Plex Sans / Mono for the body and the
-# numbers, Plex Serif italic for annotation - the voice of a drawing note.
+# reserved for constraint state. System font stacks only: a deliverable fetches
+# nothing from anywhere when it is opened (it used to link Google Fonts, so
+# opening a tender specification told a third party who was reading it). A face
+# named first (Inter, JetBrains Mono) is used only if it is installed on the
+# reader's machine; the public sample pages declare it as a self-hosted
+# @font-face (scripts/build-reference.sh), and a private document does not.
 _CSS = """
 :root{
   --paper:#eef1f3; --surface:#ffffff; --ink:#15191d; --muted:#5b636b;
@@ -96,9 +95,9 @@ _CSS = """
   --critical:#8f2d2d; --critical-soft:#f7e9e8;
   --caution:#7d6111; --caution-soft:#f7f0dc;
   --ok:#2b6144; --ok-soft:#e5f0e9;
-  --sans:"IBM Plex Sans",-apple-system,BlinkMacSystemFont,"Segoe UI",Helvetica,Arial,sans-serif;
-  --mono:"IBM Plex Mono",ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;
-  --serif:"IBM Plex Serif",Georgia,"Times New Roman",serif;
+  --sans:"Inter",-apple-system,BlinkMacSystemFont,"Segoe UI",Helvetica,Arial,sans-serif;
+  --mono:"JetBrains Mono",ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;
+  --serif:Georgia,"Times New Roman",serif;
 }
 @media (prefers-color-scheme:dark){:root:not([data-theme="light"]){
   --paper:#14181b; --surface:#1a1f23; --ink:#e6eaed; --muted:#98a2aa;
@@ -187,10 +186,11 @@ code{font-family:var(--mono);font-size:.85em;background:var(--accent-soft);paddi
 
 
 def to_html(r: Report, *, full_document: bool = True) -> str:
-    """`full_document=False` emits fonts + title + style + body content only, for hosts
-    that supply their own document skeleton."""
+    """`full_document=False` emits title + style + body content only, for hosts
+    that supply their own document skeleton. Nothing in either form refers to a
+    resource outside the document: no font, stylesheet, script or image by URL."""
     e = html.escape
-    head = f"{_FONTS}<title>{e(r.title)}</title><style>{_CSS}</style>"
+    head = f"<title>{e(r.title)}</title><style>{_CSS}</style>"
     if full_document:
         parts = ["<!doctype html><html><head><meta charset='utf-8'>",
                  "<meta name='viewport' content='width=device-width,initial-scale=1'>",
