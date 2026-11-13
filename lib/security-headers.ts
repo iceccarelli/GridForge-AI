@@ -19,10 +19,26 @@ export interface HeaderRule {
  * API routes that take, mint or return a bearer credential (the account portal token, a newly minted API key, or a link that opens a portal)
  * without it appearing in their own path. /api/keys and /api/usage are exact patterns (Next matches that route and nothing under it);
  * /api/payg/* (enable and card return a Stripe Checkout link and set the return cookie, cap returns a newly minted key, return redirects to
- * the portal) and /api/billing/* (the Stripe billing portal link and its return) use the same ":path*" prefix style as the token pages.
+ * the portal) and /api/billing/* (the Stripe billing portal link and its return) use the same ":path*" prefix style as the token pages, as do
+ * the prefixes below whose own path contains the token.
  * Responses are never cached, never sent as a referrer and never indexed.
  */
-export const TOKEN_API_ROUTES = ["/api/keys", "/api/usage", "/api/payg/:path*", "/api/billing/:path*"] as const;
+export const TOKEN_API_ROUTES = [
+  "/api/keys",
+  "/api/usage",
+  "/api/payg/:path*",
+  "/api/billing/:path*",
+  // The routes whose PATH carries the bearer token (app/api/<prefix>/[token]/...): a released deliverable, an intake and its evidence, a
+  // project (the owner token is a credential too), a watch, a qualification's follow-up and the Power Deploy case update. Their JSON is as
+  // private as the page the same link opens, so it gets the same headers. A new `[token]` route under app/api must fall under one of these:
+  // tests/site/security-headers.test.ts walks app/api and fails if one does not.
+  "/api/deliverable/:path*",
+  "/api/intake/:path*",
+  "/api/watch/:path*",
+  "/api/projects/:path*",
+  "/api/qualify/:path*",
+  "/api/power/deploy/cases/:path*",
+] as const;
 
 /**
  * Pages whose credential is in the QUERY STRING, not the path. /commissioned?session_id=cs_... is the checkout success page: the Stripe session
