@@ -7,9 +7,17 @@ input is changed and no number is invented.
 """
 from __future__ import annotations
 
+from ..numerics import leq
+
 
 #: Relative slack before contracted power counts as exceeding the firm connection: float noise, not an engineering allowance.
 _TOLERANCE = 1e-6
+
+
+def _exceeds(a: float, b: float) -> bool:
+    """``a`` is genuinely larger than ``b``: larger, and not merely larger by the float noise of the arithmetic that produced one of them
+    (``numerics.leq``). A NaN is never "larger" (no finding is raised on an undetermined figure, as before)."""
+    return a > b and not leq(a, b)
 
 
 def plausibility_findings(ctx) -> list[str]:
@@ -29,20 +37,22 @@ def plausibility_findings(ctx) -> list[str]:
             f"{ceiling_MW:,.2f} MW, so the extra contracted capacity adds nothing here. One of the two figures may be wrong or in "
             f"the wrong unit (MW, MVA, kW), or the contract may include capacity that is not firm. Confirm with the network operator "
             f"which figure is the firm entitlement before relying on this result.")
-    if it_MW > ceiling_MW:
+    # leq, not >: the ceiling is a product (18 MVA x 0.95 is 17.099999999999998), so a site peak declared as exactly 17.1 MW is AT the
+    # ceiling, not over it; saying the connection is overdrawn would be a false finding about the customer's own figures.
+    if _exceeds(it_MW, ceiling_MW):
         out.append(
             f"The firm supply ceiling ({ceiling_MW:,.2f} MW: the lesser of the firm connection "
             f"{g.firm_capacity_MVA.value:,.2f} MVA x {g.power_factor.value:.2f} and the contracted "
             f"{g.contracted_MW.value:,.2f} MW) cannot cover the current IT load ({it_MW:,.2f} MW). No hall can "
             f"run on that supply, so the zero headroom below says the inputs disagree with each other, not that "
             f"the hall is full. Check the units (MW, MVA, kW) before relying on this result.")
-    elif peak_MW > ceiling_MW:
+    elif _exceeds(peak_MW, ceiling_MW):
         out.append(
             f"The firm supply ceiling ({ceiling_MW:,.2f} MW) cannot cover the current site peak "
             f"({peak_MW:,.2f} MW). The connection is already overdrawn on the inputs given, so the zero "
             f"headroom below says the inputs disagree with each other. Check the units (MW, MVA, kW) before "
             f"relying on this result.")
-    if peak_MW < it_MW:
+    if _exceeds(it_MW, peak_MW):
         out.append(
             f"The current site peak ({peak_MW:,.2f} MW) is below the current IT load ({it_MW:,.2f} MW), but the IT load is part of the "
             f"site peak, so one of the two figures is wrong or in the wrong unit (MW, MVA, kW), or one is a design value and the other a "
