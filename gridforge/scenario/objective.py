@@ -113,8 +113,9 @@ def pick_with_reason(results: list[ScenarioResult], objective: Objective = Objec
     The ranking is the objective's own (below). Scenarios it ranks LEVEL are tied, and a tie is broken the same way whatever order the
     scenarios were listed in: first on the simpler option (the one with less behind-the-meter equipment, ``_btm_dependence``), then on the simpler
     cooling architecture (retained air, rear door, hybrid DLC, full DLC: the order a default study lists them in, so a caller who listed them
-    that way sees the same answer as before), and last on the scenario id. Before this, the first of the tied scenarios in the caller's own order won, so ``[full_dlc, full_dlc_btm]`` and its reverse recommended
-    different scenarios at identical racks and identical capex, for all three objectives.
+    that way sees the same answer as before), and last on the scenario id. Before this, the first of the tied scenarios in the caller's own
+    order won, so ``[full_dlc, full_dlc_btm]`` and its reverse recommended different scenarios at identical racks and identical capex, for
+    all three objectives.
 
     The answer is a function of the SET of scenarios: the candidates are put in scenario-id order before anything is compared."""
     if not results:
