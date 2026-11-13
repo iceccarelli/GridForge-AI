@@ -21,6 +21,7 @@ import {
   PUBLISHED_VARIABLES,
   RECORD_SHAPE,
   RESIDUAL_CELL_FIELDS,
+  PUBLIC_MIN_SITES,
   RESIDUAL_REQUIREMENTS,
   RESIDUAL_TOP_FIELDS,
   RESIDUAL_VARIABLE_FIELDS,
@@ -174,6 +175,16 @@ describe("the residual-report schema in code is the engine's", () => {
     const withheld = [...(residuals.match(/WITHHELD_FROM_PUBLIC[^=]*=\s*frozenset\(\{([^}]*)\}\)/)?.[1] ?? "").matchAll(/"(\w+)"/g)].map((m) => m[1]);
     expect(withheld.sort()).toEqual([...WITHHELD_VARIABLES].sort());
     expect(PUBLISHED_VARIABLES).toEqual(all.filter((v) => !withheld.includes(v.name)));
+  });
+
+  it("states the number of sites a statistic needs before it is published as the engine's own constant, not as a typed number", () => {
+    const publication = readFileSync("gridforge/calibration/publication.py", "utf8");
+    expect(publication).toMatch(new RegExp(`^PUBLIC_MIN_SITES = ${PUBLIC_MIN_SITES}$`, "m"));
+    expect(PUBLIC_MIN_SITES).toBeGreaterThan(RESIDUAL_REQUIREMENTS.min_distinct_sites_per_variable); // publishing needs more sites than labelling does
+    // the page's copy reads the constant: no sentence of the component or the library types a different number of sites
+    for (const file of ["components/CalibrationTransparency.tsx", "lib/calibration-residuals.ts"]) {
+      expect(readFileSync(file, "utf8"), file).not.toMatch(/fewer than (three|3)\b/i);
+    }
   });
 
   it("names the schema, the thresholds and the fields of the report, the variable block and the residual cell", () => {

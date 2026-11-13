@@ -16,7 +16,7 @@ export interface ResidualCell {
   median_abs_error: number | null;
   mean_signed_error: number | null;
   median_pct_error: number | null;
-  /** The engine withheld the statistics of a cell resting on fewer than three sites. */
+  /** The engine withheld the statistics of a cell resting on fewer than PUBLIC_MIN_SITES sites (lib/calibration-gates.ts). */
   suppressed: boolean;
 }
 

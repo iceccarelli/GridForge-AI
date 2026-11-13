@@ -296,6 +296,13 @@ export const RESIDUAL_VARIABLE_FIELDS: readonly string[] = [
   "interval_coverage",
 ];
 
+/**
+ * The fewest distinct SITES a published statistic rests on (gridforge/calibration/publication.py PUBLIC_MIN_SITES). Below it a cell shows its counts and says
+ * why. Typed once, here, for every sentence that states it; tests/site/calibration-gates.test.ts compares it with the Python constant, so the copy cannot say
+ * "three" while the engine says five.
+ */
+export const PUBLIC_MIN_SITES = 5;
+
 /** The thresholds the engine states in `requirements` (gridforge/calibration/residuals.py). */
 export const RESIDUAL_REQUIREMENTS = { min_approved_observations_per_variable: 10, min_distinct_sites_per_variable: 3 } as const;
 

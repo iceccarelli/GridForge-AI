@@ -737,7 +737,9 @@ export const CAPABILITY_REGISTRY: Capability[] = [
     web_route: "/workspace",
     workspace_action: "ProjectPanel: record a measured outcome (POST /api/projects/[token]/observations)",
     database_record:
-      "project_observations, project_observation_reviews (0017, 0038), calibration_permissions (0047), project_evidence_reviews (0048), calibration_ledger_rows view",
+      "project_observations, project_observation_reviews (0017, 0038), calibration_permissions (0047), project_evidence_reviews (0048), calibration_ledger_rows view; " +
+      "from migration 0056 (WRITTEN, NOT APPLIED to any database): calibration_consents, project_completion_milestones, calibration_tombstones, " +
+      "calibration_release_snapshots, calibration_snapshot_supersessions",
     entitlement:
       "Submission: the holder of the project token. Review: an administrator who is not the submitter (app/api/admin/observations/[id]/review). " +
       "A project's permission is recorded by an administrator (POST /api/admin/calibration-permissions) and a file's verified or rejected decision by one " +
@@ -747,7 +749,10 @@ export const CAPABILITY_REGISTRY: Capability[] = [
       "a frozen forecast made before the outcome that still holds the predicted value, a production data origin, and a project whose latest recorded permission is a grant " +
       "(and which has never been filed under a non-production site, migration 0052). The permission is an assertion recorded by an administrator (the document digest is not verified " +
       "and the administrator is not identified). Revoking a permission stops future exports; it does not recall rows already imported by `gridforge calibrate import`. " +
-      "The forecast rule compares the stored forecast with the outcome date the submitter declared, not with when the measurement was taken. A verdict is final: there is no withdrawal. Observations recorded before origin tracking stay unclassified and are not exported.",
+      "The forecast rule compares the stored forecast with the outcome date the submitter declared, not with when the measurement was taken. A verdict is final: there is no withdrawal of a verdict. Observations recorded before origin tracking stay unclassified and are not exported. " +
+      "Migration 0056 (written, not applied: docs/CALIBRATION_GATES_RUNBOOK.md) adds, once applied, three more conditions to the view and refuses a production observation at insert without them: " +
+      "the organisation its project belongs to has a standing consent (an owner records it, naming scope and aggregation floors; a withdrawal leaves a permanent tombstone), and the project has attested " +
+      "its completion milestone under that organisation. Nothing in the site records a consent or a milestone yet, so applying it makes every production submission fail closed (HTTP 409) until an operator does.",
     stripe_product_or_price: "none",
     deliverable: "Aggregate residual statistics (n_records, per-subsystem); an export file for `gridforge calibrate import`",
     status: "free",
@@ -758,7 +763,8 @@ export const CAPABILITY_REGISTRY: Capability[] = [
       "That is the route, not a claim that the ledger holds evidence: it holds none. "+
       "Nothing here writes the ledger by itself: with no verified observation the export is empty and the answer is 'uncalibrated'. " +
       "The site-side capture needs 0017 and 0038, plus 0046-0048 (forecast freeze, consent and origin, file verification) " +
-      "and 0052 (the site-origin gate), all recorded as applied (2026-11-07); no real observation is recorded as having passed review in production. " +
+      "and 0052 (the site-origin gate), all recorded as applied (2026-11-07); 0056 (consent, completion milestone, withdrawal tombstones, the release registry) is written and NOT applied; " +
+      "no real observation is recorded as having passed review in production. " +
       "The public account of the six gates and their limits, with the live residual status, is /evidence#ledger-gates (generated from lib/calibration-gates.ts and pinned to the final view by tests/site/calibration-gates.test.ts); " +
       "/admin/reviews shows every gate for each observation as met, not met or cannot be read. With no approved record the residual report says uncalibrated, n_records 0.",
   },

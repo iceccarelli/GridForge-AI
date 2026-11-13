@@ -8,7 +8,7 @@ import { renderToStaticMarkup } from "react-dom/server";
 import { readFileSync } from "node:fs";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { CalibrationTransparency } from "@/components/CalibrationTransparency";
-import { RESIDUAL_CELL_FIELDS, RESIDUALS_SCHEMA } from "@/lib/calibration-gates";
+import { PUBLIC_MIN_SITES, RESIDUAL_CELL_FIELDS, RESIDUALS_SCHEMA } from "@/lib/calibration-gates";
 import { COUNT_MAX, RESIDUALS_MAX_BYTES, parseResiduals, readLiveResiduals } from "@/lib/calibration-residuals";
 
 const text = (h: string) => h.replace(/<!-- -->/g, "").replace(/<[^>]+>/g, " ").replace(/&#x27;/g, "'").replace(/&quot;/g, '"').replace(/&amp;/g, "&").replace(/&rsquo;/g, "'").replace(/\s+/g, " ").trim();
@@ -35,7 +35,7 @@ const WITH_RECORDS = {
       variables: {
         btm_firm_MW: {
           unit: "MW", state: "INDICATIVE", approved_observations: 4, counting_toward_calibration: 4, distinct_sites: 2, still_needed: { observations: 6, sites: 1 },
-          residuals: { n: 4, sites: 2, suppressed: "fewer than 3 sites" },
+          residuals: { n: 4, sites: 2, suppressed: "fewer than 5 sites" },
         },
         grid_firm_MW: {
           unit: "MW", state: "INDICATIVE", approved_observations: 4, counting_toward_calibration: 4, distinct_sites: 3, still_needed: { observations: 6, sites: 0 },
@@ -183,7 +183,8 @@ describe("the public panel's live status", () => {
     const t = await render();
     expect(t).toContain("State: indicative. 4 approved records from 2 sites.");
     expect(t).toContain("not a guarantee for any other site");
-    expect(t).toContain("withheld: fewer than three sites");
+    expect(t).toContain(`withheld: fewer than ${PUBLIC_MIN_SITES} sites`);
+    expect(t).not.toContain("fewer than three sites");
     expect(t).toContain("1.235 MW");
     expect(t).toContain("6 observations, 1 site");
     expect(t).not.toContain("Uncalibrated: 0 approved");

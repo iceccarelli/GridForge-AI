@@ -3,6 +3,7 @@ import {
   LEDGER_GATES,
   LEDGER_LIMITS,
   PUBLICATION_CONDITIONS,
+  PUBLIC_MIN_SITES,
   PUBLISHED_VARIABLES,
   RECORD_SHAPE,
   RESIDUALS_PATH,
@@ -109,7 +110,7 @@ function Subsystems({ report }: { report: ResidualReport }) {
                     {v.still_needed ? `${v.still_needed.observations} observation${v.still_needed.observations === 1 ? "" : "s"}, ${v.still_needed.sites} site${v.still_needed.sites === 1 ? "" : "s"}` : "not stated"}
                   </td>
                   <td className="p-3 text-mute">
-                    {v.residuals === null ? "none yet" : v.residuals.suppressed ? "withheld: fewer than three sites" : fmt(v.residuals.mean_abs_error, v.unit)}
+                    {v.residuals === null ? "none yet" : v.residuals.suppressed ? `withheld: fewer than ${PUBLIC_MIN_SITES} sites` : fmt(v.residuals.mean_abs_error, v.unit)}
                   </td>
                 </tr>
               ))}
@@ -130,7 +131,7 @@ function Schema() {
       <div className="mt-3 space-y-5 text-sm text-mute">
         <p>
           Served by <span className="font-mono">GET {RESIDUALS_PATH}</span>, public and read-only. It is aggregate statistics over approved
-          records only; no site, hall or record identifier, free text or single measurement is in it. A cell resting on fewer than three
+          records only; no site, hall or record identifier, free text or single measurement is in it. A cell resting on fewer than {PUBLIC_MIN_SITES}
           sites carries counts only. Errors are in each variable&rsquo;s own unit and are never combined: there is no single accuracy figure.
         </p>
         <div>

@@ -71,9 +71,10 @@
 -- OPERATOR NOTES
 --   * BEFORE YOU APPLY THIS, the application must be able to meet it. From the moment it is applied a PRODUCTION observation is refused (SQLSTATE GF015, GF016
 --     or GF017) unless its project is attached to a hall of an organisation that has recorded a consent (gf_record_calibration_consent) and the project has attested
---     its completion milestone (gf_attest_completion_milestone). Nothing in lib/ or app/ calls those functions yet and lib/project-observations.ts maps none of the
---     codes, so applied before that exists every production submission fails closed. That is the intended direction (no observation is accepted without the gates),
---     and one reason this is written and not applied. lib/calibration-gates.ts lists the view's conditions and must gain the three added here.
+--     its completion milestone (gf_attest_completion_milestone). Nothing in lib/ or app/ calls those functions yet, so applied before that exists every production
+--     submission fails closed. lib/project-observations.ts DOES map the codes (GF015-GF017, in words that name what is missing: lib/calibration-gate-errors.ts) so the
+--     customer is told, with HTTP 409, and lib/calibration-gates.ts lists the view's conditions (the page /evidence reads it). That is the intended direction (no
+--     observation is accepted without the gates), and one reason this is written and not applied.
 --   * Locks. The only changes to an existing table are two nullable columns and one trigger on project_observations (no rewrite; a short ACCESS EXCLUSIVE lock) and
 --     the event-type check on project_events, added NOT VALID and then validated (see 0049). The file sets `lock_timeout = '5s'` (SET LOCAL) at its top and each of
 --     those statements sets it again for itself, so a reader that holds the table open makes the apply FAIL after five seconds instead of queueing behind it and
