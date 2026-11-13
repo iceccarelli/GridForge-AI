@@ -96,7 +96,7 @@ def test_no_third_party_dependencies():
                  "contextlib", "contextvars", "dataclasses", "fcntl", "functools", "datetime", "enum", "hashlib", "hmac", "html", "http", "io", "ipaddress",
                  "json", "math", "os", "pathlib", "re", "secrets", "signal", "sys", "threading",
                  "time", "traceback", "typing", "unicodedata", "urllib", "zipfile",
-                 "difflib"}   # unicodedata: standard library; gridforge/calibration/siteref.py uses it for NFC. difflib: standard library; intake/loader.py uses it for the did-you-mean of a misspelt top-level section
+                 "difflib", "itertools"}   # unicodedata: standard library; gridforge/calibration/siteref.py uses it for NFC. difflib: standard library; intake/loader.py uses it for the did-you-mean of a misspelt top-level section. itertools: standard library; calibration/release.py uses it to enumerate coalitions of organisations
     bad = []
     for path in ROOT.rglob("*.py"):
         tree = ast.parse(path.read_text())
