@@ -923,7 +923,7 @@ def handle_spec(body: dict, tier: Tier) -> dict:
         "specification": {"project": pkg.project, "hall": pkg.hall,
                           "constraint": pkg.constraint_id,
                           "sized_for_racks": pkg.sized_for_racks},
-        "supplier": "", "received_on": "", "valid_until": "",
+        "supplier": "", "received_on": "", "valid_until": "", "currency": "",     # a priced response names its currency (C-01: EUR)
         "values": {f.key: None for f in pkg.response_fields},
         "compliance": {q.id: "" for q in pkg.mandatory()},
     }
@@ -1004,7 +1004,7 @@ def _btm_spec_from_body(body: dict):
 def _btm_response_template(spec) -> dict:
     """Same shape as the hall `response_template`: what `SupplierResponse.from_dict` reads."""
     return {
-        "supplier": "", "received_on": "", "valid_until": "",
+        "supplier": "", "received_on": "", "valid_until": "", "currency": "",     # a priced response names its currency (C-01: EUR)
         "values": {f.key: None for f in spec.response_fields},
         "compliance": {q.id: "" for q in spec.mandatory()},
     }

@@ -50,6 +50,11 @@ class BTMEquipmentSpec:
     #: The architecture's declared critical-path lead time, when every unit declares
     #: one; None otherwise, in which case `schedule_impact` says it cannot compare.
     lead_time_weeks: Quantity | None = None
+    #: What the customer DECLARED the tendered units to cost, when every unit declares a price (never a partial sum). It is not an engine
+    #: estimate, so `rank_bids` words its plausibility check accordingly; it lets a price a thousandth or a thousand times the declared
+    #: plant be flagged, as a hall relief's modelled budget does. None when any unit is unpriced: there is then nothing to check against.
+    budget_eur: Quantity | None = None
+    budget_label: str = "declared capex of the tendered units"
 
     def validate(self) -> None:
         if not self.requirements:
@@ -238,11 +243,14 @@ def build_equipment_spec(architecture_label: str, *, project: str,
                    verification="Stated on the quotation."),
     ])
     dated = [u.lead_time_weeks for u in list(generation) + list(bess)]
+    from .btm_assessment import _total_capex
+    budget, _uncosted = _total_capex(list(generation) + list(bess))
     spec = BTMEquipmentSpec(
         project=project, architecture_label=architecture_label,
         lead_time_weeks=(max(dated, key=lambda q: q.value) if all(q is not None for q in dated)
                          else None),
         units=[u.id for u in list(generation) + list(bess)],
+        budget_eur=budget,
         scope=[
             ScopeItem("S-1", "Supply", "Equipment meeting the duties specified."),
             ScopeItem("S-2", "Delivery", "Delivered to site, offloaded, positioned."),

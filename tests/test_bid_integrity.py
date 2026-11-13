@@ -35,7 +35,7 @@ def pkg():
 
 def resp(pkg, supplier="S", capex=None, lead=30, comp="C", spec=True, **extra):
     capex = pkg.budget_eur.value if capex is None else capex
-    d = {"supplier": supplier, "received_on": "2026-10-01", "valid_until": "2026-12-31",
+    d = {"supplier": supplier, "received_on": "2026-10-01", "valid_until": "2026-12-31", "currency": "EUR",
          "values": {"capex_eur": capex, "lead_time_weeks": lead, "install_weeks": 4},
          "compliance": {q.id: comp for q in pkg.mandatory()} if comp else {}}
     if spec:
@@ -131,7 +131,9 @@ def test_a_bid_quoted_in_another_currency_is_not_ranked_against_euros(pkg):
         assert any(f"quoted in {code}" in n and "exchange rate" in n for n in ranked[name].notes)
 
 
-def test_explicit_euro_and_unstated_currency_still_rank(pkg):
-    """The field is capex_eur, so an unstated currency is euros by contract; only a contradicting one is refused."""
-    ranked = rank_bids(pkg, [resp(pkg, "Explicit", currency="EUR"), resp(pkg, "Unstated")])
-    assert not any(a.disqualified for a in ranked)
+def test_an_explicit_euro_bid_ranks_and_a_priced_bid_with_no_currency_does_not(pkg):
+    """Audit D4. This used to say an unstated currency is euros by contract and ranks, which let a 30-thousand and a 30-million bid with no
+    currency both lead, and disagreed with the cost-evidence path (where the same bid is INVALID). A priced bid names its currency."""
+    ranked = {a.supplier: a for a in rank_bids(pkg, [resp(pkg, "Explicit", currency="EUR"), resp(pkg, "Unstated", currency="")])}
+    assert not ranked["Explicit"].disqualified
+    assert ranked["Unstated"].disqualified and "currency not stated" in " ".join(ranked["Unstated"].notes)

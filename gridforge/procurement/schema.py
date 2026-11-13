@@ -199,17 +199,35 @@ def _section(d: dict, name: str) -> dict:
     return raw
 
 
+_NOT_A_NUMBER = ("If the supplier gave a range or a caveat, put the figure here and the caveat in 'text'.")
+
+
 def _numeric(raw: dict) -> dict[str, float]:
+    """The numbers of a response, each a finite float. A JSON number or a string of one; nothing else. In particular NOT a boolean:
+    ``float(True)`` is 1.0, so a bid of ``true`` for its price, lead time and installation time was read as EUR 1 in one week and ranked
+    first. Every refusal names the field."""
     out: dict[str, float] = {}
     for k, v in raw.items():
         if v is None or (isinstance(v, str) and not v.strip()):
             continue
-        try:
-            num = float(v)
-        except (TypeError, ValueError):
+        if isinstance(v, bool):
             raise ProcurementError(
-                f"response field {k!r} is {v!r}, which is not a number. If the supplier "
-                f"gave a range or a caveat, put the figure here and the caveat in 'text'.")
+                f"response field {k!r} is {v!r}, a JSON boolean, which is not a number. A quotation figure must be a number. {_NOT_A_NUMBER}")
+        if isinstance(v, str):
+            text = v.strip()
+            try:
+                if "_" in text:                       # float("1_000") is 1000.0 in Python; a quotation does not write numbers that way
+                    raise ValueError(text)
+                num = float(text)
+            except ValueError:
+                raise ProcurementError(f"response field {k!r} is {v!r}, which is not a number. {_NOT_A_NUMBER}") from None
+        elif isinstance(v, (int, float)):
+            try:
+                num = float(v)
+            except OverflowError:
+                raise ProcurementError(f"response field {k!r} is too large: a quotation figure must be a finite number.") from None
+        else:
+            raise ProcurementError(f"response field {k!r} is a {type(v).__name__}, which is not a number. {_NOT_A_NUMBER}")
         if not math.isfinite(num):
             raise ProcurementError(
                 f"response field {k!r} is {v!r}: a quotation figure must be a finite number.")
@@ -235,6 +253,8 @@ class SupplierResponse:
 
     def get(self, key: str) -> float | None:
         v = self.values.get(key)
+        if isinstance(v, bool):               # a response built in code, not parsed: still not a number
+            raise ProcurementError(f"response field {key!r} is {v!r}, a boolean, which is not a number")
         return None if v is None else float(v)
 
     @staticmethod

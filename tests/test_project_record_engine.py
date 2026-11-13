@@ -61,7 +61,7 @@ def call(base, path, body):
 
 
 def response(template, supplier, **values):
-    return {"supplier": supplier, "received_on": "2026-10-01",
+    return {"supplier": supplier, "received_on": "2026-10-01", "currency": "EUR",
             "values": {**template["values"], **values},
             "compliance": {rid: "C" for rid in template["compliance"]}}
 
@@ -82,7 +82,8 @@ def test_the_rendered_spec_carries_a_response_template_the_comparison_can_read(s
     assert status == 200, body
     assert "GEN-A" in body["document_md"] and "<html" in body["document_full"]
     t = body["response_template"]
-    assert set(t) == {"supplier", "received_on", "valid_until", "values", "compliance"}
+    # + "currency": a priced bid must name its currency (audit D4), so the template the supplier fills has a slot for it
+    assert set(t) == {"supplier", "received_on", "valid_until", "currency", "values", "compliance"}
     assert t["compliance"], "mandatory clauses must be answerable one by one"
 
 

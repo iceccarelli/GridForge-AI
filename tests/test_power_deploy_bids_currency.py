@@ -44,7 +44,7 @@ def bids(*offers):
 
 
 def test_a_bid_in_another_currency_is_disqualified_and_cannot_lead():
-    out = bids(("Euro", 1_000_000, "EUR"), ("Yen", 800_000, "JPY"), ("Dollar", 900_000, "USD"))
+    out = bids(("Euro", 30_000_000, "EUR"), ("Yen", 24_000_000, "JPY"), ("Dollar", 27_000_000, "USD"))   # priced at the scale of the declared plant (EUR 39.2M)
     rows = {r["supplier"]: r for r in out["ranked"]}
     assert not rows["Euro"]["disqualified"]
     for name, code in (("Yen", "JPY"), ("Dollar", "USD")):
@@ -53,7 +53,10 @@ def test_a_bid_in_another_currency_is_disqualified_and_cannot_lead():
     assert out["leading"] == "Euro"
 
 
-def test_euro_and_unstated_currency_still_rank():
-    out = bids(("Explicit", 1_000_000, "EUR"), ("Unstated", 1_100_000, None))
-    assert not any(r["disqualified"] for r in out["ranked"])
-    assert out["leading"] in {"Explicit", "Unstated"}
+def test_a_euro_bid_ranks_and_a_priced_bid_with_no_currency_does_not():
+    """Audit D4: the second half used to read 'unstated currency still ranks', which pinned the defect (it is INVALID as cost evidence)."""
+    out = bids(("Explicit", 30_000_000, "EUR"), ("Unstated", 31_000_000, None))
+    rows = {r["supplier"]: r for r in out["ranked"]}
+    assert not rows["Explicit"]["disqualified"] and rows["Unstated"]["disqualified"]
+    assert any("currency not stated" in n for n in rows["Unstated"]["notes"])
+    assert out["leading"] == "Explicit"

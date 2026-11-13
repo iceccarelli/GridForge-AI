@@ -102,6 +102,13 @@ VALID_CODES = {COMPLIANT, COMPLIES_WITH_DEVIATION, NON_COMPLIANT}
 BUDGET_PLAUSIBILITY_FACTOR = 10.0
 
 
+def currency_problem(currency: str) -> str:
+    """Why a price cannot be compared when the response names no currency (or not EUR in the evidence path). One wording for both paths:
+    the comparison here and the cost evidence in ``evidence.py`` used to disagree about a bid with no currency (ranked, and INVALID)."""
+    return (f"currency {currency or 'not stated'}: the specification requires EUR (C-01) and the engine holds no exchange rate, "
+            f"so the price cannot be compared")
+
+
 def _iso(raw: str, what: str, supplier: str) -> date:
     try:
         return date.fromisoformat(raw)
@@ -138,7 +145,12 @@ def _check_response(pkg: SpecPackage, r: SupplierResponse, today: date) -> list[
     problems: list[str] = []
     if r.valid_until and _iso(r.valid_until, "valid_until", r.supplier) < today:
         problems.append(f"offer expired on {r.valid_until}")
-    if r.currency and r.currency != "EUR":
+    if not r.currency:
+        # A price with no currency was ranked as if it were euros ("capex_eur is euros by contract"), so 30 thousand and 30 million, one
+        # of them perhaps in another currency, could both lead. A priced response names its currency; a response with no price needs none.
+        if r.get("capex_eur") is not None:
+            problems.append(currency_problem(""))
+    elif r.currency != "EUR":
         # The price is read from capex_eur and ranked against EUR bids, and the engine holds no exchange rate: a JPY or USD figure
         # in that field would rank as if it were euros (800,000 JPY as the cheapest compliant bid). Disqualify, say why, keep the others.
         problems.append(f"quoted in {r.currency}, but the specification requires EUR (C-01) and the engine holds no exchange rate; "
@@ -154,8 +166,9 @@ def _check_response(pkg: SpecPackage, r: SupplierResponse, today: date) -> list[
     if capex is not None and capex > 0 and budget is not None and budget.value > 0:
         ratio = capex / budget.value
         if ratio > BUDGET_PLAUSIBILITY_FACTOR or ratio < 1 / BUDGET_PLAUSIBILITY_FACTOR:
+            what = getattr(pkg, "budget_label", "modelled budget")      # a BTM package's is the declared capex of its units
             problems.append(
-                f"price EUR {capex:,.0f} is {ratio:.2g}x the modelled budget of "
+                f"price EUR {capex:,.0f} is {ratio:.2g}x the {what} of "
                 f"EUR {budget.value:,.0f}; confirm the units and scope and resubmit")
     return problems
 

@@ -229,7 +229,7 @@ def _spec_and_bids():
         if install is not None:
             values["install_weeks"] = install
         return SupplierResponse.from_dict({
-            "supplier": supplier, "received_on": "2026-10-01", "valid_until": "2026-12-31", "values": values,
+            "supplier": supplier, "received_on": "2026-10-01", "valid_until": "2026-12-31", "currency": "EUR", "values": values,
             "compliance": {q.id: "C" for q in pkg.mandatory()}})
     return pkg, bid
 
