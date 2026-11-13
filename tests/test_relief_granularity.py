@@ -236,14 +236,17 @@ class TestTheHostRule:
         cnote = cdu_capacity(cctx).relief.basis_note
         assert "in total" in cnote and "one bank" in cnote and "same CDUs listed as one bank or as several are priced the same" in cnote
 
-    def test_redundancy_decides_which_block_gains_most(self):
-        """Two modules under 2N make one usable, under N two: the N block gains more kW per rung even though its module is smaller."""
+    def test_redundancy_decides_which_block_is_cheapest_per_usable_kW(self):
+        """Two modules under 2N make one usable, under N two: the N block gains more kW per rung even though its module is smaller, and a 2N block
+        installs two kW for each usable one, so it costs twice as much per usable kW. (Review E5: the host is the cheapest per usable kW gained, no
+        longer the one with the most usable kW; the larger gain only breaks a tie in price per kW. The second half of this test used to say the 1800 kW
+        2N block beats 2 x 800 kW under N because it gains more kW (1800 against 1600): at 640 EUR per usable kW against 320 it is the dearer host.)"""
         d = _doc("dublin_hall")
         d["ups"] = [{"id": "U-2N", "unit_rating_kW": 1800, "units": 4, "redundancy": "2N", "step_load_capability": 0.5},
                     {"id": "U-N", "unit_rating_kW": 1200, "units": 4, "redundancy": "N", "step_load_capability": 0.5}]
         assert _ups_host(_ctx(d).power.ups).id == "U-N"
         d["ups"][1]["unit_rating_kW"] = 800
-        assert _ups_host(_ctx(d).power.ups).id == "U-2N"          # 1 x 1800 kW now beats 2 x 800 kW
+        assert _ups_host(_ctx(d).power.ups).id == "U-N"           # 1 x 1800 usable kW for 3600 kW installed (640/kW) loses to 2 x 800 for 1600 (320/kW)
 
     def test_identical_blocks_choose_by_id_not_by_position(self):
         d = _ups_doc(_doc("dublin_hall"), 6, 3)
