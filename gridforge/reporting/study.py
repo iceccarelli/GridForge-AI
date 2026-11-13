@@ -674,16 +674,16 @@ def _accuracy_section(results: list[ScenarioResult]) -> Section:
         # tally of how many sites we have reconciled is neither computed nor ours
         # to attach an evidence class to.
         if c:
+            # The published record carries the mean over sites (and only from five sites): no median, no day (calibration/publication.py).
+            bias = c.get("mean_bias_pct")
             rows.append([key_label(k), c["state"], Lit(str(c["n"])), Lit(str(c["sites"])),
-                         Lit(f"{c['bias_pct']:+.0f}%" if c["bias_pct"] is not None else "—"),
-                         Lit(c["last_observed_on"] or "—")])
+                         Lit(f"{bias:+.0f}%" if bias is not None else "—")])
         else:
-            rows.append([key_label(k), "uncalibrated", Lit("0"), Lit("0"), Lit("—"), Lit("—")])
+            rows.append([key_label(k), "uncalibrated", Lit("0"), Lit("0"), Lit("—")])
     s.blocks.append(Table(
-        headers=["Model output", "State", "Observations", "Sites", "Median bias",
-                 "Last observation"],
+        headers=["Model output", "State", "Observations", "Sites", "Mean bias"],
         rows=rows,
-        caption=("Bias is the median of observed / predicted, so a positive figure means the "
+        caption=("Bias is the mean over sites of observed / predicted, shown only from five sites, so a positive figure means the "
                  "model has run conservative. An output with no observations is reported as "
                  "uncalibrated rather than omitted.")))
     s.blocks.append(Para(

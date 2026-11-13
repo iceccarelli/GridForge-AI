@@ -44,12 +44,17 @@ def accuracy_block(keys: list[str] | None = None, ledger: Ledger | None = None,
     # The overall state is a statement about the MODEL, not about its best output: it reads 'calibrated' only when
     # every output asserted here has met the per-output requirement (n and independent sites). One calibrated
     # output out of twenty is partial coverage, and says so.
+    # Published states: a key below the publication floor reads INDICATIVE here, so the block never says calibrated about a key whose figures
+    # it withholds.
     overall = (CalibrationState.CALIBRATED if cals and all(
-                   c.state is CalibrationState.CALIBRATED for c in cals)
+                   c.published_state is CalibrationState.CALIBRATED for c in cals)
                else CalibrationState.INDICATIVE if with_data
                else CalibrationState.UNCALIBRATED)
     summary = disclosure_summary(records) if records else None
     statement = disclosure_sentence(cov, overall)
+    if with_data and any(c.build_relation != "running" for c in with_data):
+        statement += (" The figures above describe the build(s) they were recorded against, which are not shown to be the build answering "
+                      "this request (see model_builds on each key): a calibration of another build is not a calibration of this one.")
     block = {
         "state": overall.value,
         "statement": statement,
@@ -89,12 +94,12 @@ def disclosure_sentence(cov: dict, overall: CalibrationState) -> str:
         f"{cov['keys_with_site_observations']} of {cov['keys_asserted']} model outputs "
         f"({cov['coverage'] * 100:.0f}%). ")
     if overall is CalibrationState.CALIBRATED:
-        body = overall.sentence
+        body = overall.public_sentence
     else:
         body = (
             "Coverage is partial and the model as a whole is not calibrated: "
             f"{cov['keys_calibrated']} of {cov['keys_asserted']} outputs meet the requirement for a quoted "
-            "spread (enough observations from enough independent sites). Read every other output as "
+            "figure (enough observations from enough independent sites). Read every other output as "
             "indicative at most.")
     tail = " Outputs with no observations remain modelled and are listed as such."
     if cov.get("observations_without_source_ref"):

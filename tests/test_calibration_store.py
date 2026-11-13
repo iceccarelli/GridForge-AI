@@ -287,7 +287,8 @@ def test_public_report_has_no_ids_free_text_or_raw_measurements(path):
 
 
 def test_small_cells_are_reduced_to_counts(path):
-    put(path, [row(1, capacity_mw=0.5), row(2, site="B", capacity_mw=0.5)])
+    # two DISTINCT measurements (review R8: identical ones are one measurement and are counted once), at two sites
+    put(path, [row(1, capacity_mw=0.5), row(2, site="B", capacity_mw=0.5, measured=94.0)])
     approve(path, "obs-0001")
     approve(path, "obs-0002")
     rep = R.public_report(store.approved_records(path))

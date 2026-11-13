@@ -231,14 +231,18 @@ def _eligible(recs: list[ObservationRecord]) -> list[ObservationRecord]:
 
 
 def _headline_records(recs: list[ObservationRecord]) -> list[ObservationRecord]:
-    """The records of ONE engine build: never a pool across builds. With several ``model_version`` values it is the build with the most
-    contributing sites (then the most observations, then the later version string, so the choice is deterministic and does not depend on
-    input order); the others are counted apart and not mixed in."""
+    """The records of ONE engine build: never a pool across builds. The build answering the request when there are records of it (a
+    calibration of another build is not a calibration of this one); otherwise the build with the most contributing sites (then the most
+    observations, then the later version string, so the choice is deterministic and does not depend on input order). The others are
+    counted apart and not mixed in."""
     by_version: dict[str, list[ObservationRecord]] = {}
     for r in recs:
         by_version.setdefault(r.model_version, []).append(r)
     if len(by_version) <= 1:
         return list(recs)
+    answering = {v: rs for v, rs in by_version.items() if pub.build_relation(v) == "running"}
+    if answering:
+        by_version = answering
 
     def weight(item: tuple[str, list[ObservationRecord]]) -> tuple:
         version, rs = item
@@ -246,6 +250,12 @@ def _headline_records(recs: list[ObservationRecord]) -> list[ObservationRecord]:
         return (len({r.site_id for r in el}), len(el), len(rs), version)
 
     return max(by_version.items(), key=weight)[1]
+
+
+def headline_build_relation(recs: list[ObservationRecord]) -> str:
+    """How the build a variable's headline rests on relates to the one answering: 'running', 'other', 'unrecorded' or 'unknown'."""
+    headline = _headline_records(recs)
+    return pub.build_relation(headline[0].model_version) if headline else "unknown"
 
 
 def _spread_ok(eligible: list[ObservationRecord]) -> bool:
@@ -304,17 +314,18 @@ def _basis_fields(recs: list[ObservationRecord], state: str, eligible: list[Obse
     versions: dict[str, list[ObservationRecord]] = {}
     for r in recs:
         versions.setdefault(r.model_version, []).append(r)
+    relation = headline_build_relation(recs)
     out: dict = {
         "statistics_basis": ("Statistics are taken over sites: each site's own mean first, then the mean of those, so a site that reports "
                              "often counts once. n_readings and n_sites are reported separately."),
-        "model_versions": {"n_versions": len(versions), "pooled": False,
-                           "headline": ("the build with the most contributing sites; other builds are not pooled into it"
-                                        if len(versions) > 1 else "the one build recorded")},
+        "model_versions": {"n_versions": len(versions), "pooled": False, "headline_build": relation,
+                           "headline": pub.BUILD_RELATION_TEXT[relation] + ("; other builds are counted and not pooled into it"
+                                                                           if len(versions) > 1 else "")},
     }
     if len(versions) > 1:
         # Version strings are typed by the submitter: they appear in the private report only, never in the public one.
-        out["by_model_version"] = {v: {"n": len(rs), "sites": len({r.site_id for r in rs}), "state": variable_state(rs)}
-                                   for v, rs in sorted(versions.items())}
+        out["by_model_version"] = {v: {"n": len(rs), "sites": len({r.site_id for r in rs}), "state": variable_state(rs),
+                                       "relation_to_running_build": pub.build_relation(v)} for v, rs in sorted(versions.items())}
     if state != CALIBRATED:
         out["state_reason"] = _state_reason(eligible)
     return out
@@ -346,7 +357,7 @@ def _variable_block(variable: str, recs: list[ObservationRecord]) -> dict:
     return block
 
 
-def subsystem_statement(name: str, state: str, n: int, n_sites: int) -> str:
+def subsystem_statement(name: str, state: str, n: int, n_sites: int, other_build: bool = False) -> str:
     if state == UNCALIBRATED:
         return f"{name}: UNCALIBRATED (n={n} approved observations). Figures are modelled; accuracy is unquantified."
     if state == INDICATIVE:
@@ -354,7 +365,9 @@ def subsystem_statement(name: str, state: str, n: int, n_sites: int) -> str:
                 f"{MIN_APPROVED_OBSERVATIONS} per variable from {MIN_DISTINCT_SITES} distinct sites, no one site supplying more than "
                 f"{round(100 * pub.MAX_SINGLE_SITE_SHARE)}% of them, is required before any variable here is called calibrated.")
     return (f"{name}: CALIBRATED (n={n} approved observations from {n_sites} site(s)); every variable met "
-            f"the minimum of {MIN_APPROVED_OBSERVATIONS} observations from {MIN_DISTINCT_SITES} sites.")
+            f"the minimum of {MIN_APPROVED_OBSERVATIONS} observations from {MIN_DISTINCT_SITES} sites."
+            + (" The build behind at least one variable is not the build answering this request (or records no build): a calibration of "
+               "another build is not a calibration of this one; see each variable's model_versions." if other_build else ""))
 
 
 def residual_report(records: Iterable[ObservationRecord]) -> dict:
@@ -376,7 +389,8 @@ def residual_report(records: Iterable[ObservationRecord]) -> dict:
             "state": state,
             "approved_observations": len(sub_recs),
             "distinct_sites": n_sites,
-            "statement": subsystem_statement(sub, state, len(sub_recs), n_sites),
+            "statement": subsystem_statement(sub, state, len(sub_recs), n_sites, other_build=any(
+                b.get("model_versions", {}).get("headline_build", "running") != "running" for b in blocks.values())),
             "variables": blocks,
         }
     states = {s: v["state"] for s, v in subsystems.items()}
@@ -387,7 +401,8 @@ def residual_report(records: Iterable[ObservationRecord]) -> dict:
                     "min_distinct_sites_per_variable": MIN_DISTINCT_SITES,
                     "low_quality_counts_toward_calibration": False}
     if recs:        # with no record the report is exactly what it was before these rules existed
-        requirements.update(max_single_site_share=pub.MAX_SINGLE_SITE_SHARE, min_sites_to_publish_statistics=pub.PUBLIC_MIN_SITES)
+        requirements.update(max_single_site_share=pub.MAX_SINGLE_SITE_SHARE, min_sites_to_publish_statistics=pub.PUBLIC_MIN_SITES,
+                            release_precondition=pub.RELEASE_PRECONDITION)
     return {
         "schema": SCHEMA,
         "headline": headline,
@@ -533,12 +548,14 @@ def _public_variable(block: dict, recs: list[ObservationRecord]) -> dict:
            if k not in ("residuals", "by_configuration", "by_model_version", "by_capacity_bucket", "by_evidence_class",
                         "lead_time_error", "interval_coverage")}
     if "residuals" in block:
-        headline = _headline_records(recs)
+        # Every published figure is built from the readings that COUNT (distinct measurements, not low quality), the same ones the block's
+        # state and counting_toward_calibration rest on: a reading the block says does not count must not move a published figure.
+        headline = _eligible(_headline_records(recs))
         total_published = _publishable(headline)
         # by_configuration is keyed by free text a submitter typed: never published. Nor is any model_version string.
         out["residuals"] = _public_cell(headline, with_interval=True) if total_published else _suppressed(headline, _why_not(headline))
         out.update(_public_breakdowns(headline, total_published))
-        iv = block["interval_coverage"]
+        iv = interval_coverage(headline)
         if iv["assessed"] and iv["sites"] >= pub.PUBLIC_MIN_SITES:
             out["interval_coverage"] = iv
         else:
@@ -625,6 +642,9 @@ def disclosure_summary(records: Iterable[ObservationRecord]) -> dict | None:
     statement = (
         f"Residual records: {len(recs)} approved site observation(s) across {n_sites} site(s). Per variable: {parts}."
         + (f" {unrecorded} other variable(s) have no approved record and remain UNCALIBRATED." if unrecorded else "")
+        + ("" if all(headline_build_relation(rs) == "running" for rs in by_var.values()) else
+           " The build behind at least one variable is not the build answering this request (or records no build): a calibration of "
+           "another build is not a calibration of this one.")
         + f" A variable is called CALIBRATED only with at least {MIN_APPROVED_OBSERVATIONS} approved, non-low-quality "
           f"observations from {MIN_DISTINCT_SITES} distinct sites, no one site supplying more than "
           f"{round(100 * pub.MAX_SINGLE_SITE_SHARE)}% of them; no single accuracy figure is produced.")

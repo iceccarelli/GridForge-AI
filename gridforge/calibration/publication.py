@@ -22,10 +22,18 @@ THE RULES (each is a constant below; each is tested at its boundary in tests/tes
   5. A figure that claims to describe the model is stated with an interval over sites where there are enough sites for one, and with
      none, and the reason, where there are not.
 
-WHAT THIS DOES NOT DEFEND AGAINST (said here so nobody assumes it does): a reader who records the public report over time sees successive
-aggregates, and the difference between two releases that differ by one site is that site's contribution (to within the rounding above).
-Closing that needs releases on a fixed cadence with a minimum number of new sites in each; it is a follow-up, not something a pure function
-can do. Nor does it stop a reader who already knows every other site's figures from solving for the last.
+HARD PRECONDITION FOR PUBLISHING ANY REAL OBSERVATION (review R4, not solved here)
+
+  The public report is unauthenticated and recomputed on every request. A reader who records it before and after one site is added
+  computes N' x mean' - N x mean and gets that site's signed error (253 of 254 seeded trials had the right sign, median relative error 0.16%
+  even with three-figure rounding). Nothing in a pure function can stop that: it needs successive releases to be a policy decision, i.e.
+  the report served from a snapshot refreshed on a fixed cadence and only when at least ``PUBLIC_MIN_SITES`` new sites have joined since the
+  last one (so a release difference is an aggregate of five sites, never one), or no public statistic at all. The shipped ledger holds
+  0 observations, so nothing is exposed today; DO NOT put a real observation into the ledger or the record store, or serve the report
+  over one, before that exists. The report states this in ``requirements.release_precondition`` once it has any record.
+
+WHAT ELSE THIS DOES NOT DEFEND AGAINST: a reader who already knows every other site's figures can solve for the last, and the rounding
+above only blunts a difference, it does not remove it.
 """
 from __future__ import annotations
 
@@ -48,6 +56,51 @@ PUBLIC_SIG_FIGS: int | None = 3
 INTERVAL_CONFIDENCE = 0.95
 INTERVAL_LABEL = "interval over sites, assumes sites are exchangeable; not a guarantee for any given hall"
 POOLED_UNRECORDED = "pooled across unrecorded model versions"
+RELEASE_PRECONDITION = ("Successive releases of this report differ by the sites added between them, and the difference of two releases is "
+                        "that site's contribution. Real observations are published only from a snapshot refreshed on a fixed cadence and "
+                        f"only after at least {PUBLIC_MIN_SITES} new sites have joined since the last release.")
+
+#: Labels that name no build. A record carrying one is "unrecorded", never "the one build recorded".
+UNRECORDED_BUILD_LABELS = frozenset({"", "unknown", "unrecorded", "none", "null", "n/a", "na", "unspecified", "tbd", "?", "-", "unversioned"})
+_RUNNING_LABELS: list[str] = []
+
+
+def register_running_build(label: str) -> None:
+    """The API layer names the engine that is answering (its version label), so a record made against that label is recognised as this build."""
+    if label and label not in _RUNNING_LABELS:
+        _RUNNING_LABELS.append(label)
+
+
+def running_build_ids() -> tuple[str, ...]:
+    """Everything the running engine is called by: the labels registered with ``register_running_build`` and the sha256 of its own code
+    (``gridforge.provenance.code_sha256``). Empty when neither can be had."""
+    ids = list(_RUNNING_LABELS)
+    try:
+        from ..provenance import code_sha256
+        ids.append(code_sha256())
+    except Exception:           # the digest is unavailable (an unreadable package directory): the relation is then "unknown", not a guess
+        pass
+    return tuple(ids)
+
+
+def build_relation(identifier: str | None) -> str:
+    """How a recorded build relates to the one answering: 'running', 'other', 'unrecorded' (names no build) or 'unknown' (the running
+    build cannot be determined, so nothing can be said). A digest of twelve characters or more matches by prefix."""
+    ident = (identifier or "").strip()
+    if ident.lower() in UNRECORDED_BUILD_LABELS:
+        return "unrecorded"
+    ids = running_build_ids()
+    if not ids:
+        return "unknown"
+    return "running" if any(ident == i or (len(ident) >= 12 and i.startswith(ident)) for i in ids) else "other"
+
+
+BUILD_RELATION_TEXT = {
+    "running": "the build answering this request",
+    "other": ("a build other than the one answering this request: a calibration of another build is not a calibration of this one"),
+    "unrecorded": ("no build recorded (" + POOLED_UNRECORDED + "): it cannot be shown to be the build answering this request"),
+    "unknown": "the build answering this request could not be determined, so it cannot be shown whether this is it",
+}
 
 #: Two-sided 95% Student-t quantiles, df = 1..30 (the 0.975 point of the t distribution). The standard tabulated values; the standard
 #: library has no t quantile and the engine takes no dependencies.

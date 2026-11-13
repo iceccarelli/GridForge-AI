@@ -58,9 +58,14 @@ def published_source_ref(observation_id: str, evidence_sha256: str) -> str:
     return f"{digest}:{evidence_sha256}"
 
 
+_HASHED_HEAD = re.compile(r"^[0-9a-f]{32}\Z")
+
+
 def _published_ref(source_ref: str) -> str:
+    """The closed form of a source reference: 32 hex characters (the hash ``published_source_ref`` makes) then the evidence digest. Anything
+    else before the colon (a uuid, or a name someone typed such as "AcmeDublinDC1") is hashed, so what was typed is never published."""
     head, _, sha = source_ref.partition(":")
-    return published_source_ref(head, sha) if _UUID_RE.match(head) else source_ref
+    return source_ref if _HASHED_HEAD.match(head) else published_source_ref(head, sha)
 
 
 def published_form(o: Observation) -> Observation:

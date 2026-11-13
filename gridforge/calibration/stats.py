@@ -2,20 +2,23 @@
 
 The temptation with a small n is to report a mean and call it calibration. Five
 halls do not give you a mean worth quoting, so this module reports what the data
-actually supports and refuses to dress it up: a state, a count, a median ratio and
-an observed spread. Nothing here smooths, fits or extrapolates.
+actually supports and refuses to dress it up: a state, a count, and, with enough
+sites, a mean over sites with an interval. Nothing here smooths, fits or extrapolates.
 
-Three rules keep a small or lopsided record from passing for more than it is (the thresholds are named in ``publication.py``):
+Rules that keep a small or lopsided record from passing for more than it is (the thresholds are named in ``publication.py``):
 
   * CALIBRATED needs enough observations from enough SITES, and no one site may supply more than ``MAX_SINGLE_SITE_SHARE`` of them. Five
     readings from one hall are one hall; so are forty-eight of fifty.
-  * The ratio, the spread and the interval are taken over SITES (each site's own mean first). ``n`` (readings) and ``sites`` are separate.
-  * Observations made against different engine builds (``model_digest``) are never pooled. The headline is the build with the most sites;
-    observations against other builds are counted, and not mixed in. Observations that carry no digest are one group, and are labelled
-    "pooled across unrecorded model versions" wherever they headline a figure.
+  * Figures are taken over SITES (each site's own mean first). ``n`` (readings) and ``sites`` are separate.
+  * Observations made against different engine builds (``model_digest``) are never pooled. The headline is the build answering the request
+    when there are observations of it, else the build with the most sites; observations against other builds are counted and not mixed in.
+    Observations that carry no digest are one group, labelled "pooled across unrecorded model versions". Every statement says whether the
+    headline is the running build: a calibration of another build is not a calibration of this one.
 
-``Calibration.public_dict()`` is what leaves the process: below ``PUBLIC_MIN_SITES`` sites it prints no ratio, range or date (a single
-site's exact ratio and the day it was measured identify it), and above it the ratio carries an interval over sites and a month, not a day.
+``Calibration.to_dict()`` is the operator's view (median, range, exact dates). ``Calibration.public_dict()`` is what leaves the process and
+follows the publication rules: no median, no extreme, no quantile (with a handful of sites those are individual sites), no day. Below
+``PUBLIC_MIN_SITES`` sites it publishes counts only and the state reads INDICATIVE; from there it publishes the mean over sites and the
+interval over sites. A published state is CALIBRATED only when the figures it promises are published.
 """
 from __future__ import annotations
 
@@ -43,7 +46,13 @@ class CalibrationState(Enum):
 
     @property
     def sentence(self) -> str:
+        """The operator's wording (the median and the observed spread are in the operator view)."""
         return _SENTENCE[self]
+
+    @property
+    def public_sentence(self) -> str:
+        """The wording that leaves the process: it promises only what ``Calibration.public_dict`` publishes."""
+        return _PUBLIC_SENTENCE[self]
 
 
 _SENTENCE = {
@@ -56,6 +65,16 @@ _SENTENCE = {
     CalibrationState.CALIBRATED: (
         "Reconciled against instrumented sites. The median ratio and the observed spread "
         "are reported; the spread is what has been seen, not a confidence interval."),
+}
+
+_PUBLIC_SENTENCE = {
+    CalibrationState.UNCALIBRATED: _SENTENCE[CalibrationState.UNCALIBRATED],
+    CalibrationState.INDICATIVE: (
+        "Too few reconciled sites, or too lopsided a record, to quote a figure with confidence. Counts are published; no individual "
+        "site's observation is. Read this as a signal, not a statistic."),
+    CalibrationState.CALIBRATED: (
+        "Reconciled against instrumented sites. The mean ratio over sites and an interval over sites are reported; the interval is for the "
+        "average site and is not a guarantee for any given hall."),
 }
 
 
@@ -77,9 +96,8 @@ def _quantile(xs: list[float], q: float) -> float:
     return s[idx]
 
 
-def _month(iso: str | None) -> str | None:
-    """YYYY-MM of an ISO date: the day a site was measured identifies the visit."""
-    return iso[:7] if iso else None
+def _conservative(key: str, ratio: float) -> bool:
+    return ratio < 1.0 if key in HIGHER_OBSERVED_IS_OPTIMISTIC else ratio > 1.0
 
 
 @dataclass(frozen=True)
@@ -88,10 +106,10 @@ class Calibration:
     n: int                          # readings behind the headline (the headline build's observations)
     sites: int                      # distinct SITES: every hall of one site is one site
     state: CalibrationState
-    median_ratio: float | None      # observed / predicted: the median over the sites' own mean ratios
-    low_ratio: float | None
-    high_ratio: float | None
-    last_observed_on: str | None
+    median_ratio: float | None      # operator view: observed / predicted, the median over the sites' own mean ratios
+    low_ratio: float | None         # operator view
+    high_ratio: float | None        # operator view
+    last_observed_on: str | None    # operator view
     observations: tuple[Observation, ...] = ()
     halls: int = 0                  # distinct halls: reported next to sites, never used for independence
     #: Observations of this key made against OTHER engine builds than the headline's: counted, never pooled in.
@@ -104,6 +122,10 @@ class Calibration:
     state_reason: str = ""
     #: The Student-t interval over the site means (publication.site_interval): published only with enough sites, else the reason there is none.
     interval: dict | None = None
+    #: The mean over the sites' own mean ratios: the one central figure that is published.
+    mean_ratio: float | None = None
+    #: How the headline build relates to the one answering: 'running', 'other', 'unrecorded' or 'unknown' (publication.build_relation).
+    build_relation: str = "unknown"
 
     @property
     def bias_pct(self) -> float | None:
@@ -112,42 +134,70 @@ class Calibration:
         return (self.median_ratio - 1.0) * 100.0
 
     @property
+    def mean_bias_pct(self) -> float | None:
+        return None if self.mean_ratio is None else (self.mean_ratio - 1.0) * 100.0
+
+    @property
     def conservative(self) -> bool | None:
         """True when sites came in better than the model said: more capacity than it permitted, or
         less cost, time or overhead than it predicted."""
         if self.median_ratio is None:
             return None
-        if self.key in HIGHER_OBSERVED_IS_OPTIMISTIC:
-            return self.median_ratio < 1.0
-        return self.median_ratio > 1.0
+        return _conservative(self.key, self.median_ratio)
+
+    @property
+    def published_state(self) -> CalibrationState:
+        """The state as it is published: CALIBRATED only if the figures that state promises can be published (``PUBLIC_MIN_SITES`` sites).
+        Internally three sites and five observations are enough (``state``); the published reading of the same record is INDICATIVE."""
+        if self.state is CalibrationState.CALIBRATED and self.sites < pub.PUBLIC_MIN_SITES:
+            return CalibrationState.INDICATIVE
+        return self.state
 
     def _builds_sentence(self) -> str:
-        if not self.other_build_observations:
+        if self.state is CalibrationState.UNCALIBRATED:
             return ""
-        return (f" {self.other_build_observations} further observation(s) were made against other model builds and are not pooled "
-                "into this figure.")
+        rel = self.build_relation
+        text = {"running": "Recorded against the build answering this request.",
+                "other": f"Recorded against {pub.BUILD_RELATION_TEXT['other']}.",
+                "unrecorded": (f"No build is recorded for these observations ({pub.POOLED_UNRECORDED}): it cannot be shown that they "
+                               "describe the build answering this request."),
+                "unknown": ("The build answering this request could not be determined, so it cannot be shown whether these "
+                            "observations describe it.")}[rel]
+        if self.other_build_observations:
+            text += (f" {self.other_build_observations} further observation(s) were made against other model builds and are not pooled "
+                     "into this figure.")
+        return " " + text
 
     def sentence(self, *, public: bool = False) -> str:
-        """The statement. ``public`` is what may leave the process: no ratio, range or day below PUBLIC_MIN_SITES sites, and a month, not a day."""
+        """The statement. ``public`` is what may leave the process: below PUBLIC_MIN_SITES sites no figure and no date; from there the mean over
+        sites with its interval; never a median, an extreme or a day."""
         if self.state is CalibrationState.UNCALIBRATED:
             return f"{self.key}: uncalibrated (n=0)."
-        if public and self.sites < pub.PUBLIC_MIN_SITES:
-            return (f"{self.key}: n={self.n} across {self.sites} site(s); fewer than {pub.PUBLIC_MIN_SITES} sites, so no ratio, range or "
-                    f"date is published. Indicative only." + self._builds_sentence())
-        median = pub.round_sig(self.median_ratio) if public else self.median_ratio
-        bias = (median - 1.0) * 100.0
+        if public:
+            if self.sites < pub.PUBLIC_MIN_SITES:
+                return (f"{self.key}: n={self.n} across {self.sites} site(s); fewer than {pub.PUBLIC_MIN_SITES} sites, so no figure and "
+                        f"no date is published. Indicative only." + self._builds_sentence())
+            mean = pub.round_sig(self.mean_ratio)
+            direction = "conservative" if _conservative(self.key, mean) else "optimistic"
+            iv = self.interval or {}
+            interval = (f" with a {round(100 * iv['confidence'])}% interval over sites of {iv['low']:.3g}–{iv['high']:.3g}× "
+                        f"(assumes sites are exchangeable; not a guarantee for any given hall)") if iv.get("published") else ""
+            base = (f"{self.key}: n={self.n} across {self.sites} site(s); the mean ratio over sites is {mean:.3g}×, so the model runs "
+                    f"{abs((mean - 1.0) * 100.0):.0f}% {direction} on average{interval}")
+            tail = "." if self.state is CalibrationState.CALIBRATED else f". Indicative only: {self.state_reason}"
+            return base + tail + self._builds_sentence()
         direction = "conservative" if self.conservative else "optimistic"
-        when = _month(self.last_observed_on) if public else self.last_observed_on
         base = (f"{self.key}: n={self.n} across {self.sites} site(s); "
-                f"the model runs {abs(bias):.0f}% {direction} at the median")
+                f"the model runs {abs(self.bias_pct):.0f}% {direction} at the median")
         if self.state is CalibrationState.CALIBRATED:
-            low, high = (pub.round_sig(self.low_ratio), pub.round_sig(self.high_ratio)) if public else (self.low_ratio, self.high_ratio)
-            return (base + f", observed range {low:.2f}–{high:.2f}× (last {when})." + self._builds_sentence())
-        return base + f" (last {when}). Indicative only." + self._builds_sentence()
+            return (base + f", observed range {self.low_ratio:.2f}–{self.high_ratio:.2f}× (last {self.last_observed_on})."
+                    + self._builds_sentence())
+        return base + f" (last {self.last_observed_on}). Indicative only." + self._builds_sentence()
 
     def model_builds(self) -> dict:
         return {"basis": pub.POOLED_UNRECORDED if not self.build else f"model build {self.build[:12]}",
                 "n_builds": self.n_builds, "pooled_across_builds": False,
+                "relation_to_running_build": self.build_relation,
                 "other_build_observations": self.other_build_observations}
 
     def to_dict(self) -> dict:
@@ -167,22 +217,25 @@ class Calibration:
         }
 
     def public_dict(self) -> dict:
-        """What may leave the process (publication.py). Below PUBLIC_MIN_SITES sites the ratio, the range and the date are withheld, with
-        the reason; above it they are rounded, the date is the month, and the ratio has its interval over sites."""
-        d = self.to_dict()
-        d["statement"] = self.sentence(public=True)
+        """What may leave the process (publication.py): counts, the published state, and from PUBLIC_MIN_SITES sites the mean ratio over
+        sites with its interval over sites. No median, no range, no quantile, no date: with a handful of sites those are individual sites."""
+        state = self.published_state
+        out: dict = {"key": self.key, "n": self.n, "sites": self.sites, "halls": self.halls, "state": state.value,
+                     "statement": self.sentence(public=True), "basis": state.public_sentence, "model_builds": self.model_builds()}
         if self.state is CalibrationState.UNCALIBRATED:
-            return d
+            return out
         if self.sites < pub.PUBLIC_MIN_SITES:
-            d.update(median_ratio=None, bias_pct=None, observed_range=None, last_observed_on=None,
-                     withheld=f"fewer than {pub.PUBLIC_MIN_SITES} sites: a ratio, a range and a date from so few sites identify them")
-            d["interval_over_sites"] = self.interval or {"published": False, "label": pub.INTERVAL_LABEL,
-                                                         "reason": f"fewer than {pub.PUBLIC_MIN_SITES} sites: no interval over sites is published"}
-            return d
-        median = pub.round_sig(self.median_ratio)
-        d.update(median_ratio=median, bias_pct=round((median - 1.0) * 100.0, 1), last_observed_on=_month(self.last_observed_on),
-                 observed_range=(None if self.low_ratio is None else [pub.round_sig(self.low_ratio), pub.round_sig(self.high_ratio)]))
-        return d
+            out["withheld"] = f"fewer than {pub.PUBLIC_MIN_SITES} sites: a figure or a date from so few sites identifies them"
+            out["interval_over_sites"] = self.interval or {"published": False, "label": pub.INTERVAL_LABEL,
+                                                           "reason": f"fewer than {pub.PUBLIC_MIN_SITES} sites: no interval over sites is published"}
+        else:
+            mean = pub.round_sig(self.mean_ratio)
+            out["mean_ratio"] = mean
+            out["mean_bias_pct"] = round((mean - 1.0) * 100.0, 1)
+            out["interval_over_sites"] = self.interval
+        if self.state_reason and state is not CalibrationState.CALIBRATED:
+            out["state_reason"] = self.state_reason
+        return out
 
 
 def uncalibrated(key: str) -> Calibration:
@@ -192,12 +245,15 @@ def uncalibrated(key: str) -> Calibration:
 
 
 def _headline_build(obs: list[Observation]) -> tuple[str, list[Observation], int]:
-    """(digest, observations, number of builds): the build with the most sites, then the most observations, then the later digest.
-    Observations with no digest are one group (""). Builds are never pooled."""
+    """(digest, observations, number of builds). The build answering the request when there are observations of it; otherwise the build
+    with the most sites, then the most observations, then the later digest. Observations with no digest are one group (""). Builds are
+    never pooled."""
     by_build: dict[str, list[Observation]] = {}
     for o in obs:
         by_build.setdefault(o.model_digest, []).append(o)
-    digest, use = max(by_build.items(), key=lambda kv: (len({o.site for o in kv[1]}), len(kv[1]), kv[0]))
+    running = {d: rs for d, rs in by_build.items() if pub.build_relation(d) == "running"}
+    pool = running or by_build
+    digest, use = max(pool.items(), key=lambda kv: (len({o.site for o in kv[1]}), len(kv[1]), kv[0]))
     return digest, use, len(by_build)
 
 
@@ -240,7 +296,8 @@ def calibration_for(key: str, observations: list[Observation]) -> Calibration:
         last_observed_on=max(o.observed_on for o in use),
         observations=tuple(sorted(obs, key=lambda o: o.observed_on)),
         other_build_observations=len(obs) - n, n_builds=n_builds, build=build,
-        max_site_share=round(pub.largest_share(counts), 4), state_reason=reason, interval=pub.site_interval(site_means))
+        max_site_share=round(pub.largest_share(counts), 4), state_reason=reason, interval=pub.site_interval(site_means),
+        mean_ratio=math.fsum(ratios) / len(ratios), build_relation=pub.build_relation(build))
 
 
 def summarise(observations: list[Observation]) -> dict[str, Calibration]:
@@ -261,7 +318,7 @@ def coverage(observations: list[Observation], keys: list[str]) -> dict:
     scoped = [o for o in observations if o.key in asserted]
     summary = summarise(scoped)
     checked = [k for k in keys if summary.get(k) and summary[k].n > 0]
-    calibrated = [k for k in keys if summary.get(k) and summary[k].state is CalibrationState.CALIBRATED]
+    calibrated = [k for k in keys if summary.get(k) and summary[k].published_state is CalibrationState.CALIBRATED]
     return {
         "keys_asserted": len(keys),
         "keys_with_site_observations": len(checked),
