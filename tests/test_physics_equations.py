@@ -747,7 +747,8 @@ class TestEconomicsArithmetic:
         assert e.capex_eur_per_kW_it.value == pytest.approx(550_000.0 / it_kW)               # 407.4 EUR/kW
         gpu_hours = 10 * 72 * 8760.0                                                          # 6,307,200
         assert e.energy_cost_per_gpu_hour_eur.value == pytest.approx(energy_MWh * 100.0 / gpu_hours)
-        assert e.tariff_declared is True and e.capex_complete is True and e.unpriced == []
+        # full DLC names its dedicated heat-rejection loop as unpriced, so the 550,000 EUR is a lower bound; nothing else is unpriced
+        assert e.tariff_declared is True and e.capex_complete is False and [u["key"] for u in e.unpriced] == ["loop.ht_heat_rejection"]
 
     def test_a_placeholder_tariff_is_not_declared_and_is_a_limitation(self):
         lad, e = self._evaluate(_quiet_ctx())
