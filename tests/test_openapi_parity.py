@@ -37,6 +37,8 @@ def test_the_constants_the_documents_state_are_the_engines():
     assert c["idempotency_window_hours"] * 3600 == IDEMPOTENCY_WINDOW_SECONDS == S.IDEMPOTENCY.TTL
     assert c["max_body_bytes"] == S.MAX_BODY_BYTES
     assert c["max_mcp_batch"] == S.MAX_MCP_BATCH
+    assert c["max_estimate_halls"] == S.MAX_ESTIMATE_HALLS
+    assert c["max_portfolio_halls"] == S.MAX_PORTFOLIO_HALLS
 
 
 def test_the_typescript_reads_those_constants_from_the_json_and_does_not_retype_them():
@@ -53,6 +55,18 @@ def test_the_calibration_block_has_exactly_the_documented_fields():
     assert q["calibration"]["state"] in HONESTY["calibration_states"]
     screen = S.handle_screen({"intake": DUBLIN}, Tier.CLIENT)
     assert list(screen["calibration"]) == HONESTY["calibration_block_fields"]
+
+
+def nested_blocks(node, path):
+    """The dicts a nested path in lib/openapi-honesty.json names: `halls[]` is every element of the answer's halls, `scenarios[].as_found` the
+    as_found of every scenario, `capacity` the answer's capacity."""
+    nodes = [node]
+    for part in path.split("."):
+        every = part.endswith("[]")
+        nodes = [n[part[:-2] if every else part] for n in nodes]
+        if every:
+            nodes = [x for n in nodes for x in n]
+    return nodes
 
 
 @pytest.mark.parametrize("endpoint", sorted(HONESTY["responses"]))
@@ -72,6 +86,12 @@ def test_every_documented_honesty_field_is_in_the_real_response(endpoint):
         assert f in out, f"{endpoint} does not return {f}"
     for f in spec.get("after_relief", []):
         assert f in out["after_relief"], f"{endpoint} after_relief has no {f}"
+    for where, fields in spec.get("nested", {}).items():
+        blocks = nested_blocks(out, where)
+        assert blocks, f"{endpoint} has nothing at {where}"
+        for block in blocks:
+            for f in fields:
+                assert f in block, f"{endpoint} {where} has no {f}"
     if spec.get("intake_gaps"):
         gaps = out["intake"]["gaps"]
         assert gaps, "a sparse intake must disclose what was assumed"

@@ -56,8 +56,10 @@ describe("the numbers are the ones the code enforces", () => {
   });
 
   it("the engine's per-request bound is the one the engine enforces (read from its source), and is not the sold range", () => {
-    const src = fs.readFileSync("gridforge/api/server.py", "utf8");
+    // Defined once, in gridforge/api/metering.py (the handler, the estimator, the published input schema and the rate card all read it from there).
+    const src = fs.readFileSync("gridforge/api/metering.py", "utf8");
     expect(Number(/^MAX_PORTFOLIO_HALLS\s*=\s*(\d+)/m.exec(src)![1])).toBe(PORTFOLIO_ENGINE_MAX_HALLS);
+    expect(fs.readFileSync("gridforge/api/server.py", "utf8")).not.toMatch(/^MAX_PORTFOLIO_HALLS\s*=\s*\d+/m);
     expect(PORTFOLIO_ENGINE_MAX_HALLS).toBeGreaterThan(PORTFOLIO_SOLD_MAX_HALLS);
     expect(PORTFOLIO_FORM_MIN_HALLS).toBeLessThan(PORTFOLIO_SOLD_MIN_HALLS);
     expect(PORTFOLIO_FORM_MAX_HALLS).toBe(PORTFOLIO_SOLD_MAX_HALLS);

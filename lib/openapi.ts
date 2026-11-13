@@ -56,6 +56,8 @@ export const IDEMPOTENCY_WINDOW_HOURS: number = honesty.engine_constants.idempot
 export const MAX_BODY_BYTES: number = honesty.engine_constants.max_body_bytes;
 /** The most halls the estimator accepts (MAX_ESTIMATE_HALLS). */
 const MAX_ESTIMATE_HALLS: number = honesty.engine_constants.max_estimate_halls;
+/** The most halls one /v1/portfolio request may rank (MAX_PORTFOLIO_HALLS, defined once in gridforge/api/metering.py): more is a 422, before anything is metered. */
+export const MAX_PORTFOLIO_HALLS: number = honesty.engine_constants.max_portfolio_halls;
 /** The most JSON-RPC messages in one /mcp batch (MAX_MCP_BATCH). */
 export const MAX_MCP_BATCH: number = honesty.engine_constants.max_mcp_batch;
 
@@ -97,9 +99,10 @@ export const ERROR_STATUSES: { status: number; meaning: string }[] = [
   { status: 400, meaning: "the body is not valid JSON or not a JSON object, or the Idempotency-Key is longer than the limit" },
   { status: 401, meaning: "a metered route was called without a key, or with one the engine does not accept" },
   { status: 402, meaning: "the key's monthly allowance or cap is spent; the call was refused and not charged. Buy more, do not retry" },
+  { status: 405, meaning: "the method is not one the route takes (a GET on a POST route, a POST on a GET route, or a PUT, DELETE or PATCH on a route), so the route was not run: the Allow header and the allow list in the body name the methods it does take. A path that is no route at all is a 404" },
   { status: 413, meaning: `the body is larger than ${MAX_BODY_BYTES / 1024} KiB` },
   { status: 415, meaning: "the body was declared as anything other than application/json" },
-  { status: 422, meaning: "the input is too thin or invalid, or an Idempotency-Key was reused with a different body; nothing was solved" },
+  { status: 422, meaning: "the input is too thin or invalid (the body names the field and, where there is a limit or a fixed set of values, the limit or the values: allowed, for example, for a format the route cannot render, which is refused before anything is metered), or an Idempotency-Key was reused with a different body; nothing was solved" },
   { status: 429, meaning: "the per-client request rate limit was exceeded (the limit is rate_limit_per_minute at /v1/version); the body carries limit_per_minute and the response has no Retry-After header, so wait and retry" },
   { status: 500, meaning: "the engine failed on a valid request; the charge is refunded" },
   {
@@ -158,11 +161,47 @@ export function retryStatement(): string {
 /** The MCP transport's error codes, read off server.py (_mcp_call_tool, handle_mcp, _serve_mcp) and proved by tests/test_api_published_contract.py. */
 export const MCP_ERRORS: { code: number; name: string; when: string }[] = honesty.mcp_errors;
 
+/** What counts as a notification over /mcp (server.py handle_mcp: `notification = "id" not in body`), and what does not. */
+export const MCP_ID_STATEMENT = "A notification is a message with no id member and gets 202 and no body; a message with \"id\": null is a request, and is answered with id null.";
+
 export function mcpErrorsStatement(): string {
   return (
     "JSON-RPC errors from /mcp: " +
     MCP_ERRORS.map((e) => `${e.code} ${e.name}: ${e.when}`).join(". ") +
-    ". A body that is not valid JSON is refused at the HTTP level (400 with a plain {error} body), not as a JSON-RPC error. A tool's refusal is a JSON-RPC error object inside an HTTP 200; a notification gets 202 and no body."
+    ". A body that is not valid JSON is refused at the HTTP level (400 with a plain {error} body), not as a JSON-RPC error. A tool's refusal is a JSON-RPC error object inside an HTTP 200. " +
+    MCP_ID_STATEMENT
+  );
+}
+
+/**
+ * The per-request bound on /v1/portfolio and what a hall that is not ranked looks like, said once for /developers and /llms.txt (the cap is
+ * gridforge/api/metering.py MAX_PORTFOLIO_HALLS; the rank rule is gridforge/reporting/portfolio.py ranks()). The ENGAGEMENT is sold for another
+ * range: that sentence is lib/portfolio-scope.ts and is not repeated here.
+ */
+export function portfolioCapStatement(opts: { estimator?: boolean } = {}): string {
+  const estimator = opts.estimator ?? true;
+  return (
+    `A /v1/portfolio request ranks at most ${MAX_PORTFOLIO_HALLS} halls: more is a 422 (max_halls) before anything is metered` +
+    (estimator ? ", and the free estimator refuses it the same way, naming requests_needed, how many requests the estate is. " : ". ") +
+    "A hall that is not ranked on a figure (no deployable rack, a required input missing or an equipment bank not declared) is listed after the ranked ones with rank null; position is its place in the table."
+  );
+}
+
+/**
+ * The HTTP methods the engine answers and what it does with the rest, read off gridforge/api/server.py (Handler._allowed_methods, _method_not_allowed, do_HEAD,
+ * do_OPTIONS, send_error, public_endpoints) and proved against the real server by tests/test_api_http_methods.py.
+ */
+export function httpMethodsStatement(opts: { estimator?: boolean; mcp?: boolean } = {}): string {
+  // A route the deployed engine does not list is not named (llms.txt and /developers pass what it serves); the document describes every route, and names both.
+  const estimator = opts.estimator ?? true;
+  const mcp = opts.mcp ?? true;
+  return (
+    "Methods: a GET route also answers HEAD, with the status and the headers of the GET and no body. " +
+    `A route reached by a method it does not take is a 405 and is not run: the Allow header and the allow list in the JSON body name what it takes (POST, OPTIONS on the POST routes${mcp ? " and /mcp" : ""}; GET, HEAD, OPTIONS on the GET routes${estimator ? "; GET, HEAD, POST, OPTIONS on /v1/estimate" : ""}). ` +
+    "PUT, DELETE and PATCH on a route are therefore a 405, a path that is no route is a 404 whose body lists the routes, and OPTIONS is answered 204 with an Allow header. " +
+    "An error the HTTP library raises before the engine reads the request (a malformed request line, a method such as TRACE) is JSON too, never an HTML page: schema_version, error and status in the body, and no X-GridForge-Schema header. " +
+    "The route list in GET /v1/version (endpoints) and in the body of a 404 leaves out the one operator-only route, which answers 404 to everyone else. " +
+    "Should a figure in an answer not be finite (NaN or an infinity), it is not sent: it becomes null where it would have been, and a warnings entry at the top level of the answer (inside the result, for a JSON-RPC response) names it as \"non-finite figure withheld at <path>\"."
   );
 }
 
@@ -577,7 +616,7 @@ const ESTIMATE_GET: ExtraRoute = {
     "(scope, cap, used, remaining, whether the call fits). The POST form with a `body` is the gridforge_estimate tool; this GET form takes no body, so it prices a call by its endpoint (and hall count) only.",
   parameters: [
     { name: "endpoint", in: "query", required: true, description: "The engine route to price, e.g. /v1/study. Any route that has a unit rate.", schema: { type: "string" } },
-    { name: "hall_count", in: "query", required: false, description: `Halls in a /v1/portfolio request (one unit each). A whole number from 1 to ${MAX_ESTIMATE_HALLS}.`, schema: { type: "integer", minimum: 1, maximum: MAX_ESTIMATE_HALLS } },
+    { name: "hall_count", in: "query", required: false, description: `Halls in a /v1/portfolio request (one unit each). A whole number from 1 to ${MAX_ESTIMATE_HALLS}; more than ${MAX_PORTFOLIO_HALLS} halls is a 422 (a request ranks at most ${MAX_PORTFOLIO_HALLS}), not a price.`, schema: { type: "integer", minimum: 1, maximum: MAX_ESTIMATE_HALLS } },
   ],
   response: obj({
     endpoint: str(), units: int(), unit_price_cents: int(), currency: str(), estimated_cents: int(), billable: bool(), free: bool(), basis: str(), note: str(),
@@ -586,7 +625,7 @@ const ESTIMATE_GET: ExtraRoute = {
     key_error: str("Present when a key was sent and not recognised."),
   }),
   extraResponses: {
-    "422": { description: "`endpoint` is not a route with a unit rate (the answer lists the available ones), or `hall_count` is not a whole number in range.", content: { "application/json": { schema: { $ref: "#/components/schemas/Error" } } } },
+    "422": { description: `\`endpoint\` is not a route with a unit rate (the answer lists the available ones), \`hall_count\` is not a whole number in range, or the request is for /v1/portfolio over ${MAX_PORTFOLIO_HALLS} halls (the body names max_halls, requests_needed, how many requests the estate is, and units_per_hall).`, content: { "application/json": { schema: { $ref: "#/components/schemas/Error" } } } },
   },
 };
 
@@ -608,10 +647,10 @@ const JSON_RPC_REQUEST = {
   type: "object",
   required: ["jsonrpc", "method"],
   properties: {
-    jsonrpc: { type: "string", const: "2.0" },
-    id: { type: ["string", "integer", "null"] },
+    jsonrpc: { type: "string", const: "2.0", description: "Must be the string \"2.0\": a message that declares another version, or none, is refused with -32600." },
+    id: { type: ["string", "integer", "null"], description: "A message with an id member, null included, is a request and is answered with that id. A message with no id member is a notification: 202, no body." },
     method: { type: "string", description: "initialize, tools/list, tools/call, ping, or a notification." },
-    params: { type: "object" },
+    params: { type: "object", description: "For tools/call, an object with a string name (the tool to call) and an arguments object: without them the answer is -32602, naming name." },
   },
 };
 
@@ -643,6 +682,8 @@ interface ResponseSpec {
   /** Keys that arrive with later engine changes; documented with the rest (tests/test_published_additive_keys.py: all present or none). */
   additive_top_level?: string[];
   after_relief?: string[];
+  /** Keys of the objects inside the answer, by path ("halls[]" is every element of halls), each run against the real handler like top_level. */
+  nested?: Record<string, string[]>;
   intake_gaps?: boolean;
   intake_fields?: string[];
   /** The request this key list is the answer to, when it is not the plain one (a format, a flag). */
@@ -663,7 +704,12 @@ export function responseKeys(spec: ResponseSpec): string[] {
 export function responseKeysSentence(endpoint: string): string {
   const spec = responseSpecFor(endpoint);
   if (!spec) return "";
-  return `Top-level keys of the answer${spec.when ? ` (${spec.when})` : ""}: ${responseKeys(spec).join(", ")}. The body also carries ${honesty.schema_version.body_field}.`;
+  const inside: [string, string[]][] = [...(spec.after_relief ? [["after_relief", spec.after_relief] as [string, string[]]] : []), ...Object.entries(spec.nested ?? {})];
+  const nested = inside.map(([where, keys]) => `${where}: ${keys.join(", ")}`);
+  return (
+    `Top-level keys of the answer${spec.when ? ` (${spec.when})` : ""}: ${responseKeys(spec).join(", ")}. The body also carries ${honesty.schema_version.body_field}.` +
+    (nested.length ? ` Keys inside it, each present in every object at that path: ${nested.join("; ")}.` : "")
+  );
 }
 
 function responseSchemaFor(endpoint: string): Record<string, unknown> {
@@ -681,6 +727,17 @@ function responseSchemaFor(endpoint: string): Record<string, unknown> {
           "Figures the qualifier derived because you did not send them (today the firm connection capacity, from contracted_MW), each with path, input, unit, value, evidence \"E0\" and a note saying how it was derived. Separate from inputs_declared_assumed, which lists only what you declared.",
         items: { type: "object", properties: { path: str(), input: str(), unit: str(), value: { type: "number" }, evidence: { type: "string", const: "E0" }, note: str() } },
       };
+    else if (f === "figures_not_supplied")
+      properties[f] = {
+        type: "array",
+        description:
+          "One row per figure of the seven that the request left out or sent as null (the two are the same thing: not supplied), and an empty list when all seven were sent. `sent` is \"null\" or \"absent\"; `assumed` is what the engine used in its place, with its evidence class. The minimum is three figures: fewer is a 422.",
+        items: { type: "object", properties: { field: str("The figure's name as you send it."), path: str("Its path in the intake the qualifier builds."), sent: { type: "string", enum: ["null", "absent"] }, assumed: { type: ["string", "null"] } } },
+      };
+    else if (f === "changed_inputs_known")
+      properties[f] = bool("False when the diff is against a recorded previous_state and the inputs are not verifiably unchanged: the earlier inputs are not stored, so changed_inputs and drivers are empty because no driver can be named, not because nothing moved.");
+    else if (f === "evidence_changed_inputs") properties[f] = { type: "array", items: str(), description: "The inputs whose declared evidence class moved between the two states." };
+    else if (f === "drivers_note") properties[f] = { type: ["string", "null"], description: "Why no driver is named, when the diff is against a recorded previous_state; null otherwise." };
     else if (f === "notice") properties[f] = str("The engine's standing notice: directional, modelled output, not an issued engineering opinion.");
     else if (f === "grade") properties[f] = str("How far the comparison can be relied on: screening or indicative. Never stronger than its weakest input.");
     else if (f === "caveats") properties[f] = { type: "array", items: str(), description: "Plain-language limits on the answer, including what the context blocks are and are not." };
@@ -702,11 +759,22 @@ function responseSchemaFor(endpoint: string): Record<string, unknown> {
       };
       properties[f] = obj(Object.fromEntries(intakeFields.map((k) => [k, intakeProps[k]])));
     } else if (f === "after_relief" && spec.after_relief) {
-      properties[f] = obj({
+      const afterRelief: Record<string, unknown> = {
+        racks: int("Racks deployable once every relief on the ladder is taken."),
+        racks_evidence: str("The evidence class of that rack count as a short code such as E0: the weakest class among the constraints behind the as-found and the after-relief count."),
+        sets_the_date: { type: ["string", "null"], description: "The item that sets the date, only when there is a date. Null when there is none: the longest known lead time is then a lower bound, not the item that decides, so it is not named, and sets_the_date_reason says why." },
+        sets_the_date_reason: { type: ["string", "null"], description: "Why there is no date, when there is none; null when there is one." },
         date_basis: str("What the date rests on; \"assumed\" means the item that sets it carries an assumed lead time, so it is not a date."),
         date_evidence_class: { type: ["string", "null"], description: "The evidence class (E0 to E7) of the date; null when there is no date." },
-        date_label: str("The date, or the reason there is none, in words."),
-      });
+        date_label: str("The date, or the reason there is none, in words: \"no date: nothing is deployable in this scenario\" and \"no date: a lead time on the path is missing\" are the two reasons."),
+      };
+      properties[f] = obj(Object.fromEntries(spec.after_relief.map((k) => [k, afterRelief[k] ?? {}])));
+    } else if (f === "as_found" && spec.nested?.as_found) {
+      const asFound: Record<string, unknown> = {
+        racks: int("Racks deployable as found."),
+        racks_evidence: str("The evidence class of that rack count as a short code such as E0: the weakest class among the constraints that cap it."),
+      };
+      properties[f] = obj(Object.fromEntries(spec.nested.as_found.map((k) => [k, asFound[k] ?? {}])));
     } else properties[f] = {};
   }
   if (endpoint === "/v1/qualify") {
@@ -901,10 +969,10 @@ export function buildOpenApi(file: ToolsFile, serverUrl: string, siteOrigin: str
           },
           content: { "application/json": { schema: { type: ["object", "array"] } } },
         },
-        "202": { description: "Accepted: the request held only notifications, so there is no body." },
+        "202": { description: "Accepted: the request held only notifications (messages with no id member), so there is no body. A message with \"id\": null is a request and is answered." },
         "400": {
           description:
-            "A single message that is not a JSON-RPC request object with a method (error -32600 in the body), an empty batch, a batch over the limit, or a body that is not valid JSON (a plain {error} body, not a JSON-RPC error).",
+            "A single message that is not a JSON-RPC object declaring \"jsonrpc\": \"2.0\" with a method (error -32600 in the body), an empty batch, a batch over the limit, or a body that is not valid JSON (a plain {error} body, not a JSON-RPC error).",
           content: { "application/json": { schema: { type: "object" } } },
         },
         default: { description: "The HTTP-level refusals listed under the other operations (413, 415, 429).", content: { "application/json": { schema: { $ref: "#/components/schemas/Error" } } } },
@@ -933,7 +1001,7 @@ export function buildOpenApi(file: ToolsFile, serverUrl: string, siteOrigin: str
         "This document states no price: it gives each operation's weight in units, and the unit price, free allowance, minimum invoice and cap behaviour are the engine's own `payg` object at GET /v1/version. " +
         idempotencyStatement() +
         ` ${schemaVersionStatement()} Versioning and deprecation: ${API_VERSIONING_POLICY} The dated changelog is at ${siteOrigin}/developers#versioning.` +
-        ` ${retryStatement()} ${corsStatement()}` +
+        ` ${retryStatement()} ${httpMethodsStatement()} ${corsStatement()}` +
         " The paths under /api/orgs, /api/sites and /api/halls are the website's signed-in site and hall registry: they are served by the website (see each path's server), take a signed-in person's session token instead of an API key, are never metered, and answer 503 until their database migrations are applied.",
     },
     servers: [{ url: serverUrl }],

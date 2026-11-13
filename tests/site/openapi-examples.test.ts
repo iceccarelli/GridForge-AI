@@ -66,7 +66,11 @@ describe("every request example validates against the schema of its operation", 
     expect(validate(qualify, { ...plain, not_a_field: 1 }, doc).join()).toContain("not_a_field is not allowed");
     const { tapoff_max_A, ...thin } = plain;
     void tapoff_max_A;
-    expect(validate(qualify, thin, doc).join()).toContain("missing required tapoff_max_A");
+    // No figure is required: the engine publishes no `required` list for the qualifier and answers on any three of the seven (it names the ones it
+    // assumed), so leaving one out is not a schema error; a figure of the wrong type still is.
+    expect(qualify.required).toBeUndefined();
+    expect(validate(qualify, thin, doc)).toEqual([]);
+    expect(validate(qualify, { ...plain, tapoff_max_A: "63" }, doc).join()).toContain("expected number");
     expect(validate(jsonContent("/v1/portfolio").schema, { intakes: [] }, doc).join()).toContain("fewer than 1");
     expect(validate(jsonContent("/v1/estimate").schema, { endpoint: "/v1/portfolio", hall_count: 0 }, doc).join()).toContain("below 1");
     expect(validate(jsonContent("/mcp").schema, { jsonrpc: "2.0", id: 1 }, doc).join()).toContain("matches 0 of oneOf");
@@ -111,6 +115,13 @@ describe("the examples are the repository's own inputs, not retyped copies", () 
     expect(bid.specification.constraint).toBe(template.specification.constraint);
     expect(Object.keys(bid.compliance).sort()).toEqual(Object.keys(template.compliance).sort());
     expect(Object.keys(bid.values).sort()).toEqual(Object.keys(template.values).sort());
+  });
+
+  it("the three-figure qualify example is three of the shipped request's seven figures, unchanged, and no more", () => {
+    const full = read("public/reference/examples/qualify-request.json");
+    const three = requestExamplesFor("/v1/qualify")!.three_figures.value as Record<string, unknown>;
+    expect(three).toEqual({ contracted_MW: full.contracted_MW, current_site_peak_MW: full.current_site_peak_MW, busway_ampacity_A: full.busway_ampacity_A });
+    expect(Object.keys(three)).toHaveLength(3);
   });
 
   it("the resolver refuses a source it was not given, a marker with extra keys, and a path through a non-object", () => {
@@ -164,6 +175,32 @@ describe("every engine operation names the top-level keys of its answer", () => 
     expect(schema.properties.schema_version.const).toBe("gridforge/api/1");
     if (spec.when) expect(ok.description).toContain(spec.when);
     expect(ok.headers["X-GridForge-Schema"]).toBeTruthy();
+  });
+
+  it.each(enginePaths)("%s: the keys inside the answer that lib/openapi-honesty.json lists are in the 200 description", (path) => {
+    const spec = (honesty.responses as Record<string, { nested?: Record<string, string[]>; after_relief?: string[] }>)[path];
+    const ok = postOf(path).responses["200"];
+    for (const [where, keys] of Object.entries(spec.nested ?? {})) {
+      expect(ok.description, `${path}: ${where}`).toContain(`${where}: ${keys.join(", ")}`);
+    }
+    if (spec.after_relief) expect(ok.description, `${path}: after_relief`).toContain(`after_relief: ${spec.after_relief.join(", ")}`);
+  });
+
+  it("the qualifier's answer schema types the keys the engine sends for the date, the racks and the figures it did not get", () => {
+    const schema = postOf("/v1/qualify").responses["200"].content["application/json"].schema;
+    const afterRelief = schema.properties.after_relief.properties;
+    expect(Object.keys(afterRelief)).toEqual(honesty.responses["/v1/qualify"].after_relief);
+    // sets_the_date is null when there is no date, and sets_the_date_reason says why: neither is a required string.
+    expect(afterRelief.sets_the_date.type).toEqual(["string", "null"]);
+    expect(afterRelief.sets_the_date_reason.type).toEqual(["string", "null"]);
+    expect(afterRelief.racks_evidence.type).toBe("string");
+    expect(afterRelief.date_label.description).toContain("no date: nothing is deployable in this scenario");
+    expect(afterRelief.date_label.description).toContain("no date: a lead time on the path is missing");
+    expect(Object.keys(schema.properties.as_found.properties)).toEqual(["racks", "racks_evidence"]);
+    const rows = schema.properties.figures_not_supplied;
+    expect(rows.type).toBe("array");
+    expect(Object.keys(rows.items.properties)).toEqual(["field", "path", "sent", "assumed"]);
+    expect(rows.items.properties.sent.enum).toEqual(["null", "absent"]);
   });
 
   it("the deck's hand-built schema has exactly the keys the engine's list gives", () => {
