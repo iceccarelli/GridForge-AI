@@ -153,18 +153,24 @@
       "grid.firm_capacity_MVA",
       "grid.power_factor",
       "hall.aisle_pitch_m",
+      "hall.build_year",
+      "hall.containment",
       "hall.floor_loading_kPa",
+      "hall.floor_type",
       "hall.net_white_space_m2",
       "hall.positions_available",
       "lv.busway_ampacity_A",
       "lv.busway_runs",
       "lv.busway_utilisation_limit",
+      "lv.phases",
       "lv.tapoff_max_A",
       "lv.voltage_V",
       "site.design_drybulb_C",
+      "thermal.plant.available_head_kPa",
       "thermal.plant.chilled_water_capacity_kW",
       "thermal.plant.design_return_C",
       "thermal.plant.design_supply_C",
+      "thermal.plant.free_cooling_hours_per_year",
       "thermal.plant.pump_flow_capacity_l_per_min",
       "thermal.residual_air_capacity_kW_per_rack",
       "transformers",
@@ -195,8 +201,8 @@
         "label": "Installed CDU schedule",
         "unit": "-",
         "required": false,
-        "assumed": "[]",
-        "why_it_binds": "When absent, the hybrid and full-DLC scenarios ASSUME three 1,350 kW N+1 CDUs already installed at no cost, which supplies roughly 22 racks of liquid capacity that the hall may not have.",
+        "assumed": "three 1,350 kW N+1 CDUs (2,700 kW usable) assumed as the starting point of the hybrid and full-DLC scenarios (E0); the kit is priced as a purchase and the racks that depend on it are dated",
+        "why_it_binds": "When absent, the hybrid and full-DLC scenarios start from an ASSUMED kit of three 1,350 kW N+1 CDUs, which supplies roughly 22 racks of liquid capacity that the hall may not have. The engine prices that kit (a library placeholder, not a quotation) and dates the racks that depend on it, so the cost and the schedule include a purchase nobody declared. Declare the CDUs already installed to remove it.",
         "how_to_get_it": "CDU nameplates and the mechanical single-line diagram."
       },
       {
@@ -275,9 +281,14 @@
     "warnings": [
       "BTM option BESS-2MW-8MWh: it is credited as firm capacity with NO declared energy rating. A battery is firm only for what its stored energy can sustain, and recharge is not modelled, so the racks this adds are unverified.",
       "BTM option GEN-5MW: no unit count was declared, so it is credited at nameplate x firm factor as if no unit could be out of service. A single unit under N+1 would count as zero firm capacity; the racks this adds are unverified.",
-      "Busway: hall.occupied_positions was not supplied, so the occupied positions are an assumption (E0), not a count. Reading every position that is not free as occupied (560 in total less 180 free = 380 positions), at their 8 kW design density, would draw 3,040 kW, more than the 1,720 kW the declared busway can carry. busway_ampacity_A is read as the installed total and existing load is not subtracted, so check whether the figure you gave is the whole hall's busway, and give hall.occupied_positions so this check runs on a count rather than an assumption."
+      "Busway: hall.occupied_positions was not supplied, so the occupied positions are an assumption (E0), not a count. Reading every position that is not free as occupied (560 in total less 180 free = 380 positions), at their 8 kW design density, would draw 3,040 kW, more than the 1,720 kW the declared busway can carry. busway_ampacity_A is read as the installed total and existing load is not subtracted, so check whether the figure you gave is the whole hall's busway, and give hall.occupied_positions so this check runs on a count rather than an assumption.",
+      "thermal.plant.available_head_kPa was declared, but no constraint reads it: it changes no rack count, cost or date. Pump head and pressure drop are not modelled; the figure is printed in the procurement specification as the duty point the supplier must confirm.",
+      "thermal.plant.free_cooling_hours_per_year was declared, but no constraint reads it: it changes no rack count, cost or date. Free-cooling hours are not modelled (PUE is a fixed library figure per architecture); the figure appears in the procurement specification only.",
+      "thermal.plant.design_return_C was declared, but no constraint reads it: it changes no rack count, cost or date. The return temperature is read only to state the plant delta-T beside the hydraulic_flow basis and to check that it is above supply; flows are not converted by delta-T.",
+      "site.design_wetbulb_C was declared, but no constraint reads it: it changes no rack count, cost or date. The wet-bulb temperature is not modelled (dry coolers are taken to dry bulb); the figure appears in the procurement specification's site conditions only.",
+      "thermal.plant.pump_flow_capacity_l_per_min (9,000 l/min) moves about 3,760 kW at the plant's design delta-T of 6 K (water, 0.997 kg/l x 4.19 kJ/kg/K), less than the 4,900 kW of IT load the existing hall already puts on the plant. If 9,000 l/min is the plant's TOTAL pumped flow, the existing hall already uses most of it, and the hydraulic_flow limit, which counts all of it for the new racks, OVERSTATES the racks the pumps can serve. Give thermal.plant.existing_flow_l_per_min (the flow the existing hall draws) and it is subtracted. No result has been changed by this warning"
     ],
-    "engagement_recommendation": "The intake is complete. This supports a full Capacity & Density Envelope Study with site-specific conclusions."
+    "engagement_recommendation": "No required inputs are missing, so this supports a full Capacity & Density Envelope Study, but the intake is not complete: 11 optional inputs are still assumptions (listed in the data request), and the study names each one."
   },
   "scenarios": [
     {
@@ -291,6 +302,7 @@
         "binding_name": "Rack feed / tap-off rating",
         "basis": "platform needs 205 [174\u2013236] A (E0) per rack; installed tap-offs rated 63 A (E5). The tap-off rating is compared at 100% of its rating, with no continuous-load derating (the busway is derated to 0.8)"
       },
+      "unassessed_banks": [],
       "after_ladder": {
         "racks": 0,
         "binding": "architecture_capability",
@@ -849,6 +861,7 @@
         "binding_name": "Rack feed / tap-off rating",
         "basis": "platform needs 205 [174\u2013236] A (E0) per rack; installed tap-offs rated 63 A (E5). The tap-off rating is compared at 100% of its rating, with no continuous-load derating (the busway is derated to 0.8)"
       },
+      "unassessed_banks": [],
       "after_ladder": {
         "racks": 0,
         "binding": "architecture_capability",
@@ -1430,6 +1443,7 @@
         "binding_name": "Rack feed / tap-off rating",
         "basis": "platform needs 205 [174\u2013236] A (E0) per rack; installed tap-offs rated 63 A (E5). The tap-off rating is compared at 100% of its rating, with no continuous-load derating (the busway is derated to 0.8)"
       },
+      "unassessed_banks": [],
       "after_ladder": {
         "racks": 26,
         "binding": "grid_firm_capacity",
@@ -2446,6 +2460,7 @@
         "binding_name": "Rack feed / tap-off rating",
         "basis": "platform needs 205 [174\u2013236] A (E0) per rack; installed tap-offs rated 63 A (E5). The tap-off rating is compared at 100% of its rating, with no continuous-load derating (the busway is derated to 0.8)"
       },
+      "unassessed_banks": [],
       "after_ladder": {
         "racks": 28,
         "binding": "grid_firm_capacity",
@@ -2960,6 +2975,14 @@
             "unit": "EUR/unit",
             "quantity": 3.0,
             "scope": "3 CDU unit(s) added"
+          },
+          {
+            "where": "full_dlc architecture (the scenario needs it; the library has no price for it)",
+            "component": "dedicated heat-rejection loop (dry coolers, pumps, pipework)",
+            "key": "loop.ht_heat_rejection",
+            "unit": "EUR/loop",
+            "quantity": 1.0,
+            "scope": "one per hall"
           }
         ],
         "cost_basis_mix": {
@@ -3038,7 +3061,7 @@
         "basis": "Class 5 (order of magnitude): -50% / +100%",
         "decision_grade": false,
         "limitations": [
-          "the capex total is a LOWER BOUND: no price exists for CDU commissioning and flushing (4 x unit, needed in 2 places); CDU hydraulic integration and controls (4 x unit, needed in 2 places)",
+          "the capex total is a LOWER BOUND: no price exists for CDU commissioning and flushing (4 x unit, needed in 2 places); CDU hydraulic integration and controls (4 x unit, needed in 2 places); dedicated heat-rejection loop (dry coolers, pumps, pipework) (1 x loop, needed in 1 place)",
           "the weakest priced line is class E0, below E3: a decision needs every priced line at an engineering estimate or better",
           "the capex total inherits class E0 from its inputs, below E3",
           "8 of 8 priced lines are library placeholders, not prices",
@@ -3239,38 +3262,6 @@
           }
         },
         {
-          "id": "cdu_capacity",
-          "domain": "thermal",
-          "name": "CDU capacity (derated to site water temperature)",
-          "gate": false,
-          "racks_permitted": 22,
-          "basis": "2,700 [2,070\u20132,970] kW (E0) usable against 122 [112\u2013131] kW (E0) of liquid load per rack; 24 [21\u201326] degC (E0) approach available",
-          "relief": {
-            "description": "Add CDU capacity (one further unit per bank)",
-            "capex_eur": {
-              "value": 180000.0,
-              "low": 90000.0,
-              "high": 360000.0,
-              "unit": "EUR",
-              "evidence": "E0_ASSUMPTION",
-              "label": "additional CDU: supplied and mechanically installed",
-              "model": "costs.scaled_relief@0.1",
-              "digest": "053f8a554b8c"
-            },
-            "lead_time_weeks": {
-              "value": 26,
-              "low": 16,
-              "high": 40,
-              "unit": "weeks",
-              "evidence": "E0_ASSUMPTION",
-              "label": "CDU lead time",
-              "model": "input@0.1",
-              "digest": "77ae364db11a"
-            },
-            "risk": ""
-          }
-        },
-        {
           "id": "grid_firm_capacity",
           "domain": "electrical",
           "name": "Firm supply (grid import + behind-the-meter)",
@@ -3438,6 +3429,38 @@
           "racks_permitted": null,
           "basis": "full_dlc is practically capable of 150 [120\u2013160] kW (E0) per rack; the target platform draws 135 [132\u2013142] kW (E0). Modelling limit: the platform's peak rack power (155 kW) is used by no constraint; every limit is sized on the rack power (TDP) figure",
           "relief": null
+        },
+        {
+          "id": "cdu_capacity",
+          "domain": "thermal",
+          "name": "CDU capacity (derated to site water temperature)",
+          "gate": false,
+          "racks_permitted": null,
+          "basis": "not assessed here: the facility water the dry coolers can supply (44 [42\u201346] degC (E0)) leaves a CDU no approach against the TCS target (30 [27\u201332] degC (E0)) to carry a rack (-14 K available), and the water-temperature gate (tcs_supply_achievable) already holds this hall at zero racks. CDU capacity is assessed once that gate is relieved",
+          "relief": {
+            "description": "Add CDU capacity (one further unit per bank)",
+            "capex_eur": {
+              "value": 180000.0,
+              "low": 90000.0,
+              "high": 360000.0,
+              "unit": "EUR",
+              "evidence": "E0_ASSUMPTION",
+              "label": "additional CDU: supplied and mechanically installed",
+              "model": "costs.scaled_relief@0.1",
+              "digest": "053f8a554b8c"
+            },
+            "lead_time_weeks": {
+              "value": 26,
+              "low": 16,
+              "high": 40,
+              "unit": "weeks",
+              "evidence": "E0_ASSUMPTION",
+              "label": "CDU lead time",
+              "model": "input@0.1",
+              "digest": "77ae364db11a"
+            },
+            "risk": ""
+          }
         }
       ]
     },
@@ -3452,6 +3475,7 @@
         "binding_name": "Rack feed / tap-off rating",
         "basis": "platform needs 205 [174\u2013236] A (E0) per rack; installed tap-offs rated 63 A (E5). The tap-off rating is compared at 100% of its rating, with no continuous-load derating (the busway is derated to 0.8)"
       },
+      "unassessed_banks": [],
       "after_ladder": {
         "racks": 62,
         "binding": "grid_firm_capacity",
@@ -4564,6 +4588,14 @@
             "unit": "EUR/unit",
             "quantity": 3.0,
             "scope": "3 CDU unit(s) added"
+          },
+          {
+            "where": "full_dlc architecture (the scenario needs it; the library has no price for it)",
+            "component": "dedicated heat-rejection loop (dry coolers, pumps, pipework)",
+            "key": "loop.ht_heat_rejection",
+            "unit": "EUR/loop",
+            "quantity": 1.0,
+            "scope": "one per hall"
           }
         ],
         "cost_basis_mix": {
@@ -4674,7 +4706,7 @@
         "basis": "Class 5 (order of magnitude): -50% / +100%",
         "decision_grade": false,
         "limitations": [
-          "the capex total is a LOWER BOUND: no price exists for CDU commissioning and flushing (7 x unit, needed in 5 places); CDU hydraulic integration and controls (7 x unit, needed in 5 places)",
+          "the capex total is a LOWER BOUND: no price exists for CDU commissioning and flushing (7 x unit, needed in 5 places); CDU hydraulic integration and controls (7 x unit, needed in 5 places); dedicated heat-rejection loop (dry coolers, pumps, pipework) (1 x loop, needed in 1 place)",
           "the weakest priced line is class E0, below E3: a decision needs every priced line at an engineering estimate or better",
           "the capex total inherits class E0 from its inputs, below E3",
           "8 of 8 priced lines are library placeholders, not prices",
@@ -4876,38 +4908,6 @@
           }
         },
         {
-          "id": "cdu_capacity",
-          "domain": "thermal",
-          "name": "CDU capacity (derated to site water temperature)",
-          "gate": false,
-          "racks_permitted": 22,
-          "basis": "2,700 [2,070\u20132,970] kW (E0) usable against 122 [112\u2013131] kW (E0) of liquid load per rack; 24 [21\u201326] degC (E0) approach available",
-          "relief": {
-            "description": "Add CDU capacity (one further unit per bank)",
-            "capex_eur": {
-              "value": 180000.0,
-              "low": 90000.0,
-              "high": 360000.0,
-              "unit": "EUR",
-              "evidence": "E0_ASSUMPTION",
-              "label": "additional CDU: supplied and mechanically installed",
-              "model": "costs.scaled_relief@0.1",
-              "digest": "053f8a554b8c"
-            },
-            "lead_time_weeks": {
-              "value": 26,
-              "low": 16,
-              "high": 40,
-              "unit": "weeks",
-              "evidence": "E0_ASSUMPTION",
-              "label": "CDU lead time",
-              "model": "input@0.1",
-              "digest": "77ae364db11a"
-            },
-            "risk": ""
-          }
-        },
-        {
           "id": "grid_firm_capacity",
           "domain": "electrical",
           "name": "Firm supply (grid import + behind-the-meter)",
@@ -5075,6 +5075,38 @@
           "racks_permitted": null,
           "basis": "full_dlc is practically capable of 150 [120\u2013160] kW (E0) per rack; the target platform draws 135 [132\u2013142] kW (E0). Modelling limit: the platform's peak rack power (155 kW) is used by no constraint; every limit is sized on the rack power (TDP) figure",
           "relief": null
+        },
+        {
+          "id": "cdu_capacity",
+          "domain": "thermal",
+          "name": "CDU capacity (derated to site water temperature)",
+          "gate": false,
+          "racks_permitted": null,
+          "basis": "not assessed here: the facility water the dry coolers can supply (44 [42\u201346] degC (E0)) leaves a CDU no approach against the TCS target (30 [27\u201332] degC (E0)) to carry a rack (-14 K available), and the water-temperature gate (tcs_supply_achievable) already holds this hall at zero racks. CDU capacity is assessed once that gate is relieved",
+          "relief": {
+            "description": "Add CDU capacity (one further unit per bank)",
+            "capex_eur": {
+              "value": 180000.0,
+              "low": 90000.0,
+              "high": 360000.0,
+              "unit": "EUR",
+              "evidence": "E0_ASSUMPTION",
+              "label": "additional CDU: supplied and mechanically installed",
+              "model": "costs.scaled_relief@0.1",
+              "digest": "053f8a554b8c"
+            },
+            "lead_time_weeks": {
+              "value": 26,
+              "low": 16,
+              "high": 40,
+              "unit": "weeks",
+              "evidence": "E0_ASSUMPTION",
+              "label": "CDU lead time",
+              "model": "input@0.1",
+              "digest": "77ae364db11a"
+            },
+            "risk": ""
+          }
         }
       ]
     }

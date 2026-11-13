@@ -59,6 +59,7 @@ Every duty in section 3 is quoted at these site conditions. Each numeric require
 | SC-10 | Liquid heat-capture fraction: NVIDIA GB300 NVL72 | 0.9 [0.85–0.92] (E0) | library | platform library figure; the remainder is residual air load per rack |
 | SC-11 | Redundancy, transformer bank TX-A/B | N+1 on 3 units | supplied | supplied by the client |
 | SC-12 | Redundancy, UPS bank UPS-1 | N+1 on 6 units | supplied | supplied by the client |
+| SC-13 | Redundancy, CDU bank CDU-ROW-assumed | N+1 on 3 units | assumed | not supplied: no CDU schedule; the model assumed 3 units at N+1 (E0) |
 
 *Values carry their unit and evidence class (E0 assumed ... E7 observed). 'library' is a platform figure; 'not modelled' means the engine has no input for the condition and has applied no derating for it.*
 
@@ -66,7 +67,7 @@ Inputs to the capacity model that were assumed rather than supplied (each is an 
 
 - BESS-2MW-8MWh battery energy rating (btm_options[BESS-2MW-8MWh].energy_MWh; MWh): not supplied: assumed your firm factor 0.5 accepted as declared, unchecked against the battery's energy (E0)
 - GEN-5MW unit count and redundancy (btm_options[GEN-5MW].units; units): not supplied: assumed credited at nameplate x firm factor, as if no unit could be out of service (E0)
-- Installed CDU schedule (thermal.cdus): not supplied: assumed nothing: no value was assumed in its place and the constraint it feeds is not assessed (E0)
+- Installed CDU schedule (thermal.cdus): not supplied: assumed three 1,350 kW N+1 CDUs (2,700 kW usable) assumed as the starting point of the hybrid and full-DLC scenarios (E0); the kit is priced as a purchase and the racks that depend on it are dated
 - Flow the existing hall already draws on the plant (thermal.plant.existing_flow_l_per_min; l/min): not supplied: assumed 0 l/min, nothing subtracted (the pumped flow is read as flow available to the new load) (E0)
 - Other heat the existing hall already puts on the plant (thermal.plant.existing_non_it_heat_kW; kW): not supplied: assumed 0 kW, nothing subtracted (plant headroom is the plant capacity less the IT load only) (E0)
 - TCS target supply temperature (thermal.tcs_target_supply_C; degC): not supplied: assumed 30 [27–32] degC (E0)
@@ -82,7 +83,7 @@ Obligation words carry their usual tender meaning: shall — non-compliance disq
 
 | Ref | Clause | Obl. | Value | From constraint |
 | --- | --- | --- | --- | --- |
-| E-10 | Busway continuous ampacity | shall | 1,990 A (E3) | busway_ampacity |
+| E-10 | Busway continuous ampacity | shall | 1,990 A (E0) | busway_ampacity |
 | E-11 | Phasing and outage | shall | — | busway_ampacity |
 | E-12 | Tap-off provision | shall | — | busway_ampacity |
 | C-01 | Price basis | shall | — | commercial |
@@ -93,7 +94,7 @@ Obligation words carry their usual tender meaning: shall — non-compliance disq
 
 **E-10 — Busway continuous ampacity** (shall). Each busway run shall have a continuous ampacity not less than the figure stated, at the hall's design ambient and installed configuration.
 
-**Required:** 1,990 A (E3)
+**Required:** 1,990 A (E0)
 
 *Limited by: 62 racks at 135 [132–142] kW (E0) over 8 run(s) at 400 V (E5), three phase, power factor 0.95, derated to the site's 0.8 (E3) continuous limit. Installed: 400 A (E5).*
 
@@ -214,8 +215,8 @@ Every number in this report carries an evidence class. The class of a computed n
 | site power factor | E3 | input@0.1 | `9083b4d7b27e` |
 | GB300 NVL72 rack TDP | E0 | input@0.1 | `e6476e7cd728` |
 | GB300 NVL72 liquid heat capture fraction | E0 | input@0.1 | `e205b1f86e3c` |
-| required busway ampacity per run | E3 | spec.busway_ampacity@0.1 | `584d4571c5b5` |
-| required busway ampacity per run | E3 | spec.busway_ampacity@0.1 | `584d4571c5b5` |
+| required busway ampacity per run | E0 | spec.busway_ampacity@0.1 | `9696844edd91` |
+| required busway ampacity per run | E0 | spec.busway_ampacity@0.1 | `9696844edd91` |
 
 ---
 

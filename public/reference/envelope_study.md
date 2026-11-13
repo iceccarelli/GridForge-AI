@@ -28,7 +28,7 @@ The binding constraint as found is rack feed / tap-off rating (electrical). plat
 
 *Limited by: Class 5 (order of magnitude): -50% / +100% · LOWER BOUND, not an estimate: a cost it needs has no price*
 
-> ⚠️ These economics are not decision-grade. The capex total is a LOWER BOUND: no price exists for CDU commissioning and flushing (7 x unit, needed in 5 places); CDU hydraulic integration and controls (7 x unit, needed in 5 places). The weakest priced line is class E0, below E3: a decision needs every priced line at an engineering estimate or better. The capex total inherits class E0 from its inputs, below E3. 8 of 8 priced lines are library placeholders, not prices. The grid electricity price is a placeholder (140 EUR/MWh), not the site's tariff. Installed behind-the-meter generation has no usable operating cost: BESS-2MW-8MWh: annual_run_hours not declared; BESS-2MW-8MWh: no energy cost basis (declare opex_eur_per_MWh, or fuel_price_eur_per_MWh with electrical_efficiency); BESS-2MW-8MWh: variable_om_eur_per_MWh not declared (0 if the fuel route already includes it); BESS-2MW-8MWh: fixed_om_eur_per_kW_year not declared (0 if carried elsewhere). The energy cost prices all energy at the grid tariff. Section 9 lists every component and what it rests on.
+> ⚠️ These economics are not decision-grade. The capex total is a LOWER BOUND: no price exists for CDU commissioning and flushing (7 x unit, needed in 5 places); CDU hydraulic integration and controls (7 x unit, needed in 5 places); dedicated heat-rejection loop (dry coolers, pumps, pipework) (1 x loop, needed in 1 place). The weakest priced line is class E0, below E3: a decision needs every priced line at an engineering estimate or better. The capex total inherits class E0 from its inputs, below E3. 8 of 8 priced lines are library placeholders, not prices. The grid electricity price is a placeholder (140 EUR/MWh), not the site's tariff. Installed behind-the-meter generation has no usable operating cost: BESS-2MW-8MWh: annual_run_hours not declared; BESS-2MW-8MWh: no energy cost basis (declare opex_eur_per_MWh, or fuel_price_eur_per_MWh with electrical_efficiency); BESS-2MW-8MWh: variable_om_eur_per_MWh not declared (0 if the fuel route already includes it); BESS-2MW-8MWh: fixed_om_eur_per_kW_year not declared (0 if carried elsewhere). The energy cost prices all energy at the grid tariff. Section 9 lists every component and what it rests on.
 
 > ➡️ Recommended architecture: Full DLC plus behind-the-meter supply. The same hall with on-site firm supply where the grid connection binds. The only scenario whose capacity is set by what can be built rather than by the queue.
 
@@ -193,15 +193,16 @@ Figures supplied with a source. These are the client's own data, stated with whe
 | --- | --- | --- | --- | --- |
 | Residual air load removal per rack | gate | 0 racks (E0) | 13.5 [10.6–21.3] kW (E0) of air-side load per rack against 9 kW (E3) the hall can remove per position | Add in-row cooling or rear-door heat exchangers for the residual air load |
 | Achievable facility water temperature | gate | 0 racks (E0) | TCS target 30 [27–32] degC (E0) needs facility water at or below 25 [21–28] degC (E0); dry coolers at design dry-bulb is estimated to supply 44 [42–46] degC (E0) | Adiabatic assist plus trim chiller on the high-temperature loop |
-| CDU capacity (derated to site water temperature) | capacity | 22 [15–26] racks (E0) | 2,700 [2,070–2,970] kW (E0) usable against 122 [112–131] kW (E0) of liquid load per rack; 24 [21–26] degC (E0) approach available | Add CDU capacity (one further unit per bank) |
 | Hydraulic flow capacity | capacity | 69 [64–75] racks (E0) | 9,000 l/min (E3) available against 130 [120–140] l/min (E0) per rack (the platform library's secondary-loop flow). Flow basis: 130 l/min per rack is 0.963 l/min/kW of rack power (1.07 l/min/kW of the liquid-captured heat), which implies a rack-side (TCS) delta-T of 13.4 K on the liquid-captured load (14.9 K if the whole rack power were carried by the liquid); the platform figure and the 10 K / 1.45 l/min/kW screening reference in the thermal library differ, and the screening reference is not used by any constraint. The plant's own design delta-T is 6 K and the plant flow is compared with the rack-side flow without converting between the two loops; the plant delta-T is smaller than the 13.4 K implied by the platform flow, so if the pumped flow is the plant's this can overstate the racks it supports. Modelling limit: the intake figure is read as flow available to the new load; existing hall flow, plant delta-T and pump head are not modelled, so this overstates if the figure is the plant's total | Uprate pumps and secondary pipework |
 | Chilled-water plant capacity | capacity | 140 [89–179] racks (E0) | 1,900 kW (E3) of plant headroom against 13.5 [10.6–21.3] kW (E0) per rack — residual air load only (liquid rejected to a dedicated high-temperature loop). Modelling limit: the headroom is plant capacity less the IT load only; UPS, fan and pump heat, plant redundancy and condenser derating are not modelled, so headroom is overstated by their share | Uprate chilled-water plant (+50%) or add a dedicated high-temperature loop |
 | Cooling architecture per-rack capability | gate | passes — not limiting | full_dlc is practically capable of 150 [120–160] kW (E0) per rack; the target platform draws 135 [132–142] kW (E0). Modelling limit: the platform's peak rack power (155 kW) is used by no constraint; every limit is sized on the rack power (TDP) figure | — |
+| CDU capacity (derated to site water temperature) | capacity | not limiting | not assessed here: the facility water the dry coolers can supply (44 [42–46] degC (E0)) leaves a CDU no approach against the TCS target (30 [27–32] degC (E0)) to carry a rack (-14 K available), and the water-temperature gate (tcs_supply_achievable) already holds this hall at zero racks. CDU capacity is assessed once that gate is relieved | Add CDU capacity (one further unit per bank) |
 
 *A gate either passes (it does not limit the hall) or fails (it permits no racks until relieved). Rack counts carry the weakest evidence class among the constraints evaluated.*
 
 - No capex relieves this constraint. If it binds, the architecture is wrong for the platform and a different scenario must be selected.
 - TCS water quality per OCP: conductivity <1500 uS/cm, pH 8.0-10.5, 50 um inline filtration, sidestream <5 um at 10% of flow.
+- The heat rejection of the dedicated high-temperature loop (dry coolers) is not sized or limited here: thermal.plant.dry_cooler_capacity_kW was not declared. The loop is an unpriced component of the capex.
 - Pressure drop budget and pipe DN are not modelled at screening level; a hydraulic model is required before design.
 - A rack whose residual air load cannot be removed cannot be placed at all, however much liquid cooling is installed.
 - The ASHRAE W45 rating on the platform is an equipment survival rating, not an operating point; operators specify 27-30 degC for 500-700 W parts.
@@ -260,6 +261,7 @@ Power and thermal are not independent budgets. Every kilowatt the cooling archit
 | Initial CDU kit — assumed, not installed (3 CDU unit(s) added) | 540,000 [270,000–1,080,000] EUR (E0) |
 | NOT PRICED — CDU commissioning and flushing (7 x unit; 5 places) | no price: excluded |
 | NOT PRICED — CDU hydraulic integration and controls (7 x unit; 5 places) | no price: excluded |
+| NOT PRICED — dedicated heat-rejection loop (dry coolers, pumps, pipework) (1 x loop; 1 place) | no price: excluded |
 | Total (the headline capex) — LOWER BOUND: the unpriced components above are excluded | 18,800,000 [9,420,000–37,700,000] EUR (E0) |
 
 *The ladder's cumulative figure covers the relief works only; the headline adds the per-rack conversion inside the hall and the CDUs the model assumed so the liquid scenarios could be solved (the hall has no CDU schedule on file; those units must be bought).*
@@ -358,15 +360,15 @@ Two different things get called accuracy. The ranges shown throughout this repor
 
 > ⚠️ Model accuracy against instrumented sites has not been established: 0 reconciled observations across 0 sites, covering 0 of 5 model outputs. Every figure in this report is modelled. The uncertainty ranges shown come from input uncertainty propagated through the model, not from the difference between this engine's predictions and site data — no such difference has been recorded yet.
 
-| Model output | State | Observations | Sites | Median bias | Last observation |
-| --- | --- | --- | --- | --- | --- |
-| Racks permitted by rack feed tapoff | uncalibrated | 0 | 0 | — | — |
-| Racks of the target platform actually deployed | uncalibrated | 0 | 0 | — | — |
-| Deployable IT load in the hall | uncalibrated | 0 | 0 | — | — |
-| Weeks from go-ahead to full capacity | uncalibrated | 0 | 0 | — | — |
-| Delivered capex for the works | uncalibrated | 0 | 0 | — | — |
+| Model output | State | Observations | Sites | Mean bias |
+| --- | --- | --- | --- | --- |
+| Racks permitted by rack feed tapoff | uncalibrated | 0 | 0 | — |
+| Racks of the target platform actually deployed | uncalibrated | 0 | 0 | — |
+| Deployable IT load in the hall | uncalibrated | 0 | 0 | — |
+| Weeks from go-ahead to full capacity | uncalibrated | 0 | 0 | — |
+| Delivered capex for the works | uncalibrated | 0 | 0 | — |
 
-*Bias is the median of observed / predicted, so a positive figure means the model has run conservative. An output with no observations is reported as uncalibrated rather than omitted.*
+*Bias is the mean over sites of observed / predicted, shown only from five sites, so a positive figure means the model has run conservative. An output with no observations is reported as uncalibrated rather than omitted.*
 
 Reconciliation is how a figure in this report moves from estimated to field-validated. It requires site data we do not have and cannot generate: interval metering at the relevant point, a BMS trend, or a commissioning record. Where this study recommends instrumentation, that is what it is for — the client gets a better answer next time, and the model gets an observation it can be held to.
 
@@ -403,7 +405,6 @@ Every number in this report carries an evidence class. The class of a computed n
 - Legacy 400 A busway; modern AI halls use 800-1000 A
 - Vendor claims of 1.05-1.15 are unproven; 1.15-1.25 used for design per docs/02 §7
 - PUE is a fixed library figure for the cooling architecture; it is not recomputed for this site's climate, free-cooling hours or achievable water temperature, so the IT headroom it divides into is not climate-adjusted
-- Rating quoted at 5 K approach; site offers 24 K. Linear derate is a screening approximation - confirm against the manufacturer's performance curve.
 - Cold plates on CPU/GPU/HBM/NVSwitch; residual air load must still be removed
 - Assumes positions can be released from existing tenancy
 - Legacy low-temperature plant retained for residual air load, so free-cooling benefit is largely forgone
@@ -589,7 +590,6 @@ Every number in this report carries an evidence class. The class of a computed n
 | (firm supply headroom available for new IT load / GB300 NVL72 rack TDP) (floored to whole racks) | E0 | constraints.floor_racks@0.1 | `3480be100fcb` |
 | Residual air load removal per rack: gate fails | E0 | input@0.1 | `26165e87d919` |
 | Achievable facility water temperature: gate fails | E0 | input@0.1 | `220f8c8a7543` |
-| (CDU-ROW-assumed usable capacity at site conditions / gb300_nvl72 liquid load per rack) (floored to whole racks) | E0 | constraints.floor_racks@0.1 | `25573ad8fd4c` |
 | racks permitted by available pumped flow (floored to whole racks) | E0 | constraints.floor_racks@0.1 | `a0c7fccb5cd0` |
 | (chilled-water plant headroom / gb300_nvl72 residual air load per rack) (floored to whole racks) | E0 | constraints.floor_racks@0.1 | `2a32802480d0` |
 | rack positions available in hall (floored to whole racks) | E3 | constraints.floor_racks@0.1 | `659e992bdc64` |

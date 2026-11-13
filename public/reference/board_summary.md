@@ -41,7 +41,7 @@
 ## How firm this is
 
 - 8 of 8 priced lines are library defaults rather than quotations; the cost is an order-of-magnitude figure, not a budget.
-- The economics are not decision-grade; 2 cost components have no price; the study lists every gap.
+- The economics are not decision-grade; 3 cost components have no price; the study lists every gap.
 - The answer depends most on one assumed input: contracted power 20% lower takes it from 62 to 48 racks.
 - This model has not yet been checked against any instrumented site (0 reconciled observations); every figure here is modelled, not measured.
 

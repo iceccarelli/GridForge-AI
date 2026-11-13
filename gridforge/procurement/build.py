@@ -94,6 +94,8 @@ def _floor(q: Quantity | None) -> Quantity | None:
     if v == q.value:
         return q
     lo, hi = q.band
+    if abs(hi - lo) <= 1e-12:
+        return replace(q, value=v, lo=v, hi=v)      # a figure with no range stays a single figure (not "1,990 [1,990-1,990]")
     return replace(q, value=v, lo=min(lo, v), hi=max(hi, v))
 
 

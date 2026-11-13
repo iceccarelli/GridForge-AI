@@ -44,7 +44,7 @@ Intake is 84% complete. Each row below is a number that moves the answer and tha
 | --- | --- | --- | --- |
 | BESS-2MW-8MWh battery energy rating | optional | your firm factor 0.5 accepted as declared, unchecked against the battery's energy | the battery datasheet or supplier quotation: usable energy in MWh at the discharge rate the duty needs |
 | GEN-5MW unit count and redundancy | optional | credited at nameplate x firm factor, as if no unit could be out of service | the generator schedule: how many units make up the option's capacity_MW, and the redundancy scheme your resilience design requires (N, N+1, N+2 or 2N) |
-| Installed CDU schedule | optional | [] | CDU nameplates and the mechanical single-line diagram. |
+| Installed CDU schedule | optional | three 1,350 kW N+1 CDUs (2,700 kW usable) assumed as the starting point of the hybrid and full-DLC scenarios (E0); the kit is priced as a purchase and the racks that depend on it are dated | CDU nameplates and the mechanical single-line diagram. |
 | Flow the existing hall already draws on the plant | optional | 0 l/min, nothing subtracted (the pumped flow is read as flow available to the new load) | Commissioning flow readings or the BMS flow trend for the existing hall's loops; pump curves at the operating point. |
 | Other heat the existing hall already puts on the plant | optional | 0 kW, nothing subtracted (plant headroom is the plant capacity less the IT load only) | BMS plant load trend less the metered IT load, or the electrical single-line losses and the mechanical schedule's fan and pump power. |
 | TCS target supply temperature | optional | 30 [27–32] degC (E0) | The platform vendor's reference design for the target rack. |
@@ -59,6 +59,16 @@ Intake is 84% complete. Each row below is a number that moves the answer and tha
 > ℹ️ BTM option GEN-5MW: no unit count was declared, so it is credited at nameplate x firm factor as if no unit could be out of service. A single unit under N+1 would count as zero firm capacity; the racks this adds are unverified.
 
 > ℹ️ Busway: hall.occupied_positions was not supplied, so the occupied positions are an assumption (E0), not a count. Reading every position that is not free as occupied (560 in total less 180 free = 380 positions), at their 8 kW design density, would draw 3,040 kW, more than the 1,720 kW the declared busway can carry. busway_ampacity_A is read as the installed total and existing load is not subtracted, so check whether the figure you gave is the whole hall's busway, and give hall.occupied_positions so this check runs on a count rather than an assumption.
+
+> ℹ️ thermal.plant.available_head_kPa was declared, but no constraint reads it: it changes no rack count, cost or date. Pump head and pressure drop are not modelled; the figure is printed in the procurement specification as the duty point the supplier must confirm.
+
+> ℹ️ thermal.plant.free_cooling_hours_per_year was declared, but no constraint reads it: it changes no rack count, cost or date. Free-cooling hours are not modelled (PUE is a fixed library figure per architecture); the figure appears in the procurement specification only.
+
+> ℹ️ thermal.plant.design_return_C was declared, but no constraint reads it: it changes no rack count, cost or date. The return temperature is read only to state the plant delta-T beside the hydraulic_flow basis and to check that it is above supply; flows are not converted by delta-T.
+
+> ℹ️ site.design_wetbulb_C was declared, but no constraint reads it: it changes no rack count, cost or date. The wet-bulb temperature is not modelled (dry coolers are taken to dry bulb); the figure appears in the procurement specification's site conditions only.
+
+> ℹ️ thermal.plant.pump_flow_capacity_l_per_min (9,000 l/min) moves about 3,760 kW at the plant's design delta-T of 6 K (water, 0.997 kg/l x 4.19 kJ/kg/K), less than the 4,900 kW of IT load the existing hall already puts on the plant. If 9,000 l/min is the plant's TOTAL pumped flow, the existing hall already uses most of it, and the hydraulic_flow limit, which counts all of it for the new racks, OVERSTATES the racks the pumps can serve. Give thermal.plant.existing_flow_l_per_min (the flow the existing hall draws) and it is subtracted. No result has been changed by this warning
 
 ## 4. Fee, timing and terms
 

@@ -141,6 +141,17 @@
         "unit": null,
         "evidence": null,
         "statement": "supplied by the client"
+      },
+      {
+        "id": "SC-13",
+        "label": "Redundancy, CDU bank CDU-ROW-assumed",
+        "path": null,
+        "status": "assumed",
+        "value": null,
+        "text": "N+1 on 3 units",
+        "unit": null,
+        "evidence": null,
+        "statement": "not supplied: no CDU schedule; the model assumed 3 units at N+1 (E0)"
       }
     ],
     "assumed_inputs": [
@@ -160,7 +171,7 @@
         "path": "thermal.cdus",
         "label": "Installed CDU schedule",
         "unit": "",
-        "assumed": "nothing: no value was assumed in its place and the constraint it feeds is not assessed (E0)"
+        "assumed": "three 1,350 kW N+1 CDUs (2,700 kW usable) assumed as the starting point of the hybrid and full-DLC scenarios (E0); the kit is priced as a purchase and the racks that depend on it are dated"
       },
       {
         "path": "thermal.plant.existing_flow_l_per_min",
@@ -216,6 +227,7 @@
   "received_on": "",
   "reference": "",
   "valid_until": "",
+  "currency": "",
   "values": {
     "capex_eur": null,
     "lead_time_weeks": null,

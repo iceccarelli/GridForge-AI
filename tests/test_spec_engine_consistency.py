@@ -521,3 +521,23 @@ def test_the_cdu_specification_check_is_not_vacuous_across_the_examples(worlds):
     buying = [name for name in EXAMPLES
               if any(s.binding_id == "cdu_capacity" for res in worlds[name][1] for s in relief_steps(res))]
     assert len(buying) >= 3, buying
+
+
+def test_no_requirement_prints_a_degenerate_band(worlds):
+    """A minimum rounded up to its printed precision must not turn a figure with no range into "1,990 [1,990-1,990]": two identical ends read as noise
+    in a tender document. Checked on the rendered text of every purchasable specification of the four examples."""
+    import re
+
+    from gridforge.reporting import to_markdown
+    from gridforge.reporting.spec import build as build_spec_report
+    from gridforge.reporting.study import collect_claims
+
+    checked = 0
+    for name in EXAMPLES:
+        intake, results = worlds[name]
+        for res in results:
+            for cid in sorted({s.binding_id for s in relief_steps(res)}):
+                md = to_markdown(build_spec_report(build_spec(intake, res, constraint_id=cid), claims=collect_claims(results)))
+                assert not re.search(r"([0-9][0-9,.]*) \[\1\u2013\1\]", md), (name, res.spec.id, cid)
+                checked += 1
+    assert checked >= 20
