@@ -17,6 +17,11 @@ export const dynamic = "force-dynamic";
 // it does not recall a row already imported (the ledger keeps no link back to the permission, and the import marks it published).
 // There is no withdrawal of a mistaken verdict: a file or observation decision is recorded once and is final. Reviewer names are
 // self-typed under one shared password, and the permission record is an assertion of a document the system never opens.
+//
+// `tombstones` (additive) is the list of observations withdrawn together with their organisation's consent (0056), each as the sha256 of its id and
+// nothing more. `gridforge calibrate import` refuses an export that contains a tombstoned row and leaves tombstoned observations out of the private
+// ledger, so an export saved before a withdrawal cannot bring an observation back. It is read in full or the export fails (a truncated list would let
+// one return); on a database where 0056 is not applied there is no such table, no withdrawal, and the list is empty.
 export async function GET() {
   const store = await cookies();
   if (!(await verifyAdminCookie(store.get(ADMIN_COOKIE)?.value))) {
@@ -25,7 +30,7 @@ export async function GET() {
   const r = await calibrationExport();
   if (!r.ok) return fail(r);
   return NextResponse.json(
-    { ok: true, schema: r.schema, count: r.count, rows: r.rows, reviewer_identity: r.reviewer_identity },
+    { ok: true, schema: r.schema, count: r.count, rows: r.rows, tombstones: r.tombstones, reviewer_identity: r.reviewer_identity },
     { headers: { "Cache-Control": "no-store" } }
   );
 }
