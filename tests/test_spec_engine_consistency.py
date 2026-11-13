@@ -507,4 +507,12 @@ def test_a_cdu_specification_never_states_a_mandatory_non_positive_approach_wher
         t04 = next(r for r in pkg.requirements if r.id == "T-04").value
         assert t04.value > 0, (example, res.spec.id, t04.render())
         checked += 1
-    assert checked >= 1
+    if not checked:
+        pytest.skip(f"{example} buys no CDU relief in any scenario, so there is no CDU specification to check")
+
+
+def test_the_cdu_specification_check_is_not_vacuous_across_the_examples(worlds):
+    """At least three of the four shipped halls buy a CDU in some scenario, so the per-hall check above really runs on them."""
+    buying = [name for name in EXAMPLES
+              if any(s.binding_id == "cdu_capacity" for res in worlds[name][1] for s in relief_steps(res))]
+    assert len(buying) >= 3, buying
