@@ -181,6 +181,9 @@ function supplierResponse(template: any, supplier: string, values: Record<string
     supplier,
     received_on: "2026-10-01",
     valid_until: "2026-12-31",
+    // The engine's response template carries a `currency` slot, and a priced bid with no currency is disqualified (a price in an unstated
+    // currency cannot be compared, and a 30k-versus-30M bid could otherwise lead the ranking). A buyer filling in the template fills it.
+    currency: "EUR",
     values: { ...template.values, ...values },
     compliance: Object.fromEntries(Object.keys(template.compliance).map((id) => [id, "C"])),
   };

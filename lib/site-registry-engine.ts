@@ -108,11 +108,11 @@ export const SCALAR_FIELDS: readonly EngineField[] = [
   f("thermal.rdhx.capacity_kw_per_rack", "thermal.rdhx.capacity_kW_per_rack", "Rear-door heat exchanger capacity per rack", "kW", "number", "optional", NUMBER, "library default of 60 kW per rack (band 20-80)", { units: ["kW", "kW/rack"] }),
   f("site.design_drybulb_c", "site.design_drybulb_C", "Summer design dry bulb", "degC", "number", "optional", NUMBER, "library placeholder 32 degC (E0)", { units: ["degC", "°C"] }),
   f("compute.utilisation", "compute.utilisation", "Annual average rack utilisation", "-", "number", "optional", NUMBER, "library placeholder 0.75 (E0)", { range: FRACTION }),
-  f("lv.phases", "lv.phases", "LV distribution phases", "", "count", "optional", NONE, "three-phase distribution assumed (the engine's rack feed carries the square root of three)", { units: ["", "-", "phases"], own: false }),
+  f("lv.phases", "lv.phases", "LV distribution phases", "", "count", "optional", NONE, "three-phase distribution assumed (the engine's rack feed carries the square root of three)", { units: ["", "-", "phases"] }),
   f("hall.clear_height_m", "hall.clear_height_m", "Clear height", "m", "number", "optional", NUMBER, "library placeholder 3.0 m (E0)", { own: false }),
   f("site.design_wetbulb_c", "site.design_wetbulb_C", "Summer design wet bulb", "degC", "number", "optional", NUMBER, "library placeholder 21 degC (E0)", { units: ["degC", "\u00b0C"], own: false }),
-  f("thermal.plant.available_head_kpa", "thermal.plant.available_head_kPa", "Available pump head", "kPa", "number", "optional", NUMBER, "library placeholder 250 kPa (E0)", { own: false }),
-  f("thermal.plant.free_cooling_hours_per_year", "thermal.plant.free_cooling_hours_per_year", "Free-cooling hours per year", "h", "number", "optional", NUMBER, "library placeholder 2,500 h (E0)", { units: ["h", "hours"], own: false }),
+  f("thermal.plant.available_head_kpa", "thermal.plant.available_head_kPa", "Available pump head", "kPa", "number", "optional", NUMBER, "library placeholder 250 kPa (E0)"),
+  f("thermal.plant.free_cooling_hours_per_year", "thermal.plant.free_cooling_hours_per_year", "Free-cooling hours per year", "h", "number", "optional", NUMBER, "library placeholder 2,500 h (E0)", { units: ["h", "hours"] }),
   f("thermal.cdu_approach_k", "thermal.cdu_approach_K", "CDU approach temperature", "K", "number", "optional", NUMBER, "the engine's library design value", { own: false }),
   f("economics.electricity_eur_per_mwh", "economics.electricity_eur_per_MWh", "All-in grid electricity price", "EUR/MWh", "number", "optional", NUMBER, "library placeholder of 140 EUR/MWh (E0)"),
   f("economics.horizon_years", "economics.horizon_years", "Lifecycle horizon", "years", "count", "optional", NONE, "none: no lifecycle value is computed", { units: ["years", "year", "yr"] }),
@@ -128,15 +128,15 @@ export const ENGINE_ITEM_RATING: Record<Section, string> = { transformers: "unit
 export const ITEM_FIELDS: Record<Section, readonly EngineField[]> = {
   transformers: [
     f("transformers[].unit_rating_mva", "transformers[].unit_rating_MVA", "Transformer unit rating", "MVA", "number", "engine_required", fixed(5), "", { own: false }),
-    f("transformers[].units", "transformers[].units", "Transformer units", "", "count", "no_gap_default", NONE, "", { units: ["", "units"], own: false }),
-    f("transformers[].redundancy", "transformers[].redundancy", "Transformer redundancy", "", "text", "no_gap_default", NONE, "", { own: false }),
+    f("transformers[].units", "transformers[].units", "Transformer units", "", "count", "engine_required", NONE, "", { units: ["", "units"], own: false }),
+    f("transformers[].redundancy", "transformers[].redundancy", "Transformer redundancy", "", "text", "engine_required", NONE, "", { own: false }),
     f("transformers[].derating_factor", "transformers[].derating_factor", "Transformer derating factor", "-", "number", "optional", fixed(3), "library placeholder 0.9 (E0)", { own: false, range: FRACTION }),
     f("transformers[].replacement_lead_time_weeks", "transformers[].replacement_lead_time_weeks", "Power transformer replacement lead time", "weeks", "number", "optional", fixed(0), "library placeholder of 160 weeks (band 80-210), not a manufacturer's quote", { units: ["weeks", "week", "wk"], range: { min: 0, max: 520, minOpen: true, what: "more than 0 and at most 520 weeks" } }),
   ],
   ups: [
     f("ups[].unit_rating_kw", "ups[].unit_rating_kW", "UPS module rating", "kW", "number", "engine_required", fixed(5), "", { own: false }),
-    f("ups[].units", "ups[].units", "UPS units", "", "count", "no_gap_default", NONE, "", { units: ["", "units"], own: false }),
-    f("ups[].redundancy", "ups[].redundancy", "UPS redundancy", "", "text", "no_gap_default", NONE, "", { own: false }),
+    f("ups[].units", "ups[].units", "UPS units", "", "count", "engine_required", NONE, "", { units: ["", "units"], own: false }),
+    f("ups[].redundancy", "ups[].redundancy", "UPS redundancy", "", "text", "engine_required", NONE, "", { own: false }),
     f("ups[].step_load_capability", "ups[].step_load_capability", "UPS accepted instantaneous step load", "-", "number", "optional", fixed(0), "library placeholder 0.5 (E0)", { own: false, range: FRACTION }),
   ],
 };
@@ -163,7 +163,10 @@ const ALL_FIELDS: readonly EngineField[] = [...SCALAR_FIELDS, ...SECTIONS.flatMa
  * list for a built document with this list and with the placeholders.
  */
 export const NOT_SENT_PLACEHOLDERS: readonly { path: string; label: string; fallback: string }[] = [
-  { path: "thermal.cdus", label: "Installed CDU schedule", fallback: "the hybrid and full-DLC scenarios assume three 1,350 kW N+1 CDUs already installed at no cost; this page cannot send a CDU schedule" },
+  { path: "thermal.cdus", label: "Installed CDU schedule", fallback: "three 1,350 kW N+1 CDUs (2,700 kW usable) assumed as the starting point of the hybrid and full-DLC scenarios (E0); the kit is priced as a purchase and the racks that depend on it are dated; this page cannot send a CDU schedule" },
+  { path: "hall.containment", label: "Aisle containment", fallback: "cold aisle assumed (library, E0); this page records no containment to send" },
+  { path: "hall.floor_type", label: "Floor type", fallback: "raised floor assumed (library, E0); this page records no floor type to send" },
+  { path: "hall.build_year", label: "Year the hall was built", fallback: "2015 assumed (library, E0); this page records no build year to send" },
   { path: "hall.occupied_positions", label: "Rack positions occupied", fallback: "no occupied count is known: the engine reads every position that is not free as occupied for its busway check only, and says that is an assumption (E0); this page records no occupied count to send" },
 ];
 

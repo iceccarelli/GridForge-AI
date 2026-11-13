@@ -43,7 +43,7 @@ export const transformerSchema = z.object({
   id: z.string().trim().max(40).default("TX"),
   unit_rating_MVA: num(500),
   units: z.coerce.number().int().min(1).max(40),
-  // Optional with no default: a scheme the visitor did not pick is not sent as theirs (the engine then assumes N+1 itself; see ENGINE_LIBRARY_DEFAULTS.redundancy).
+  // Optional with no default: a scheme the visitor did not pick is not sent as theirs (the engine then computes with N+1, labelled an assumption, and names the scheme as a REQUIRED gap: a Study cannot be issued until it is given; see ENGINE_LIBRARY_DEFAULTS.redundancy).
   redundancy: z.enum(["N", "N+1", "N+2", "2N"]).optional(),
   replacement_lead_time_weeks: num(520).optional(),
 });
@@ -95,7 +95,7 @@ export const ENGINE_LIBRARY_DEFAULTS = {
   powerFactor: 0.97,
   /** compute.utilisation: the annual average fraction of rack power drawn. Moves the annual energy and its cost only, not any capacity limit. */
   utilisation: 0.75,
-  /** hall.floor_type and the transformer / UPS redundancy: the engine assumes these silently (no named gap), so the forms say so beside the field. */
+  /** hall.floor_type and the transformer / UPS redundancy are computed with these defaults when omitted, but the engine NAMES each as a gap (floor type optional, redundancy REQUIRED), labelled an assumption. The forms say what the engine assumes beside the field. */
   floorType: "raised_floor",
   redundancy: "N+1",
 } as const;

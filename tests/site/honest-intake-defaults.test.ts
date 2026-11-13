@@ -92,8 +92,10 @@ describe("the engine's library defaults are shown, never submitted", () => {
     expect(loader).toMatch(new RegExp(`V\\(${ENGINE_LIBRARY_DEFAULTS.powerFactor}, "1", "assumed site power factor", ASSUMED`));
     expect(loader).toMatch(new RegExp(`V\\(${ENGINE_LIBRARY_DEFAULTS.utilisation}, "1", "assumed annual average utilisation", ASSUMED`));
     expect(loader).toContain(`r.raw("hall.floor_type", "${ENGINE_LIBRARY_DEFAULTS.floorType}")`);
-    expect(loader).toContain(`t.get("redundancy", "${ENGINE_LIBRARY_DEFAULTS.redundancy}"), "transformer"`);
-    expect(loader).toContain(`u.get("redundancy", "${ENGINE_LIBRARY_DEFAULTS.redundancy}"), "UPS"`);
+    // the engine names its bank default once (DEFAULT_BANK_REDUNDANCY) and both banks read it, so the site's displayed default is pinned to that constant
+    expect(loader).toContain(`DEFAULT_BANK_REDUNDANCY = "${ENGINE_LIBRARY_DEFAULTS.redundancy}"`);
+    expect(loader).toContain(`t.get("redundancy", DEFAULT_BANK_REDUNDANCY), "transformer"`);
+    expect(loader).toContain(`u.get("redundancy", DEFAULT_BANK_REDUNDANCY), "UPS"`);
     expect(LIBRARY_DEFAULT_HINT).toBe("the engine assumes 6 runs / 400 V / 0.97 until you give yours");
   });
 
@@ -306,7 +308,7 @@ describe("utilisation, floor type and redundancy are sent only when chosen", () 
     const src = read("components/EngagementIntake.tsx");
     expect(src).toContain("placeholder={`engine assumes ${ENGINE_LIBRARY_DEFAULTS.utilisation}`}");
     expect(src).toContain("Not stated (engine assumes ${ENGINE_LIBRARY_DEFAULTS.floorType");
-    expect(src).toContain("`Not stated (engine assumes ${ENGINE_LIBRARY_DEFAULTS.redundancy})`");
+    expect(src).toContain("`Not stated (engine assumes ${ENGINE_LIBRARY_DEFAULTS.redundancy}; a Study needs yours)`");
     expect(src).not.toMatch(/utilisation: "0\.75"|redundancy: "N\+1" \}|floorType: "raised_floor"/);
     const rows = [{ id: "TX-1", rating: 5 as const, units: 2 as const, redundancy: "" }];
     const p = intakePayload({ ...EMPTY_FORM }, [], rows, []) as { transformers: Record<string, unknown>[] };
@@ -339,12 +341,24 @@ describe.runIf(hasPython)("what the engine does with them (real loader, real sol
     expect(out.with.supplied).toContain("compute.utilisation");
     expect(out.with.completeness).toBeGreaterThan(out.without.completeness);
   });
-  it("floor type and redundancy are silent defaults in the engine: omitted or equal to the default gives an identical result and no gap either way", () => {
+  it("floor type and redundancy give the same NUMBERS when omitted, but each is now a NAMED gap (redundancy required, floor type optional)", () => {
     const withN1 = base({ transformers: [{ unit_rating_MVA: 20, units: 2, redundancy: "N+1" }], ups: [{ unit_rating_kW: 5000, units: 6, redundancy: "N+1" }] });
     const out = run({ a: base(), b: withN1, c: base({ hall: { id: "H", positions_available: 200, floor_loading_kPa: 15, floor_type: "raised_floor" } }) });
-    expect(out.a).toEqual(out.b);
-    expect(out.a).toEqual(out.c);
-    expect(out.a.gaps.some((g) => /redundancy|floor_type/.test(g))).toBe(false);
+    // floor type: omitted or declared at the default gives identical numbers; an omitted one is a named OPTIONAL gap (assumed, E0) that
+    // is not counted in the completeness ratio, so completeness is identical too
+    expect(out.a.racks).toEqual(out.c.racks);
+    expect(out.a.binding).toEqual(out.c.binding);
+    expect(out.a.constraints).toEqual(out.c.constraints);
+    expect(out.a.completeness).toEqual(out.c.completeness);
+    expect(out.a.gaps).toContain("hall.floor_type");
+    expect(out.c.gaps).not.toContain("hall.floor_type");
+    // redundancy: the engine computes with the same default, so every number is identical ...
+    expect(out.a.racks).toEqual(out.b.racks);
+    expect(out.a.binding).toEqual(out.b.binding);
+    expect(out.a.constraints).toEqual(out.b.constraints);
+    // ... but nobody declared it, so an omitted scheme is a NAMED gap per bank (and a declared one, even at the default, is not)
+    expect(out.a.gaps.filter((g) => /redundancy/.test(g))).toEqual(["transformers[0].redundancy", "ups[0].redundancy"]);
+    expect(out.b.gaps.some((g) => /redundancy/.test(g))).toBe(false);
   });
 });
 

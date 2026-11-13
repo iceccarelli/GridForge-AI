@@ -87,20 +87,31 @@ describe("every document and class on the ladder is the engine's own", () => {
     for (const p of LADDER_PATHS) expect(basis.inputs.find((i) => i.path === p)?.supplied, p).toBe(true);
   });
 
-  it("the trim-chiller limit's inputs follow the engine's own branches (thermal/constraints.py tcs_supply_achievable)", () => {
+  it("the trim-chiller limit's inputs follow the engine's own branches (thermal/constraints.py facility_water_supply + tcs_supply_achievable)", () => {
     const py = read("gridforge/thermal/constraints.py");
-    const fn = py.slice(py.indexOf("def tcs_supply_achievable"), py.indexOf("def tcs_supply_achievable") + 2600);
-    // full DLC: design dry-bulb plus the library dry-cooler approach, simulated; the plant supply temperature is not used
-    const dry = fn.slice(fn.indexOf("elif ctx.architecture == Architecture.FULL_DLC"), fn.indexOf("else:", fn.indexOf("elif ctx.architecture == Architecture.FULL_DLC")));
+    // The water the liquid loop receives is chosen in ONE helper that both the CDU derate and the water-temperature gate read, so the two
+    // cannot disagree about it (before it existed the CDU always derated against the legacy plant setpoint, a 6 degC chiller, while the gate
+    // used the dry-cooler water).
+    const helperAt = py.indexOf("def facility_water_supply");
+    const helper = py.slice(helperAt, py.indexOf("def _required_fws"));
+    const fn = py.slice(py.indexOf("def tcs_supply_achievable"), py.indexOf("def tcs_supply_achievable") + 2900);
+    const cdu = py.slice(py.indexOf("def cdu_capacity"), py.indexOf("def cdu_capacity") + 4000);
+    expect(fn).toContain("facility_water_supply(ctx)");
+    expect(cdu).toContain("facility_water_supply(ctx)");
+    // full DLC: design dry-bulb plus the library dry-cooler approach, simulated; the plant supply temperature is not used for it
+    const dryAt = helper.indexOf("if ctx.architecture == Architecture.FULL_DLC");
+    const dry = helper.slice(dryAt, helper.indexOf('return FacilityWaterSupply(t.plant.design_supply_C, "existing_plant"'));
+    expect(dryAt).toBeGreaterThan(-1);
     expect(dry).toContain("ctx.site.design_drybulb_C + t.plant.dry_cooler_approach_K");
     expect(dry).not.toContain("design_supply_C");
     expect(dry).toContain("step_evidence=SIMULATED");
-    // every other architecture: the existing plant's supply temperature, used as an ESTIMATE
-    const plant = fn.slice(fn.indexOf("else:\n        achievable = t.plant.design_supply_C"));
+    // every other architecture: the existing plant's supply temperature, which the gate then uses as an ESTIMATE
+    expect(helper).toContain('FacilityWaterSupply(t.plant.design_supply_C, "existing_plant"');
+    const plant = fn.slice(fn.indexOf("else:\n        achievable = fws.temperature.relabel"));
     expect(plant).toContain("thermal.plant_fws");
     expect(plant).toContain("step_evidence=ESTIMATED");
     // after the relief: the temperature a proposed trim chiller is ASSUMED to hold
-    expect(fn.slice(0, fn.indexOf("elif ctx.architecture"))).toContain("step_evidence=ASSUMED");
+    expect(fn.slice(0, fn.indexOf('elif fws.source == "dry_coolers"'))).toContain("step_evidence=ASSUMED");
     const [dryDef, supplyDef] = LADDER_FAMILIES.tcs_supply_achievable!;
     expect(dryDef).toMatchObject({ path: "site.design_drybulb_C", onlyFor: ["full_dlc"] });
     expect(supplyDef).toMatchObject({ path: "thermal.plant.design_supply_C", notFor: ["full_dlc"], cap: "E3" });

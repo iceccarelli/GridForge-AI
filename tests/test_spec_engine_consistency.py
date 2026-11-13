@@ -458,3 +458,28 @@ def test_the_plant_reference_page_does_not_describe_plant_duty_as_residual_only(
     # formatted from the library figures (13.499999999999996 -> "13"); the engine's own charge is the same number to 1e-9
     assert f"{plat.rack_kW.value:.0f} kW per rack in hybrid DLC" in example["answer"]
     assert f"{plat.residual_air_kW().value:.0f} kW per rack, still to air, in full DLC" in example["answer"]
+
+
+def test_an_assumed_input_never_carries_its_evidence_class_twice():
+    """The thermal gap rows word themselves "5 K assumed (library, E0)"; the specification's assumed-inputs list appends " (E0)" to a
+    fallback that does not already say its class, and must recognise "(library, E0)" as saying it. Printed twice it read "(E0) (E0)".
+    The shipped examples declare these inputs, so this builds a hall that does NOT (a CDU with no rated approach or flow, and none of
+    the optional thermal and hall figures), otherwise the check could never fail."""
+    import copy
+    import json
+
+    from gridforge.intake.loader import load_document
+    from gridforge.procurement.build import assumed_inputs
+
+    here = Path(__file__).resolve().parents[1] / "examples" / "intake"
+    d = copy.deepcopy(json.loads((here / "dublin_hall.json").read_text(encoding="utf-8")))
+    d["thermal"]["cdus"] = [{"id": "C", "rated_capacity_kW": 1350, "units": 3, "redundancy": "N+1"}]
+    for key in ("available_head_kPa", "free_cooling_hours_per_year"):
+        d["thermal"]["plant"].pop(key, None)
+    for key in ("containment", "floor_type", "build_year"):
+        d["hall"].pop(key, None)
+    rows = {a.path: a.fallback for a in assumed_inputs(load_document(d))}
+    for path in ("thermal.cdus.rated_approach_K", "thermal.plant.available_head_kPa", "hall.floor_type", "hall.build_year"):
+        assert path in rows, (path, sorted(rows))                      # the rows exist, so the loop below is not vacuous
+    for path, text in rows.items():
+        assert len(re.findall(r"\bE[0-7]\)", text)) <= 1, (path, text)

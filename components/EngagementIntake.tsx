@@ -24,8 +24,9 @@ interface Row {
 }
 
 const REDUNDANCY = ["N", "N+1", "N+2", "2N"];
-/** The row's scheme when the visitor has not chosen one. It is not sent; the engine then assumes its own default (ENGINE_LIBRARY_DEFAULTS.redundancy). */
-const REDUNDANCY_UNSTATED = `Not stated (engine assumes ${ENGINE_LIBRARY_DEFAULTS.redundancy})`;
+/** The row's scheme when the visitor has not chosen one. It is not sent as theirs: the engine still computes with its own default (ENGINE_LIBRARY_DEFAULTS.redundancy),
+ *  labelled an assumption, but it NAMES the scheme as a required input nobody declared, so a Study cannot be issued on it until it is given. */
+const REDUNDANCY_UNSTATED = `Not stated (engine assumes ${ENGINE_LIBRARY_DEFAULTS.redundancy}; a Study needs yours)`;
 
 /**
  * The form before the visitor types. Power factor, busway runs and LV voltage start EMPTY: the engine's library defaults are shown as

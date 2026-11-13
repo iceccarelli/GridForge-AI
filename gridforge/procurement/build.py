@@ -14,6 +14,7 @@ procurement without a conflict to declare.
 from __future__ import annotations
 
 import math
+import re
 from dataclasses import replace
 from typing import Iterable
 
@@ -666,7 +667,7 @@ def assumed_inputs(intake, conditions: list[SiteCondition] | None = None) -> lis
             fb = "nothing: no value was assumed in its place and the constraint it feeds is not assessed (E0)"
         elif fb.lower().startswith("none"):
             fb = f"no value ({fb}) (E0)"
-        elif "(E" not in fb:
+        elif not re.search(r"\bE[0-7]\)", fb):          # already carries its class: "(E0)" or "(library, E0)"
             fb = f"{fb} (E0)"
         out.append(AssumedInput(g.path, g.label, "" if g.unit in ("-", "—") else g.unit, fb))
     have = {a.path for a in out}
