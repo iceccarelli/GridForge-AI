@@ -97,6 +97,12 @@ class ConstraintResult:
     relief: Optional[ReliefOption] = None
     gate: bool = False     # True -> a pass/fail feasibility gate, not a capacity ceiling
     notes: tuple[str, ...] = ()
+    #: The constraint's own capacity in racks BEFORE it is floored to whole racks and clamped at zero: fractional, and negative when what is already in
+    #: the hall exceeds what the constraint can carry (a protected load above the usable UPS). ``max_racks`` says 0 for both "nearly a rack" and "far
+    #: short", so a relief that lifts a constraint from -5.2 to -2.7 racks earns nothing in ``max_racks`` and is only visible here. The ladder reads it
+    #: to tell a relief that moved the binding constraint (keep climbing) from one that did nothing (stop). None when the constraint reports none
+    #: (a pass/fail gate, an unlimited constraint): the ladder then judges by ``max_racks`` alone, as it always did.
+    margin_racks: Optional[float] = None
 
     @property
     def racks(self) -> float:

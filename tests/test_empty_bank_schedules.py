@@ -48,13 +48,23 @@ def test_an_all_empty_ups_list_binds_at_zero_through_the_handler():
     assert "treated as no limit" not in text and "No UPS schedule supplied" not in text
 
 
-def test_the_all_empty_ups_answer_is_what_the_engine_answered_before_empty_banks_were_ignored():
-    """The reference hall with `ups[0].units = 0`: 0 racks as found AND 0 after the ladder in every scenario, ups_capacity binding (the old tree's answer)."""
+def test_the_all_empty_ups_is_a_zero_the_plan_pays_for_not_a_limit_that_is_not_there():
+    """The reference hall with `ups[0].units = 0`: 0 racks as found in every scenario with ups_capacity binding (what the engine answered before empty
+    banks were ignored). The plan then BUYS UPS modules (taken, priced steps), where the 'no limit' reading of the same hall buys none: that difference is the
+    whole of the defect. (26 / 28 / 62 racks after the ladder in the liquid scenarios are the same ceilings a hall with a UPS reaches: the zero is closable.)"""
     d = copy.deepcopy(REFERENCE)
     d["ups"][0]["units"] = 0
-    for sid, sc in by_scenario(screen(d)).items():
+    out = screen(d)
+    for sid, sc in by_scenario(out).items():
         assert (sc["as_found"]["racks"], sc["as_found"]["binding"]) == (0, "ups_capacity"), sid
-        assert sc["after_ladder"]["racks"] == 0 and sc["after_ladder"]["binding"] == "ups_capacity", sid
+    for sid in ("hybrid_dlc", "full_dlc", "full_dlc_btm"):
+        sc = by_scenario(out)[sid]
+        bought = [x for x in sc["ladder"] if x["constraint"] == "ups_capacity" and x["taken"]]
+        assert bought and all(x["capex_eur"] is not None for x in bought), sid       # the declared zero capacity is bought up, and priced
+    unlimited = copy.deepcopy(REFERENCE)
+    unlimited["ups"] = []                                                           # the 'no limit' reading: no UPS step at all
+    for sc in by_scenario(screen(unlimited)).values():
+        assert not [x for x in sc["ladder"] if x["constraint"] == "ups_capacity"]
 
 
 def test_an_all_empty_transformer_list_binds_at_zero_through_the_handler():

@@ -299,6 +299,29 @@ def _step(i: int, binding, res: "EnvelopeResult", racks_after: int, evidence, *,
         limited=rl.limited)
 
 
+def _relief_moved_the_binding_constraint(before: EnvelopeResult, after: EnvelopeResult, constraint_id: str) -> bool:
+    """True when a relief that did not yet earn a rack still RAISED the binding constraint's own capacity, with the hall still holding no rack.
+
+    A relief is a fixed increment (two UPS modules in one block, one CDU unit, a 60% transformer uprate), and a hall whose protected load exceeds
+    the usable UPS by more than one increment has a negative headroom that the first rung only shrinks: ``max_racks`` stays 0 and the binding
+    constraint stays the same, which the stop rule below reads as "this relief earns nothing, the ladder has converged". The plan was then lost: a
+    4 x 2 module plant under a 9 MW protected load went from 8 / 9 / 43 racks (when a rung bought modules in every block at once) to 0 / 0 / 0 once
+    a rung bought two in one block. The relief had earned something, only not yet in whole racks: ``ConstraintResult.margin_racks`` (the capacity
+    before it is floored and clamped at zero) went from -31.1 to -13.3 racks, and the next rung to +4.4. So the ladder keeps climbing while the binding constraint's own capacity
+    strictly rises and the hall is still at zero racks. It is not a licence to loop: the capacity rises by a fixed increment per rung, so the
+    shortfall is closed in a bounded number of rungs, and the step budget (``ladder_step_budget``, never above LADDER_STEP_CAP) is the only
+    backstop, as it is for every other ladder. A constraint that reports no margin (a gate, an unlimited constraint) never extends the ladder."""
+    if after.max_racks != 0 or before.max_racks != 0:
+        return False
+    was = next((c for c in before.constraints if c.id == constraint_id), None)
+    now = next((c for c in after.constraints if c.id == constraint_id), None)
+    if was is None or now is None or was.margin_racks is None or now.margin_racks is None:
+        return False
+    if not (math.isfinite(was.margin_racks) and math.isfinite(now.margin_racks)):
+        return False
+    return now.margin_racks > was.margin_racks
+
+
 def ladder(ctx: EnvelopeContext, max_steps: int | None = None, *, allow_partial: bool = False) -> HeadroomLadder:
     """The Headroom Ladder: relieve the binding constraint, solve again, repeat until a relief earns nothing.
 
@@ -344,7 +367,7 @@ def ladder(ctx: EnvelopeContext, max_steps: int | None = None, *, allow_partial:
         reliefs[i] = binding.relief
         out.steps.append(_step(i, binding, res, nxt.max_racks, rack_evidence(nxt)))
         states[i] = (nxt_ctx, nxt)
-        if nxt.max_racks <= res.max_racks and nxt.binding.id == binding.id:
+        if nxt.max_racks <= res.max_racks and nxt.binding.id == binding.id and not _relief_moved_the_binding_constraint(res, nxt, binding.id):
             converged = True
             break
         cur, res = nxt_ctx, nxt

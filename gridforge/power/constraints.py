@@ -173,6 +173,7 @@ def grid_firm_capacity(ctx: EnvelopeContext) -> ConstraintResult:
         basis=basis,
         relief=relief,
         notes=(g.queue_note,) if g.queue_note else (),
+        margin_racks=racks.value,
     )
 
 
@@ -227,6 +228,7 @@ def transformer_capacity(ctx: EnvelopeContext) -> ConstraintResult:
         floor_racks(racks),
         basis=f"{headroom.render()} usable after redundancy and derating (sized on sustained rack power; transients above it are not added, so headroom may be overstated)",
         relief=relief,
+        margin_racks=racks.value,
     )
 
 
@@ -278,6 +280,7 @@ def ups_capacity(ctx: EnvelopeContext) -> ConstraintResult:
             apply=_apply,
         ),
         notes=("GPU racks present step loads; confirm the UPS block accepts the step, not just the steady load.",),
+        margin_racks=racks.value,
     )
 
 

@@ -293,7 +293,7 @@ def cdu_capacity(ctx: EnvelopeContext) -> ConstraintResult:
         floor_racks(racks),
         basis=(f"{total.render()} usable against {plat.liquid_kW().render()} of liquid load "
                f"per rack; {available_approach.render()} approach available" + flow_text),
-        relief=relief, notes=notes,
+        relief=relief, notes=notes, margin_racks=racks.value,
     )
 
 
@@ -307,13 +307,16 @@ def plant_capacity(ctx: EnvelopeContext) -> ConstraintResult:
     if other_heat is None:
         headroom = (t.plant.chilled_water_capacity_kW - existing).relabel(
             "chilled-water plant headroom", "thermal.plant_headroom", step_evidence=ESTIMATED)
+        raw_headroom_kW = headroom.value
     else:
         # Plant capacity less the IT load less the other heat the existing hall already puts on the plant, never below zero.
         net = (t.plant.chilled_water_capacity_kW - existing - other_heat).relabel(
             "chilled-water plant headroom", "thermal.plant_headroom", step_evidence=ESTIMATED)
         lo, hi = net.band
         headroom = Quantity(max(net.value, 0.0), net.unit, net.prov, max(lo, 0.0), max(hi, 0.0))
+        raw_headroom_kW = net.value            # the figure before the clamp: how far short, for ConstraintResult.margin_racks
     racks = headroom / per_rack
+    margin_racks = raw_headroom_kW / per_rack.value if per_rack.value > 0 else None
 
     # Heat rejection of the DEDICATED high-temperature loop (full DLC), when the client declared its dry-cooler capacity. Read as a
     # nameplate: the conditions it is rated at (water and ambient temperature) are not known, so NO derating for the site's design dry
@@ -328,6 +331,8 @@ def plant_capacity(ctx: EnvelopeContext) -> ConstraintResult:
         dry_binds = _floor(heat_rejection.value) < _floor(racks.value)       # a tie keeps the chilled-water relief, as before
         racks = _lesser("racks permitted by chilled-water headroom and dry-cooler heat rejection", "thermal.plant_limit",
                         racks, heat_rejection)
+        if margin_racks is not None:
+            margin_racks = min(margin_racks, heat_rejection.value)
 
     def _apply(c: EnvelopeContext) -> EnvelopeContext:
         c = c.copy()
@@ -399,6 +404,7 @@ def plant_capacity(ctx: EnvelopeContext) -> ConstraintResult:
         basis=basis,
         relief=relief,
         notes=notes,
+        margin_racks=margin_racks,
     )
 
 
@@ -459,6 +465,9 @@ def hydraulic_flow(ctx: EnvelopeContext) -> ConstraintResult:
 
     racks = (_available(pump) / ctx.cluster.platform.flow_l_per_min_per_rack).relabel(
         "racks permitted by available pumped flow", "thermal.flow_limit", step_evidence=SIMULATED)
+    flow_per_rack = ctx.cluster.platform.flow_l_per_min_per_rack.value
+    # The same figure before the clamp at zero (how far short the pumps are), for ConstraintResult.margin_racks.
+    margin_racks = ((pump.value - (existing.value if existing is not None else 0.0)) / flow_per_rack) if flow_per_rack > 0 else None
 
     def _apply(c: EnvelopeContext) -> EnvelopeContext:
         # The uprate scales the PUMP capacity. What the existing hall draws does not change, so it is subtracted after the uprate.
@@ -504,6 +513,7 @@ def hydraulic_flow(ctx: EnvelopeContext) -> ConstraintResult:
         ),
         notes=("Pressure drop budget and pipe DN are not modelled at screening level; "
                "a hydraulic model is required before design.",),
+        margin_racks=margin_racks,
     )
 
 
