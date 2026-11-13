@@ -8,6 +8,7 @@ import { QuestionList } from "@/components/QuestionList";
 import K from "@/lib/engineering-constants.json";
 import { EVIDENCE_CLASSES } from "@/lib/evidence-classes";
 import { FOUNDER_ID, orgRef } from "@/lib/entity";
+import { formatLeadTime } from "@/lib/date-basis";
 import { breadcrumbJsonLd, webPageJsonLd } from "@/lib/jsonld";
 import { pageImages } from "@/lib/page-cards";
 import pageDates from "@/lib/page-lastmod.json";
@@ -778,7 +779,7 @@ function SequenceSection({ m }: { m: GuideModel }) {
               <tbody>
                 {t.curve.map((p, i) => (
                   <tr key={i} className="border-t border-line/60 align-top">
-                    <td className="p-3 font-mono text-ghost">{fmt(p.weeks)}</td>
+                    <td className="p-3 font-mono text-ghost">{formatLeadTime(p.weeks, t.dateClass ?? "E0")}</td>
                     <td className="p-3 font-mono text-ghost">{fmt(p.racks)}</td>
                     <td className="p-3 text-mute">{p.unlockedBy}</td>
                   </tr>

@@ -43,6 +43,7 @@ const DEFAULT_ROUTES = [
   "/legal/privacy",
   "/legal/security",
   "/guides/nameplate-vs-useful-compute",
+  "/guides/retrofit-order-of-limits",
   "/account/sites",
   "/admin",
   "/admin/login",

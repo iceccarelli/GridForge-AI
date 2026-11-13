@@ -69,7 +69,10 @@ describe("/openapi.json", () => {
   });
 
   it("states no price", () => {
-    expect(JSON.stringify(doc)).not.toMatch(/[€$]\s?\d|\bEUR\b/i);
+    // The example supplier bids carry `"currency":"EUR"`: a bid names the currency its price is in, and one without is disqualified. That is a
+    // currency CODE in an invented example, not a price; exactly that property is exempt and the broad pattern applies to everything else.
+    const text = JSON.stringify(doc).replace(/"currency":\s?"EUR"/g, '"currency":"<code>"');
+    expect(text).not.toMatch(/[€$]\s?\d|\bEUR\b/i);
   });
 
   it("is served as JSON and parses as OpenAPI 3.1", async () => {
