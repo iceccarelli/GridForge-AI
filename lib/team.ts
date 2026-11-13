@@ -96,16 +96,28 @@ const deny = (status: number, error: string): { ok: false; response: NextRespons
  * of someone else's subscription is refused (403), so a seat never confers any control over seats; a non-subscriber is a
  * 402; a store we could not ask is a 503 and never a claim about the customer.
  */
-export async function ownerContext(req: Request): Promise<OwnerContext> {
+export async function ownerContext(req: Request, words: OwnerRefusalWords = {}): Promise<OwnerContext> {
   const who = await identify(req);
   if (!who.ok) return { ok: false, response: identityRefusal(who) };
   if (!who.verified) return deny(403, "Confirm your email address by signing in with the emailed link, then try again.");
-  if (!subscriptionsConfigured()) return deny(503, "Team membership is unavailable just now.");
+  const unavailable = words.unavailable ?? "Team membership is unavailable just now.";
+  if (!subscriptionsConfigured()) return deny(503, unavailable);
   const found = await lookupEntitlement(who.email);
-  if (!found.reachable) return deny(503, "Team membership is unavailable just now.");
+  if (!found.reachable) return deny(503, unavailable);
   if (!found.entitlement) return deny(402, "An active GridForge Intelligence subscription is required.");
-  if (found.entitlement.role !== "owner") return deny(403, "Only the billing owner can manage seats.");
+  if (found.entitlement.role !== "owner") return deny(403, words.notOwner ?? "Only the billing owner can manage seats.");
   return { ok: true, email: who.email, subscription: found.entitlement.subscription };
+}
+
+/**
+ * The words of the two refusals that name what the caller was trying to do. The decision is the same for every caller (the checks above do not
+ * move); only the sentence changes, so the billing portal (app/api/billing/portal/route.ts) does not tell a seat member "manage seats".
+ */
+export interface OwnerRefusalWords {
+  /** The 503 answer when the subscription store cannot be asked. */
+  unavailable?: string;
+  /** The 403 answer to a seat member. */
+  notOwner?: string;
 }
 
 // --------------------------------------------------------------------------------------------------- the owner's view

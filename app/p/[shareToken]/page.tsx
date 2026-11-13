@@ -7,6 +7,7 @@ import { ASSUMED_TEMPLATE_LABEL, getBuyerView, type BuyerView } from "@/lib/buye
 import type { BuyerStep } from "@/lib/buyer-path";
 import { CALIBRATION_NOTICE } from "@/lib/ai/provenance";
 import { eurFromCents } from "@/lib/products";
+import { SCREEN_CREDIT_SENTENCE } from "@/lib/credits-terms";
 import { OBJECTIVE_LABEL, type CompareResult, type CompareScenario } from "@/lib/ttp-compare";
 import { DateFigure } from "@/components/DateFigure";
 import { formatRankingValue } from "@/lib/date-basis";
@@ -442,7 +443,7 @@ function StepCard({ step }: { step: BuyerStep }) {
       <p className="mt-2 text-xs text-faint">
         {p.turnaroundDays > 0 ? `${p.turnaroundDays} working days from a complete intake. ` : ""}
         {p.opensBandCents ? `A deposit toward a scoped engagement of ${eurFromCents(p.opensBandCents[0])}–${eurFromCents(p.opensBandCents[1])}. ` : ""}
-        {step.creditsAgainst ? `Credits in full against the ${step.creditsAgainst.name} if you go further.` : ""}
+        {step.creditsAgainst ? SCREEN_CREDIT_SENTENCE : ""}
       </p>
     </div>
   );

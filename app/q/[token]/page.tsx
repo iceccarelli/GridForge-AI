@@ -8,6 +8,7 @@ import { BENCHMARK_MIN_HALLS, benchmark, getQualification } from "@/lib/qualify"
 import { constraintReference } from "@/lib/constraints";
 import { constraintSlugsByName, slugForConstraint } from "@/lib/constraint-links";
 import { PRODUCTS } from "@/lib/products";
+import { SCREEN_CREDIT_SENTENCE } from "@/lib/credits-terms";
 import { eur } from "@/lib/commerce";
 
 export const dynamic = "force-dynamic";
@@ -170,8 +171,8 @@ export default async function QualificationPage({
             This read is a free, directional indication. The {screen.name} is the paid
             engineering step: it turns the read into a document — the first six rungs of the
             costed ladder, the item that sets the energisation date, and a data request you can
-            hand your own engineers verbatim. {screen.turnaroundDays} working days, fixed fee, and
-            it credits in full against the full study.
+            hand your own engineers verbatim. {screen.turnaroundDays} working days, fixed fee.{" "}
+            {SCREEN_CREDIT_SENTENCE}
           </p>
         </div>
         <CommissionScreen

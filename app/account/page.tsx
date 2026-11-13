@@ -11,6 +11,7 @@ import { Loader2, LogOut, Send, Download, Save } from "lucide-react";
 import { generateSitingBrief } from "@/lib/brief";
 import { PRODUCTS, intelligencePlanName } from "@/lib/products";
 import TeamPanel from "@/components/TeamPanel";
+import { IntelligenceManage } from "@/components/IntelligenceManage";
 import { PENDING_INVITE_KEY } from "@/lib/team-client";
 import { CONFIRM_EMAIL_TEXT, isUnverified } from "@/lib/portal-links";
 
@@ -103,11 +104,13 @@ export default function AccountPage() {
           </div>
           {active && role === "member" && (
             <p className="mb-6 rounded-lg border border-line bg-panel px-4 py-3 text-[13px] text-mute">
-              You have a seat on <span className="text-white">{ownerEmail}</span>&apos;s subscription. Only the billing owner can change seats.
+              You have a seat on <span className="text-white">{ownerEmail}</span>&apos;s subscription.
             </p>
           )}
           {active ? <Intelligence email={email!} /> : unreachable ? <Unavailable /> : unverified ? <ConfirmEmail /> : <Gate />}
           {active && role === "owner" && <div className="mt-8"><TeamPanel headers={authHeaders} /></div>}
+          {/* Billing: the owner opens Stripe's billing page to update the card or cancel; a seat member is told who does. */}
+          {active && role && <IntelligenceManage role={role} ownerEmail={ownerEmail} authHeaders={authHeaders} />}
         </div>
     </div>
   );

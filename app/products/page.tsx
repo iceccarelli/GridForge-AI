@@ -5,6 +5,7 @@ import { PRODUCT_PAGES, productForPage } from "@/lib/product-pages";
 import { OG_BASE } from "@/lib/site";
 import { pageImages } from "@/lib/page-cards";
 import { eurFromCents, priceLine, PRODUCTS } from "@/lib/products";
+import { SCREEN_CREDIT_SENTENCE } from "@/lib/credits-terms";
 
 const DESCRIPTION = `Engagements for owners of existing AI data halls: the ${eurFromCents(
   PRODUCTS.density_screen.amountCents
@@ -37,8 +38,8 @@ export default function ProductsIndex() {
         <div className="eyebrow text-power mb-4">Engagements</div>
         <h1 className="text-4xl font-semibold tracking-tight text-ghost">Five engagements, each priced before you start</h1>
         <p className="mt-5 text-[17px] leading-relaxed text-mute">
-          Each is a named deliverable, not retainer hours. The Envelope Study and the Portfolio Screen are opened with a deposit, and the fee is agreed with you in writing, within its band, before work starts; the deposit is credited in full against it. The first paid step is the Density Screen, which credits
-          in full against the Envelope Study. Not sure? Run the{" "}
+          Each is a named deliverable, not retainer hours. The Envelope Study and the Portfolio Screen are opened with a deposit, and the fee is agreed with you in writing, within its band, before work starts; the deposit is credited in full against it. The first paid step is the Density Screen. {SCREEN_CREDIT_SENTENCE}{" "}
+          Not sure? Run the{" "}
           <Link href="/qualify" className="text-power underline">free capacity check</Link> first.
         </p>
         <ul className="mt-10 space-y-5">

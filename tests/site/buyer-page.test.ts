@@ -12,6 +12,7 @@ import { siteUrl } from "@/lib/site";
 import { PRODUCTS, eurFromCents, LADDER_PRODUCTS } from "@/lib/products";
 import { CALIBRATION_NOTICE } from "@/lib/ai/provenance";
 import { buyerPath } from "@/lib/buyer-path";
+import { SCREEN_CREDIT_SENTENCE } from "@/lib/credits-terms";
 import { assumptionsOf } from "@/lib/buyer-view";
 import { hashShareToken, isShareToken } from "@/lib/project-share";
 import { resetMemoryLimiter, RATE_POLICIES } from "@/lib/rate-limit";
@@ -378,7 +379,9 @@ describe.runIf(hasPython)("the buyer page", () => {
     expect(html).toContain(screen.name);
     expect(html).toContain(eurFromCents(screen.amountCents));
     expect(html).toContain(`${screen.turnaroundDays} working days`);
-    expect(html).toContain(`Credits in full against the ${PRODUCTS.envelope_study_deposit.name}`.replace(/&/g, "&amp;"));
+    // The credit is stated with the conditions the code applies (lib/credits-terms.ts), not as an unconditional "in full".
+    expect(html).toContain(SCREEN_CREDIT_SENTENCE);
+    expect(html).not.toMatch(/Credits in full against/i);
     for (const p of LADDER_PRODUCTS.filter((x) => ["envelope_study_deposit", "procurement_spec", "hall_watch"].includes(x.id))) {
       expect(html).toContain(eurFromCents(p.amountCents));
     }

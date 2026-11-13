@@ -7,6 +7,7 @@ import { constraintHref, type ConstraintSlugs } from "@/lib/constraint-links";
 import type { QualifyResult } from "@/lib/qualify";
 import { assumedText } from "@/lib/assumed-text";
 import { PRODUCTS } from "@/lib/products";
+import { SCREEN_CREDIT_SENTENCE } from "@/lib/credits-terms";
 import { eur } from "@/lib/commerce";
 import { PAYG } from "@/lib/products";
 import { formatSetsTheDate } from "@/lib/date-basis";
@@ -804,8 +805,7 @@ function CommissionPanel({
     <div className="mt-6 rounded border border-line bg-panel-2 p-4">
       <p className="text-sm text-ghost">{recommendation}</p>
       <p className="mt-2 text-xs text-faint">
-        {screen.deliverable} {screen.turnaroundDays} working days from a complete intake, and the
-        fee credits in full against the full study.
+        {screen.deliverable} {screen.turnaroundDays} working days from a complete intake. {SCREEN_CREDIT_SENTENCE}
       </p>
       <div className="mt-4 flex flex-wrap items-center gap-3">
         <button

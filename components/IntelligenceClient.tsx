@@ -8,6 +8,7 @@ import { LazyIsland } from "@/components/home/LazyIsland";
 import { Check, ArrowRight, Loader2 } from "lucide-react";
 import { TtpPhoto } from "@/components/TtpPhoto";
 import { SIGNAL_INPUTS } from "@/lib/intelligence-basis";
+import { INTELLIGENCE_CANCEL_TERMS } from "@/lib/subscription-manage";
 
 /** True when the address carries the marker the checkout's cancel address adds (app/api/subscribe/route.ts). */
 export function checkoutWasCancelled(search: string): boolean {
@@ -199,9 +200,10 @@ export function IntelligenceClient() {
           </p>
 
           <div className="mt-8 flex flex-wrap items-center gap-x-6 gap-y-2 data text-xs text-faint">
-            <span>Cancel anytime</span>
             <span>Secure payment via Stripe</span>
           </div>
+          {/* What cancelling does: the one sentence the account page and the Terms print too (lib/subscription-manage.ts). */}
+          <p className="mt-3 max-w-2xl text-xs leading-relaxed text-faint" data-testid="cancel-terms">{INTELLIGENCE_CANCEL_TERMS}</p>
         </div>
     </div>
   );

@@ -337,7 +337,7 @@ async function main() {
      pageRes.status === 200 && pageHtml.includes("Verify Hall expansion") && pageHtml.includes("Decision") && /E0/.test(pageHtml) && /not decision-grade/.test(pageHtml));
   ok("it states the empty calibration ledger", pageHtml.includes("The calibration ledger is empty today"));
   ok("it offers the Density Screen at the catalogue price, with its credit",
-     pageHtml.includes("Density Screen") && pageHtml.includes("€4,500") && pageHtml.includes("Credits in full against"));
+     pageHtml.includes("Density Screen") && pageHtml.includes("€4,500") && pageHtml.includes("is credited once against the fee agreed for an Envelope Study"));
   ok("it is not indexable, not referred, and carries no credential",
      /name="robots" content="[^"]*noindex/.test(pageHtml) && /name="referrer" content="no-referrer"/.test(pageHtml)
      && !pageHtml.includes(saved.project_token) && !/workspace\?project/.test(pageHtml));

@@ -11,6 +11,7 @@ import PaygRateCard from "@/components/PaygRateCard";
 import ThreePaths from "@/components/ThreePaths";
 import { TtpPhoto } from "@/components/TtpPhoto";
 import { INTELLIGENCE_PLANS, PAYG, PRODUCTS, eurFromCents } from "@/lib/products";
+import { SCREEN_CREDIT_SENTENCE } from "@/lib/credits-terms";
 import { PLANS, eurMonth, seatLine } from "@/lib/subscriptions";
 import { QUALIFY_LINK } from "@/lib/nav";
 import { CAPABILITY_REGISTRY } from "@/lib/capability-registry";
@@ -109,8 +110,8 @@ export default async function PricingPage() {
               Every engagement is a named deliverable, not retainer hours. The Density Screen and the Procurement
               Specification are priced at checkout. The Envelope Study and the Portfolio Screen start with a deposit: the
               fee is then agreed with you in writing, within the band shown, before any work starts, and the deposit is
-              credited in full against it. Hall Watch is billed every quarter. The first paid step is the Density Screen,
-              which credits in full against the Envelope Study.
+              credited in full against it. Hall Watch is billed every quarter. The first paid step is the Density Screen.{" "}
+              {SCREEN_CREDIT_SENTENCE}
             </p>
             <EngagementLadder />
           </section>

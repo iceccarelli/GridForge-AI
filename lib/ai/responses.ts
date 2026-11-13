@@ -14,6 +14,7 @@ import {
   missingInputBlockSchema,
 } from "./schemas";
 import { PRODUCTS, eurFromCents } from "@/lib/products";
+import { SCREEN_CREDIT_SENTENCE } from "@/lib/credits-terms";
 
 /** One metric block per quantity-shaped leaf in the tool's response, labelled
  *  by its path in the payload. Keeps every value's evidence class and digest
@@ -96,9 +97,7 @@ export function constraintFromQualify(toolName: string, body: unknown): AgentBlo
 export function engagementOfferBlock(toolName: string): AgentBlock {
   const product = PRODUCTS.density_screen;
   const creditsAgainst = product.creditsAgainst ? PRODUCTS[product.creditsAgainst] : null;
-  const credit = creditsAgainst
-    ? ` Credits in full against the ${creditsAgainst.name} if you go further.`
-    : "";
+  const credit = creditsAgainst ? ` ${SCREEN_CREDIT_SENTENCE}` : "";
   return commercialActionBlockSchema.parse({
     type: "commercialAction",
     tool: toolName,
