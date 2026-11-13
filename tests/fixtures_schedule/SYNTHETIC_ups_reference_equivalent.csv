@@ -1,0 +1,3 @@
+# SYNTHETIC: invented figures for tests (one block equivalent to examples/intake/reference_hall.json's UPS schedule; not a real asset)
+Asset ID,Module rating (kW),Units,Redundancy,Step load capability
+SYN-UPS-1,1200,6,N+1,0.5
