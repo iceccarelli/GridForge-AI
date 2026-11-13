@@ -236,24 +236,68 @@ describe("a real tool call binds the reply to a real engine result", () => {
           {
             type: "tool_use",
             id: "call_1",
+            name: "gridforge_screen",
+            // the intake, the one input the published schema requires, deliberately omitted
+            input: { objective: "max_compute" },
+          },
+        ],
+      },
+      { content: [{ type: "text", text: "Which hall should I screen? I need its intake." }] },
+    ];
+
+    const { POST } = await route();
+    const res = await POST(post({ messages: [{ role: "user", content: "screen my hall" }] }));
+    const body = await res.json();
+
+    expect(engineCalled).toBe(false);
+    const missing = body.blocks.find((b: { type: string }) => b.type === "missingInput");
+    expect(missing).toBeDefined();
+    expect(missing.field).toBe("intake");
+    expect(missing.tool).toBe("gridforge_screen");
+  });
+
+  it("qualify names no required figure: three of the seven go to the engine, which is the authority on whether that is enough", async () => {
+    // The engine accepts any three of the seven (each one left out is an assumption it names in the answer), so the agent does not hold
+    // the call back for a particular fourth figure that the published schema does not require.
+    let engineCalled = false;
+    let sent: Record<string, unknown> = {};
+    engineHandler = (path, requestBody) => {
+      engineCalled = true;
+      expect(path).toBe("/v1/qualify");
+      sent = requestBody as Record<string, unknown>;
+      return {
+        status: 200,
+        body: {
+          platform: { id: "gb300_nvl72", name: "NVIDIA GB300 NVL72" },
+          as_found: { racks: 12, binding_constraint: "Rack feed / tap-off rating", domain: "electrical", basis: "Installed tap-off rating vs required current." },
+          after_relief: { racks: 30, architecture: "full_dlc", then_binds_on: null, sets_the_date: null, sets_the_date_reason: "No defensible date: not declared: transformers, UPS." },
+          figures_not_supplied: [],
+        },
+      };
+    };
+    anthropicScript = [
+      {
+        content: [
+          {
+            type: "tool_use",
+            id: "call_1",
             name: "gridforge_qualify",
-            // tapoff_max_A deliberately omitted
+            // tapoff_max_A deliberately omitted: it is one of the four the schema used to list as required, and the engine never required it
             input: { contracted_MW: 40, current_site_peak_MW: 20, busway_ampacity_A: 4000 },
           },
         ],
       },
-      { content: [{ type: "text", text: "What's the largest installed tap-off rating on site, in amps?" }] },
+      { content: [{ type: "text", text: "About 12 racks today." }] },
     ];
 
     const { POST } = await route();
     const res = await POST(post({ messages: [{ role: "user", content: "40 MW contracted" }] }));
     const body = await res.json();
 
-    expect(engineCalled).toBe(false);
-    const missing = body.blocks.find((b: { type: string }) => b.type === "missingInput");
-    expect(missing).toBeDefined();
-    expect(missing.field).toBe("tapoff_max_A");
-    expect(missing.tool).toBe("gridforge_qualify");
+    expect(engineCalled).toBe(true);
+    expect(sent).toEqual({ contracted_MW: 40, current_site_peak_MW: 20, busway_ampacity_A: 4000 });
+    expect(body.toolCalls[0]).toMatchObject({ tool: "gridforge_qualify", ok: true });
+    expect(body.blocks.find((b: { type: string }) => b.type === "missingInput")).toBeUndefined();
   });
 
   it("refuses a paid tool with a 402-shaped commercialAction, not a 429", async () => {
