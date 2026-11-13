@@ -153,10 +153,33 @@ class TestTheSamePhysicalPlantListedAsOneOrManyBanks:
                 assert _fingerprint(_ups_doc(base, units, parts)) == ref, (hall, units, parts)
         assert on_plan
 
-    def test_a_ups_block_under_n_plus_one_is_a_different_plant_when_split(self, hall):
-        """The spare is per block: 12 modules under N+1 in one block is 11 usable, in two blocks it is 10. Only the listing of ONE plant is stable."""
+    def test_control_a_ups_block_under_n_plus_one_is_a_different_plant_when_split(self, hall):
+        """The spare is per block: 12 modules under N+1 in one block is 11 usable, in two blocks 10, in three 9. Only the listing of ONE plant is stable;
+        splitting a block is a different plant, not a different listing.
+
+        A CONTROL, as its name says (it holds before and after the relief rule changed). It used to compare ``_fingerprint(x) == _fingerprint(x)``, which
+        is true of any engine. It now splits the block for real and pins the difference at the constraint (the usable kW, and the UPS margin in racks,
+        which unlike ``max_racks`` is not floored or clamped, so it moves for every hall whatever else binds), so it fails a change that 'makes listing
+        never matter' by merging equal blocks before the spares are counted: that would erase this real difference."""
+        from gridforge.power.redundancy import usable_units
         base = _doc(hall)
-        assert _fingerprint(_ups_doc(base, 12, 1, redundancy="N+1")) == _fingerprint(_ups_doc(base, 12, 1, redundancy="N+1"))
+        usable, margin = {}, {}
+        for parts in (1, 2, 3, 4, 6):
+            ctx = _ctx(_ups_doc(base, 12, parts, redundancy="N+1"))
+            usable[parts] = sum(u.unit_rating_kW.value * usable_units(u.units, u.redundancy) for u in ctx.power.ups)
+            margin[parts] = ups_capacity(ctx).margin_racks
+        assert usable == {1: 11 * 1200.0, 2: 10 * 1200.0, 3: 9 * 1200.0, 4: 8 * 1200.0, 6: 6 * 1200.0}, usable
+        assert margin[1] > margin[2] > margin[3] > margin[4] > margin[6], margin               # each split costs a spare module of capacity
+        assert margin[1] - margin[2] == pytest.approx(1200.0 / ctx.cluster.platform.rack_kW.value)          # exactly one module's kW in racks
+        # ... and the listing of each of these plants is itself stable: shuffling the blocks of one split plant changes nothing
+        rng = random.Random(3)
+        for parts in (2, 3):
+            d = _ups_doc(base, 12, parts, redundancy="N+1")
+            ref = _fingerprint(d)
+            for _ in range(3):
+                shuffled = copy.deepcopy(d)
+                rng.shuffle(shuffled["ups"])
+                assert _fingerprint(shuffled) == ref, (hall, parts)
 
     def test_transformers(self, hall):
         base = _doc(hall)
@@ -319,13 +342,28 @@ class TestTheHostRule:
         assert {c.id: c.units for c in relief.apply(ctx).thermal.cdus} == {"C-2N": 6}
 
     def test_the_ladder_takes_the_same_rungs_whatever_the_listing_order(self):
-        base = _ups_doc(_doc("nordic_hall"), 12, 4)
+        """UNEQUAL blocks: different modules, unit counts and schemes, so which block hosts a rung changes the capacity bought and its price, and a host
+        chosen by position ('the first block listed') gives a different plan for every order. (It used to shuffle four IDENTICAL blocks, which are
+        interchangeable: a host chosen by position passed it.) The plant is sized so that its UPS relief is on the plan, which is asserted."""
+        base = _doc("nordic_hall")
+        base["ups"] = [
+            {"id": "UPS-A", "unit_rating_kW": 1200, "units": 3, "redundancy": "N+1", "step_load_capability": 0.5},
+            {"id": "UPS-B", "unit_rating_kW": 1600, "units": 2, "redundancy": "N", "step_load_capability": 0.5},
+            {"id": "UPS-C", "unit_rating_kW": 800, "units": 4, "redundancy": "N", "step_load_capability": 0.5},
+            {"id": "UPS-D", "unit_rating_kW": 2400, "units": 2, "redundancy": "2N", "step_load_capability": 0.5},
+            {"id": "UPS-E", "unit_rating_kW": 1200, "units": 2, "redundancy": "N+1", "step_load_capability": 0.5}]
         ref = _fingerprint(base)
+        assert _relief_on_plan(ref, "ups_capacity"), "premise: the UPS relief must fire for the order not to matter vacuously"
         rng = random.Random(7)
-        for _ in range(8):
+        for _ in range(12):
             d = copy.deepcopy(base)
             rng.shuffle(d["ups"])
             assert _fingerprint(d) == ref
+        # the host is chosen by the plant, not by the position: the same block hosts in every order
+        for perm in itertools.permutations(base["ups"][:4]):
+            dd = copy.deepcopy(base)
+            dd["ups"] = list(perm) + [base["ups"][4]]
+            assert _ups_host(_ctx(dd).power.ups).id == _ups_host(_ctx(base).power.ups).id
 
 
 # ============================================================================================================================

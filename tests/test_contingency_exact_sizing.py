@@ -67,11 +67,30 @@ class TestExactlySizedPlantPasses:
             assert evaluate(_case(load * (1 - F(1, 10**6)), grid, units)).status == ContingencyStatus.PASS
 
     def test_n_plus_one_exactly_sized_after_losing_the_largest_unit_passes(self):
-        for grid, units in ((F(1, 10), [F(7, 10), F(3, 10)]), (F(22, 10), [F(51, 10), F(13, 10), F(51, 10)])):
-            biggest = max(units)
-            load = grid + sum(units) - biggest
-            assert evaluate(_case(load, grid, units, Redundancy.N_PLUS_1)).status == ContingencyStatus.PASS
+        """Review E9: the two literal plants this test used (0.1 grid with 0.7 and 0.3; 2.2 with 5.1, 1.3, 5.1) add up EXACTLY in binary (0.1 + 0.3 == 0.4,
+        2.2 + 1.3 + 5.1 == 8.6), so the survivors met the load with no noise to tolerate and a strict ``margin >= 0`` on the N+1 path passed them: the
+        tolerance was never exercised. These plants have survivors whose binary sum falls BELOW the exact load (0.1 + 0.7 is 0.7999999999999999), and the
+        premise is asserted from the engine's own available figure, so the test cannot go back to pinning nothing."""
+        assert 0.1 + 0.7 < 0.8 and 0.1 + 0.3 == 0.4                       # the arithmetic behind the old cases and behind the new one
+        grid, units = F(1, 10), [F(7, 10), F(9, 10)]                       # N+1 loses the 0.9 unit: 0.1 + 0.7 survives, against a 0.8 load
+        load = grid + sum(units) - max(units)
+        r = evaluate(_case(load, grid, units, Redundancy.N_PLUS_1))
+        assert r.available_MW.value < float(load) and r.status == ContingencyStatus.PASS and r.margin_MW.value == 0.0
+        assert evaluate(_case(load * (1 + F(1, 10**6)), grid, units, Redundancy.N_PLUS_1)).status == ContingencyStatus.FAIL
+        # and a seeded draw of decimal plants, run until forty of them are float-inexact the same way
+        rng = random.Random(11)
+        below, drawn = 0, 0
+        while below < 40:
+            drawn += 1
+            assert drawn < 4000, "the draw found too few float-inexact plants for the premise to hold"
+            grid = F(rng.randint(1, 500), 10)
+            units = [F(rng.randint(1, 300), 10) for _ in range(rng.randint(2, 4))]
+            load = grid + sum(units) - max(units)                        # supply after losing the largest unit == load, exactly, in decimal
+            r = evaluate(_case(load, grid, units, Redundancy.N_PLUS_1))
+            assert r.status == ContingencyStatus.PASS, (float(grid), [float(u) for u in units], float(load), r.margin_MW.value)
+            assert r.margin_MW.value >= 0.0
             assert evaluate(_case(load * (1 + F(1, 10**6)), grid, units, Redundancy.N_PLUS_1)).status == ContingencyStatus.FAIL
+            below += r.available_MW.value < float(load)                  # the premise: the engine's binary sum really is under the decimal load
 
     def test_the_listing_order_of_the_units_changes_nothing(self):
         grid, units = F(1, 10), [F(7, 10), F(123, 100), F(41, 100), F(9, 100)]
