@@ -959,6 +959,48 @@ def test_the_new_functions_and_tables_are_for_the_service_role_alone(db, ctx):
             assert r.returncode != 0 and "permission denied" in r.stderr, (sql, r.stderr)
 
 
+#: what the application's role may do to each object 0056 adds: select everywhere, insert where a gf_* function writes the table as the caller
+SERVICE_ROLE_MAY = {"calibration_consents": {"select", "insert"}, "calibration_release_snapshots": {"select", "insert"},
+                    "project_completion_milestones": {"select", "insert"}, "calibration_tombstones": {"select"},
+                    "calibration_snapshot_supersessions": {"select"}, "calibration_ledger_rows": {"select"}}
+ALL_TABLE_PRIVILEGES = ("select", "insert", "update", "delete", "truncate", "trigger", "references")
+
+
+def test_under_supabase_default_privileges_service_role_keeps_only_what_the_code_path_needs():
+    """C7: the migration's comment said the tombstones, supersessions and view were readable by service_role ALONE, but a Supabase project grants ALL on every new
+    public table to anon, authenticated and service_role, and a GRANT of select takes nothing away: a forged INSERT as service_role then suppressed any
+    observation for ever. Built with those default privileges and WITHOUT the rig's blanket re-grant, so the migration's own REVOKE is what is checked."""
+    name = make_database(regrant=False, supabase_default_acls=True)
+    try:
+        for table, may in SERVICE_ROLE_MAY.items():
+            for role in ("service_role", "anon", "authenticated", "public"):
+                for priv in ALL_TABLE_PRIVILEGES:
+                    want = "t" if role == "service_role" and priv in may else "f"
+                    assert scalar(name, f"select has_table_privilege('{role}', 'public.{table}', '{priv}')" if role != "public"
+                                  else f"select exists (select 1 from information_schema.role_table_grants where grantee = 'PUBLIC' and table_name = '{table}' "
+                                       f"and privilege_type = '{priv.upper()}')") == want, (table, role, priv)
+        for table in ("calibration_consents", "calibration_release_snapshots"):
+            seq = scalar(name, f"select pg_get_serial_sequence('public.{table}', 'seq')")
+            for role in ("service_role", "anon", "authenticated"):
+                for priv in ("usage", "select", "update"):
+                    assert scalar(name, f"select has_sequence_privilege('{role}', '{seq}', '{priv}')") == "f", (seq, role, priv)
+        # the forgery itself: a tombstone written by the application's role is refused, a withdrawal through the function still writes them
+        forged = as_service_role(name, f"insert into calibration_tombstones (observation_hash, withdrawn_at, withdrawal_id) values ('{'a' * 64}', now(), gen_random_uuid())")
+        assert forged.returncode != 0 and "permission denied" in forged.stderr, forged.stderr
+        for sql in ("delete from calibration_tombstones", "update calibration_tombstones set withdrawn_at = now()", "truncate calibration_tombstones",
+                    "insert into calibration_snapshot_supersessions (snapshot_id, withdrawal_id, superseded_at, reason) values ('x', gen_random_uuid(), now(), 'x')"):
+            r = as_service_role(name, sql)
+            assert r.returncode != 0 and "permission denied" in r.stderr, (sql, r.stderr)
+        c = org_context(name)
+        assert grant(name, c.org).returncode == 0                                    # the writer still works for the same role (identity column: no sequence privilege)
+        project, _ = prepared(name, c)
+        assert submit(name, project=project)[2].returncode == 0
+        assert result(withdraw(name, c.org))["tombstoned"] == 1
+        assert scalar(name, "select count(*) from calibration_tombstones") == "1"
+    finally:
+        drop_database(name)
+
+
 def test_the_new_tables_have_row_level_security_and_no_policies(db):
     for table in ("calibration_consents", "calibration_release_snapshots", "calibration_tombstones", "calibration_snapshot_supersessions", "project_completion_milestones"):
         assert scalar(db, f"select relrowsecurity::text from pg_class where oid = 'public.{table}'::regclass") == "true", table

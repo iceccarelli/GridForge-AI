@@ -695,9 +695,16 @@ $$;
 -- ---------------------------------------------------------------------------
 -- Privileges, per 0020/0038/0047: the gf_* functions are service_role-only; the new tables and views are readable (and, where a function writes
 -- them as the caller, insertable) by service_role alone. The tombstones and supersessions are written by the SECURITY DEFINER trigger alone.
+--
+-- A Supabase project hands ALL on every new public table to anon, authenticated and service_role through default privileges (0040), so a GRANT of select to
+-- service_role takes nothing away: service_role would keep INSERT, UPDATE, DELETE, TRUNCATE, TRIGGER and REFERENCES, and a forged INSERT into
+-- calibration_tombstones (no trigger stops an insert there) would suppress any observation for ever. Each object is therefore REVOKED from every API role
+-- (and public) first, and only what the code path needs is granted back: select everywhere, insert where a gf_* function writes the table as the caller
+-- (the consent log, the snapshot registry, the milestone record). The identity sequences behind the two `seq` columns are revoked too: an insert into an
+-- identity column needs no privilege on its sequence, and setval on one could hand a withdrawal a lower seq than the grant it ends.
 -- ---------------------------------------------------------------------------
 do $$
-declare f text; r text; t text;
+declare f text; r text; t text; sq text;
 begin
   for f in select p.oid::regprocedure::text from pg_proc p
            join pg_namespace n on n.oid = p.pronamespace
@@ -716,7 +723,7 @@ begin
                            'calibration_tombstones', 'calibration_snapshot_supersessions',
                            'calibration_ledger_rows'] loop
     execute format('revoke all on public.%I from public', t);
-    foreach r in array array['anon', 'authenticated'] loop
+    foreach r in array array['anon', 'authenticated', 'service_role'] loop
       if exists (select 1 from pg_roles where rolname = r) then
         execute format('revoke all on public.%I from %I', t, r);
       end if;
@@ -727,6 +734,17 @@ begin
       else
         execute format('grant select on public.%I to service_role', t);
       end if;
+    end if;
+  end loop;
+  foreach t in array array['calibration_consents', 'calibration_release_snapshots'] loop
+    sq := pg_get_serial_sequence(format('public.%I', t), 'seq');
+    if sq is not null then
+      execute format('revoke all on sequence %s from public', sq);
+      foreach r in array array['anon', 'authenticated', 'service_role'] loop
+        if exists (select 1 from pg_roles where rolname = r) then
+          execute format('revoke all on sequence %s from %I', sq, r);
+        end if;
+      end loop;
     end if;
   end loop;
 end
