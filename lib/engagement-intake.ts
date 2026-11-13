@@ -155,7 +155,7 @@ const baseShape = {
   residualAirKWPerRack: num(200).optional(),
 
   // site conditions
-  designDrybulbC: z.coerce.number().min(-10).max(55).optional(),
+  designDrybulbC: z.coerce.number().min(0).max(55).optional(),
 
   // compute
   platform: z.enum(["gb300_nvl72", "gb200_nvl72", "generic_dlc_50"]).default("gb300_nvl72"),
