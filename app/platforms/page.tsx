@@ -83,7 +83,7 @@ export default async function PlatformsPage() {
       <div className="mt-12 space-y-8">
         <GridForgeVisual
           slug="liquid-cooling-residual-air-trap"
-          alt="Isometric cutaway of a 132 kW liquid-cooled rack showing direct-to-chip liquid cooling to a CDU alongside residual air heat overwhelming legacy CRAHs."
+          alt="Illustration of a liquid-cooled rack showing heat removed by liquid cooling and residual heat carried by air."
         />
         <GridForgeVisual
           slug="platform-benchmark-gb200-vs-50kw-rack"

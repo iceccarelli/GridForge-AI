@@ -2,8 +2,8 @@
   "note": "Maintained by scripts/page-lastmod.mjs; do not edit dates by hand.",
   "pages": {
     "/": {
-      "lastmod": "2026-11-13",
-      "hash": "07cf3401e55f34b133a65c617c3fc13c506bcf3f001b20e8fd0294e033a615a7"
+      "lastmod": "2026-11-14",
+      "hash": "d5e015e609933f464183ac454f53c9f6fe602eaa7d8204caf39074f5b3cf3c2f"
     },
     "/about": {
       "lastmod": "2026-11-10",
@@ -138,8 +138,8 @@
       "hash": "fcf69a74dca630eda0022ea4a907597296e221a0d574027e6a6b21962550a3c3"
     },
     "/platforms": {
-      "lastmod": "2026-11-13",
-      "hash": "1f7fa2d65a8aff6c6023d83fd8818020be5a49afe5b1cba916ba383acb08c088"
+      "lastmod": "2026-11-14",
+      "hash": "61567a7130c17feecf548a537c1f231b10269eb1435cadc4fac996ba2a4ad237"
     },
     "/platforms/gb200_nvl72": {
       "lastmod": "2026-11-08",

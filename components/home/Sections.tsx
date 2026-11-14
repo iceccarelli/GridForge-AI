@@ -199,7 +199,7 @@ export function Services() {
       <div className="mt-10">
         <GridForgeVisual
           slug="density-screen-four-stage-workflow"
-          alt="Four-stage workflow pipeline: operator intake of drawings, GridForge deterministic solve, named engineer review, and decision deliverable cards."
+          alt="Four-stage workflow pipeline: operator intake of drawings, GridForge deterministic solve, review, and decision deliverable cards."
         />
       </div>
       <div className="mb-12 flex flex-col justify-between gap-6 md:flex-row md:items-end">
@@ -266,7 +266,7 @@ export function Technology() {
       <div className="mt-10">
         <GridForgeVisual
           slug="headroom-ladder-capex-relief-steps"
-          alt="Stepped capacity staircase from 12-rack baseline bound by downstream tap-off limit through successive CapEx relief rungs to the transformer hard ceiling."
+          alt="Illustration of a capacity staircase showing successive relief steps and a hard ceiling."
         />
       </div>
       <div className="mb-12 max-w-2xl">
