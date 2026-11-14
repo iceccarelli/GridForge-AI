@@ -1,7 +1,6 @@
 "use client";
 
 import Link from "next/link";
-import { Linkedin, Github } from "lucide-react";
 import { Logo } from "@/components/Navbar";
 import { commissionDensityScreen, DENSITY_SCREEN_CTA } from "@/lib/ui";
 import { SITE } from "@/lib/site";
@@ -17,6 +16,22 @@ function XIcon({ size = 16 }: { size?: number }) {
   );
 }
 
+function LinkedinIcon({ size = 16 }: { size?: number }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="currentColor" aria-hidden>
+      <path d="M20.447 20.452h-3.554v-5.569c0-1.328-.027-3.037-1.852-3.037-1.853 0-2.136 1.445-2.136 2.939v5.667H9.35V9h3.414v1.561h.049c.476-.9 1.637-1.85 3.37-1.85 3.601 0 4.267 2.37 4.267 5.455v6.286ZM5.337 7.433a2.062 2.062 0 1 1 0-4.124 2.062 2.062 0 0 1 0 4.124Zm1.782 13.019H3.555V9h3.564v11.452ZM22.225 0H1.771C.792 0 0 .774 0 1.729v20.542C0 23.227.792 24 1.771 24h20.451C23.2 24 24 23.227 24 22.271V1.729C24 .774 23.2 0 22.222 0h.003Z" />
+    </svg>
+  );
+}
+
+function GithubIcon({ size = 16 }: { size?: number }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="currentColor" aria-hidden>
+      <path d="M12 .297c-6.63 0-12 5.373-12 12 0 5.303 3.438 9.8 8.205 11.387.6.11.82-.258.82-.577 0-.285-.01-1.04-.015-2.04-3.338.724-4.042-1.61-4.042-1.61-.546-1.387-1.333-1.756-1.333-1.756-1.09-.745.083-.73.083-.73 1.205.085 1.84 1.237 1.84 1.237 1.07 1.835 2.809 1.305 3.495.998.108-.776.418-1.305.762-1.605-2.665-.3-5.466-1.333-5.466-5.931 0-1.31.467-2.381 1.235-3.221-.123-.303-.535-1.523.117-3.176 0 0 1.008-.322 3.3 1.23a11.5 11.5 0 0 1 6.006 0c2.289-1.552 3.294-1.23 3.294-1.23.653 1.653.242 2.873.12 3.176.77.84 1.233 1.911 1.233 3.221 0 4.61-2.806 5.628-5.479 5.921.43.372.814 1.102.814 2.222 0 1.604-.015 2.896-.015 3.286 0 .32.216.694.825.576C20.565 22.092 24 17.592 24 12.297c0-6.627-5.373-12-12-12" />
+    </svg>
+  );
+}
+
 /**
  * Only a destination this repository can actually verify goes in the
  * footer. SITE.social holds LinkedIn/X/etc as empty strings until a real
@@ -25,9 +40,9 @@ function XIcon({ size = 16 }: { size?: number }) {
  * nowhere specific. GitHub is always real: it's the repository itself.
  */
 const socials = [
-  { icon: Linkedin, href: SITE.social.linkedin, label: "LinkedIn" },
+  { icon: LinkedinIcon, href: SITE.social.linkedin, label: "LinkedIn" },
   { icon: XIcon, href: SITE.social.x, label: "X" },
-  { icon: Github, href: SITE.repo, label: "GitHub" },
+  { icon: GithubIcon, href: SITE.repo, label: "GitHub" },
 ].filter((s) => s.href);
 
 export function Footer() {
