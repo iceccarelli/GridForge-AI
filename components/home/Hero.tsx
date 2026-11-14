@@ -106,7 +106,7 @@ export function Hero() {
         <div className="mt-8 lg:mt-0">
           <GridForgeVisual
             slug="hero-binding-constraint-ai-hall"
-            alt="Isometric cutaway of a brownfield AI data hall showing 2500 kVA transformer and chiller at partial load while 63 A tap-offs bind racks and strand floor positions."
+            alt="Illustration of a brownfield AI data hall where rack feeds constrain capacity despite available transformer and cooling headroom."
             priority
             className="w-full h-auto rounded-xl border border-line"
           />
