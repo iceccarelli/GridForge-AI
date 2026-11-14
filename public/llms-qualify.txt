@@ -1,0 +1,23 @@
+# Free Capacity Check (Qualify) Visual Pack
+# Time to Power / GridForge Engine
+# Free · directional · no account · no card
+
+## Images
+- qualify-seven-input-form: Seven-input form
+- qualify-binding-constraint: Binding constraint result
+- qualify-rack-count-current-vs-relief: Rack count current vs relief
+- qualify-inputs-not-measured: Inputs nobody has measured
+- qualify-thirteen-constraints-map: Thirteen constraints map
+- qualify-synthetic-reference: Synthetic reference hall
+- qualify-free-directional-badge: Free directional badge
+- qualify-evidence-e0: Evidence class E0
+- qualify-what-stops-hall: What stops your hall
+- qualify-seven-numbers: Seven numbers
+- qualify-path-to-density-screen: Path to Density Screen
+- qualify-binding-first: Binding first
+- qualify-tenancy-relief: Tenancy relief
+- qualify-no-card-no-account: No card no account
+- qualify-final-cta: Run free capacity check CTA
+
+## Note
+Directional screening. Same engine as paid studies. Evidence classes explicit. Calibration ledger 0 field rows. No hardware sold.

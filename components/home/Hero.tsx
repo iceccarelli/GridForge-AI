@@ -7,7 +7,6 @@ import { QUALIFY_LINK } from "@/lib/nav";
 import { calibrationLine, loadCalibration } from "@/lib/worked-result";
 import { PRODUCTS, eurFromCents } from "@/lib/products";
 import { REFERENCE_PHOTO_NOTICE } from "@/lib/ttp-images";
-import { GridForgeVisual } from "@/components/GridForgeVisual";
 
 const SCREEN = PRODUCTS.density_screen;
 
@@ -102,15 +101,6 @@ export function Hero() {
           PILOT-STAGE · FOUNDER-LED · EVIDENCE-GRADED · {REFERENCE_PHOTO_NOTICE}
         </p>
       </div>
-    
-        <div className="mt-8 lg:mt-0">
-          <GridForgeVisual
-            slug="hero-binding-constraint-ai-hall"
-            alt="Illustration of a brownfield AI data hall where rack feeds constrain capacity despite available transformer and cooling headroom."
-            priority
-            className="w-full h-auto rounded-xl border border-line"
-          />
-        </div>
-      </section>
+    </section>
   );
 }

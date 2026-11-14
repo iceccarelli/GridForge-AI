@@ -3,10 +3,12 @@ import Link from "next/link";
 import { FileAwareLink } from "@/components/FileAwareLink";
 import { notFound } from "next/navigation";
 import { CommissionScreen } from "@/components/CommissionScreen";
+import { GridForgeVisual } from "@/components/GridForgeVisual";
 import { breadcrumbJsonLd, engagementOfferJsonLd } from "@/lib/jsonld";
 import { QUALIFY_LINK } from "@/lib/nav";
 import { pageTitleKeeping } from "@/lib/meta";
 import { PRODUCT_PAGES, audiencesForProduct, beforeYouBuy, productForPage, productPageBySlug } from "@/lib/product-pages";
+import { PRODUCT_VISUAL_PACKS, visualsImageObjectsJsonLd, type VisualItem } from "@/lib/visual-packs";
 import { OG_BASE, siteUrl } from "@/lib/site";
 import { eurFromCents, priceLine } from "@/lib/products";
 
@@ -21,8 +23,6 @@ export async function generateMetadata({ params }: { params: Promise<{ slug: str
   const page = productPageBySlug(slug);
   if (!page) return {};
   const p = productForPage(page);
-  // The price line is a sentence for a deposit ("... opens a scoped engagement priced at ..."), which is too long for a result title: there the
-  // title says "deposit" and the band is on the page and in the description of the page's structured data.
   const base = p.name.replace(/ — deposit$/, "");
   const amount = eurFromCents(p.amountCents);
   const title = pageTitleKeeping(p.opensBandCents ? `${base} — ${amount} deposit` : `${p.name} — ${priceLine(p)}`, base);
@@ -31,7 +31,11 @@ export async function generateMetadata({ params }: { params: Promise<{ slug: str
     description: page.metaDescription,
     alternates: { canonical: `/products/${slug}` },
     openGraph: {
-    ...OG_BASE, title: p.name, description: page.metaDescription, url: `/products/${slug}` },
+      ...OG_BASE,
+      title: p.name,
+      description: page.metaDescription,
+      url: `/products/${slug}`,
+    },
   };
 }
 
@@ -45,12 +49,32 @@ function List({ items }: { items: string[] }) {
   );
 }
 
+function VisualGrid({ items }: { items: VisualItem[] }) {
+  if (!items.length) return null;
+  return (
+    <div className={`mt-6 grid gap-5 ${items.length > 1 ? "sm:grid-cols-2" : ""}`}>
+      {items.map((v) => (
+        <GridForgeVisual
+          key={v.slug}
+          slug={v.slug}
+          alt={v.alt}
+          caption={v.caption}
+          sizes={items.length > 1 ? "(max-width: 640px) 100vw, 520px" : "(max-width: 768px) 100vw, 800px"}
+        />
+      ))}
+    </div>
+  );
+}
+
 export default async function ProductPageRoute({ params }: { params: Promise<{ slug: string }> }) {
   const { slug } = await params;
   const page = productPageBySlug(slug);
   if (!page) notFound();
   const p = productForPage(page);
-  // A Service with its Offer attached: an Offer is not a top-level entity a search engine reads on its own.
+  const pack = PRODUCT_VISUAL_PACKS[slug];
+  const packItems = pack
+    ? [pack.hero, ...pack.commercial, ...pack.intake, ...pack.workflow, ...pack.deliverables, ...pack.analysis, pack.cta]
+    : [];
   const { itemOffered, ...offer } = engagementOfferJsonLd(p);
   const jsonLd = {
     "@context": "https://schema.org",
@@ -60,6 +84,7 @@ export default async function ProductPageRoute({ params }: { params: Promise<{ s
     provider: itemOffered.provider,
     url: siteUrl(`/products/${slug}`),
     offers: offer,
+    ...(packItems.length ? { image: visualsImageObjectsJsonLd(packItems) } : {}),
   };
   const audiences = audiencesForProduct(p.id);
   const crumbs = breadcrumbJsonLd([
@@ -95,7 +120,6 @@ export default async function ProductPageRoute({ params }: { params: Promise<{ s
             href={page.sample?.href ?? "/reference"}
             className="inline-flex min-h-11 items-center justify-center rounded-xl border border-power/50 px-5 py-2.5 text-sm font-semibold text-power hover:bg-power/10"
           >
-            {/* Only a product with its own sample says "the sample deliverable"; the others point at the set, and the block below says none is published for them. */}
             {page.sample ? "See the sample deliverable" : "See the sample deliverables"}
           </FileAwareLink>
           <Link
@@ -107,6 +131,18 @@ export default async function ProductPageRoute({ params }: { params: Promise<{ s
         </div>
 
         <p className="mt-6 text-[16px] leading-relaxed text-mute sm:text-[17px]">{p.description}</p>
+
+        {pack ? (
+          <div className="mt-8">
+            <GridForgeVisual
+              slug={pack.hero.slug}
+              alt={pack.hero.alt}
+              caption={pack.hero.caption}
+              priority
+              sizes="(max-width: 768px) 100vw, 800px"
+            />
+          </div>
+        ) : null}
 
         <section className="mt-8 rounded border border-line bg-panel-2 p-5" aria-labelledby="before-h">
           <h2 id="before-h" className="text-xl font-semibold text-ghost">Before you buy</h2>
@@ -131,6 +167,8 @@ export default async function ProductPageRoute({ params }: { params: Promise<{ s
           </dl>
         </section>
 
+        {pack ? <VisualGrid items={pack.commercial} /> : null}
+
         <dl className="mt-8 grid gap-6 sm:grid-cols-2">
           <div>
             <dt className="font-mono text-[10px] uppercase tracking-[0.14em] text-faint">Who it is for</dt>
@@ -145,11 +183,30 @@ export default async function ProductPageRoute({ params }: { params: Promise<{ s
         <section className="mt-10" aria-labelledby="inputs-h">
           <h2 id="inputs-h" className="text-xl font-semibold text-ghost">What we need from you</h2>
           <List items={page.inputs} />
+          {pack ? <VisualGrid items={pack.intake} /> : null}
         </section>
+
         <section className="mt-10" aria-labelledby="flow-h">
           <h2 id="flow-h" className="text-xl font-semibold text-ghost">How it works</h2>
           <List items={page.flow} />
+          {pack ? <VisualGrid items={pack.workflow} /> : null}
         </section>
+
+        {pack ? (
+          <section className="mt-10" aria-labelledby="deliverables-visuals-h">
+            <h2 id="deliverables-visuals-h" className="text-xl font-semibold text-ghost">{pack.deliverablesHeading}</h2>
+            <p className="mt-2 text-sm text-mute">{pack.deliverablesIntro}</p>
+            <VisualGrid items={pack.deliverables} />
+          </section>
+        ) : null}
+
+        {pack ? (
+          <section className="mt-10" aria-labelledby="analysis-visuals-h">
+            <h2 id="analysis-visuals-h" className="text-xl font-semibold text-ghost">{pack.analysisHeading}</h2>
+            <p className="mt-2 text-sm text-mute">{pack.analysisIntro}</p>
+            <VisualGrid items={pack.analysis} />
+          </section>
+        ) : null}
 
         {audiences.length ? (
           <section className="mt-10" aria-labelledby="aud-h">
@@ -168,6 +225,17 @@ export default async function ProductPageRoute({ params }: { params: Promise<{ s
               ))}
             </ul>
           </section>
+        ) : null}
+
+        {pack ? (
+          <div className="mt-10">
+            <GridForgeVisual
+              slug={pack.cta.slug}
+              alt={pack.cta.alt}
+              caption={pack.cta.caption}
+              sizes="(max-width: 768px) 100vw, 800px"
+            />
+          </div>
         ) : null}
 
         <div className="mt-12 flex flex-wrap items-center gap-6 border-t border-line pt-8">

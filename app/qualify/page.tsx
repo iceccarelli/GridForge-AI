@@ -5,13 +5,22 @@ import { PageJsonLd } from "@/components/PageJsonLd";
 import { breadcrumbJsonLd, qualifierJsonLd } from "@/lib/jsonld";
 import { BindingConstraintInsights } from "@/components/BindingConstraintInsights";
 import { CapacityQualifier } from "@/components/CapacityQualifier";
+import { GridForgeVisual } from "@/components/GridForgeVisual";
 import { TtpPhoto } from "@/components/TtpPhoto";
 import { loadWorkedResult, referenceLimitSentence } from "@/lib/worked-result";
 import { QUALIFY_ASSUMED_FIELDS_FLAG, engineHas } from "@/lib/engine-capabilities";
 import { engineConfigured } from "@/lib/qualify";
+import { QUALIFY_VISUALS, visualsImageObjectsJsonLd, type VisualItem } from "@/lib/visual-packs";
 
-// Whether the reference-template selector is shown follows the DEPLOYED engine (its /v1/version `capabilities`), not the last build of this site.
 export const revalidate = 300;
+
+const ALL_QUALIFY_ITEMS: VisualItem[] = [
+  ...QUALIFY_VISUALS.rail,
+  ...QUALIFY_VISUALS.inputs,
+  ...QUALIFY_VISUALS.constraints,
+  ...QUALIFY_VISUALS.outcomes,
+  ...QUALIFY_VISUALS.nextStep,
+];
 
 export const metadata: Metadata = {
   title: "Free capacity check — what binds your hall",
@@ -29,17 +38,34 @@ export const metadata: Metadata = {
   },
 };
 
+function VisualRow({ items, cols = "md:grid-cols-3" }: { items: VisualItem[]; cols?: string }) {
+  return (
+    <div className={`mt-6 grid gap-5 ${cols}`}>
+      {items.map((v) => (
+        <GridForgeVisual
+          key={v.slug}
+          slug={v.slug}
+          alt={v.alt}
+          caption={v.caption}
+          sizes="(max-width: 768px) 100vw, 400px"
+        />
+      ))}
+    </div>
+  );
+}
+
 export default async function QualifyPage() {
-  // The selector appears only when the live engine says it can label a template's figures as assumed; otherwise the form is exactly as it was.
-  // It also needs the engine this deployment can actually call (the test /api/qualify applies): never offered where that route answers 503.
   const presetsAvailable = engineConfigured() && (await engineHas(QUALIFY_ASSUMED_FIELDS_FLAG));
-  // About our synthetic reference hall only, read from the engine's committed output (lib/worked-result.ts); never a claim about halls in general.
   const limit = referenceLimitSentence(loadWorkedResult());
+  const qualifierApp = {
+    ...qualifierJsonLd(),
+    image: visualsImageObjectsJsonLd(ALL_QUALIFY_ITEMS),
+  };
   return (
     <div className="mx-auto w-full max-w-6xl px-5 pb-24 pt-28 sm:px-8">
       <PageJsonLd
         data={[
-          qualifierJsonLd(),
+          qualifierApp,
           breadcrumbJsonLd([
             { name: "Time to Power", path: "/" },
             { name: "Capacity qualifier", path: "/qualify" },
@@ -79,21 +105,52 @@ export default async function QualifyPage() {
           </p>
         </div>
 
-        <div className="hidden lg:flex flex-col gap-5">
-          <TtpPhoto
-            id="ttp-04"
-            className="rounded-2xl overflow-hidden border border-line aspect-[3/2]"
+        <div className="flex flex-col gap-5">
+          <GridForgeVisual
+            slug={QUALIFY_VISUALS.rail[0].slug}
+            alt={QUALIFY_VISUALS.rail[0].alt}
+            caption={QUALIFY_VISUALS.rail[0].caption}
+            priority
+            sizes="(max-width: 1024px) 100vw, 420px"
           />
-          <TtpPhoto
-            id="ttp-05"
-            className="rounded-2xl overflow-hidden border border-line aspect-[3/2]"
-            hideCaption
-          />
+          <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-1">
+            {QUALIFY_VISUALS.rail.slice(1).map((v) => (
+              <GridForgeVisual
+                key={v.slug}
+                slug={v.slug}
+                alt={v.alt}
+                caption={v.caption}
+                sizes="(max-width: 1024px) 50vw, 420px"
+              />
+            ))}
+          </div>
+          <div className="hidden lg:flex flex-col gap-5">
+            <TtpPhoto
+              id="ttp-04"
+              className="rounded-2xl overflow-hidden border border-line aspect-[3/2]"
+            />
+            <TtpPhoto
+              id="ttp-05"
+              className="rounded-2xl overflow-hidden border border-line aspect-[3/2]"
+              hideCaption
+            />
+          </div>
         </div>
       </div>
 
+      <section className="mt-12" aria-labelledby="qualify-inputs-h">
+        <h2 id="qualify-inputs-h" className="text-xl font-semibold text-ghost">
+          Seven inputs and labelled reference templates
+        </h2>
+        <p className="mt-2 max-w-3xl text-sm text-mute">
+          Enter the figures on hand for your hall, or load a synthetic reference preset whose assumed values are marked explicitly.
+        </p>
+        <VisualRow items={QUALIFY_VISUALS.inputs} />
+      </section>
+
       <section className="mt-12 panel p-6 sm:p-8">
         <BindingConstraintInsights />
+        <VisualRow items={QUALIFY_VISUALS.constraints} />
       </section>
 
       <section className="mt-12 grid gap-6 sm:grid-cols-3">
@@ -116,6 +173,14 @@ export default async function QualifyPage() {
             <p className="mt-2 text-sm text-mute">{c.v}</p>
           </div>
         ))}
+      </section>
+
+      <section className="mt-12" aria-labelledby="qualify-outcomes-h">
+        <h2 id="qualify-outcomes-h" className="text-xl font-semibold text-ghost">
+          Rack relief, unmeasured inputs and evidence tags
+        </h2>
+        <VisualRow items={QUALIFY_VISUALS.outcomes} cols="sm:grid-cols-2" />
+        <VisualRow items={QUALIFY_VISUALS.nextStep} cols="sm:grid-cols-2" />
       </section>
     </div>
   );
