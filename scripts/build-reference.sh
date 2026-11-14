@@ -108,7 +108,7 @@ PY
 #   3. A small site bar: a way back to the sample deliverables and the next step for the reader, so a document is not a dead end.
 # Deterministic; refuses to run twice on one file, because the directory is rebuilt from scratch above.
 mkdir -p "$OUT/fonts"
-cp app/fonts/inter-400.woff2 app/fonts/inter-500.woff2 app/fonts/inter-600.woff2 app/fonts/inter-700.woff2 \
+cp app/fonts/OFL.txt app/fonts/inter-400.woff2 app/fonts/inter-500.woff2 app/fonts/inter-600.woff2 app/fonts/inter-700.woff2 \
    app/fonts/jetbrains-mono-400.woff2 app/fonts/jetbrains-mono-500.woff2 app/fonts/jetbrains-mono-600.woff2 "$OUT/fonts/"
 # The licence travels with the font files (SIL OFL 1.1, condition 2). This directory is rebuilt from scratch above, so the notice must be
 # copied here too or a fresh run deletes it and the drift guard fails. tests/test_repo_metadata.py pins the two copies byte-identical.
